@@ -286,6 +286,46 @@ void require_text_prompt(const PromptsGetResult& result,
           "prompt message text mismatch");
 }
 
+void require_mvp_server_capability_json_shape(
+    const mcp::protocol::ServerCapabilities& capabilities,
+    bool expect_completions = false) {
+  const auto json = mcp::protocol::server_capabilities_to_json(capabilities);
+  require(json.is_object(), "server capabilities should serialize as object");
+
+  require(!json.contains("logging"),
+          "MVP server capabilities should not serialize logging");
+  require(!json.contains("tasks"),
+          "MVP server capabilities should not serialize tasks");
+  require(!json.contains("experimental"),
+          "MVP server capabilities should not serialize experimental");
+  require(!json.contains("extensions"),
+          "MVP server capabilities should not serialize extensions");
+
+  if (json.contains("tools")) {
+    require(!json.at("tools").contains("listChanged"),
+            "MVP tools capability should not serialize listChanged");
+  }
+  if (json.contains("resources")) {
+    require(!json.at("resources").contains("listChanged"),
+            "MVP resources capability should not serialize listChanged");
+    require(!json.at("resources").contains("subscribe"),
+            "MVP resources capability should not serialize subscribe");
+  }
+  if (json.contains("prompts")) {
+    require(!json.at("prompts").contains("listChanged"),
+            "MVP prompts capability should not serialize listChanged");
+  }
+
+  if (expect_completions) {
+    require(json.contains("completions"),
+            "completion-capable runtime should serialize completions");
+  } else {
+    require(!json.contains("completions"),
+            "MVP server capabilities should not serialize completions before "
+            "upstream support is proven");
+  }
+}
+
 void require_gateway_upstream_error(const mcp::core::Error& error,
                                     std::string_view upstream_id) {
   require(error.detail.find("upstream '" + std::string(upstream_id) + "'") !=
@@ -345,6 +385,7 @@ void test_disabled_upstream() {
           "runtime should not advertise completions");
   require(!capabilities.tasks.has_value(),
           "runtime should not advertise tasks");
+  require_mvp_server_capability_json_shape(capabilities);
 
   auto tools = runtime.list_tools();
   require(tools.has_value(), "disabled upstream list should still succeed");
@@ -899,6 +940,7 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
           "advertisement");
   require(!before.completions.enabled,
           "runtime should not advertise completions before discovery");
+  require_mvp_server_capability_json_shape(before);
 
   auto refreshed = runtime.refresh_upstream_capabilities();
   require(refreshed.has_value(),
@@ -933,6 +975,7 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
           "runtime should not advertise completions after discovery");
   require(!after.tasks.has_value(),
           "runtime should not advertise tasks after discovery");
+  require_mvp_server_capability_json_shape(after);
 
   auto tools = runtime.list_tools();
   require(tools.has_value(), "tools-only upstream tools/list should succeed");
@@ -985,6 +1028,7 @@ void test_hosted_capability_advertisement_uses_refresh_cache() {
           "hosted tools-only gateway should not advertise completions");
   require(!capabilities->tasks.has_value(),
           "hosted tools-only gateway should not advertise tasks");
+  require_mvp_server_capability_json_shape(*capabilities);
 
   auto stopped_client = running_client->stop();
   require(stopped_client.has_value(),
@@ -1004,6 +1048,7 @@ void test_completion_routes_to_stdio_upstream() {
   require(capabilities.completions.enabled,
           "runtime should advertise completions after refreshed upstream "
           "capabilities support completion");
+  require_mvp_server_capability_json_shape(capabilities, true);
 
   mcp::protocol::CompleteParams prompt_completion;
   prompt_completion.ref =
@@ -1083,6 +1128,7 @@ void test_hosted_completion_routes_after_capability_refresh() {
   require(capabilities->completions.enabled,
           "hosted completion gateway should advertise completions after "
           "refresh");
+  require_mvp_server_capability_json_shape(*capabilities, true);
   auto notified = running_client->peer().notify_initialized();
   require(notified.has_value(),
           "hosted completion initialized notification should work");
