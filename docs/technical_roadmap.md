@@ -465,17 +465,38 @@ Exit criteria:
     cadence, or product semantics exceed reference-runner or optional-consumer
     scope.
 
-## Current Near-Term Backlog
+## Current Verified Baseline
 
-1. Fix library packaging contract: shared/static policy, package components,
-   top-level CLI/test defaults, and build-tree package smoke.
-2. Split pure core routing from runtime upstream execution so core APIs do not
-   hide process or network side effects.
-3. Add upstream config validation for empty ids, duplicate ids, and missing
-   transport parameters.
-4. Add integration fixtures for stdio and Streamable HTTP upstreams.
-5. Define gateway error mapping for routing, transport, timeout, and upstream
-   protocol failures.
-6. Decide upstream connection lifecycle: per-call, pooled, or configurable.
-7. Add or expand graceful shutdown and concurrent-call tests.
-8. Implement and test supported method/capability advertisement matrix.
+The current MVP baseline has verified coverage for:
+
+1. Library packaging contract: shared/static builds, package components,
+   top-level versus subproject defaults, and build-tree/install-tree package
+   smoke tests.
+2. Core/runtime split: core owns config validation, namespace rules, catalog
+   merging, and route decisions; runtime owns SDK peer/service and upstream
+   process/network execution.
+3. Upstream config validation: empty ids, invalid id grammar, duplicate ids,
+   missing enabled transport parameters, and invalid HTTP timeouts.
+4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
+   upstreams, multiple upstreams, duplicate exposed tool names, unknown or
+   disabled upstreams, unavailable upstreams, upstream timeouts, malformed
+   upstream responses, and upstream-returned MCP errors.
+5. Gateway error mapping for routing, transport, timeout, protocol, and
+   upstream MCP failures.
+6. Runtime lifecycle decision: explicit per-call upstream sessions, with
+   initialized upstream capabilities recorded in runtime state.
+7. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
+   to one upstream, concurrent calls to multiple upstreams, idle shutdown,
+   active-call shutdown, and stdio child cleanup on stop.
+8. Supported method and capability advertisement matrix for the tools-only MVP,
+   including unsupported request/notification behavior.
+
+## Remaining Near-Term Backlog
+
+1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks:
+   downstream session close semantics, cancellation behavior, and future pooled
+   upstream sessions.
+2. Add performance measurement tooling or scripts for `tools/list` and
+   `tools/call` once the operational baseline needs repeatable numbers.
+3. Design the next routed MCP capability family only after its namespace,
+   advertisement, notification behavior, and integration tests are specified.
