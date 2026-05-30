@@ -315,6 +315,7 @@ Not yet supported:
 - resource subscriptions and change notifications;
 - prompt list-change notifications;
 - tasks;
+- logging capability and `logging/setLevel`;
 - mutation workflows;
 - upstream capability-change notifications;
 - progress and cancellation forwarding.
@@ -619,7 +620,8 @@ The gateway should not be considered mature until these paths are covered:
 8. Additional MCP capabilities
 
    Routed resource and prompt list/read, templates/list, or list/get flows are
-   part of the current MVP. Resource subscriptions, tasks, completion, and
+   part of the current MVP. Completion is also part of the MVP when initialized
+   upstream capabilities prove support. Resource subscriptions, tasks, and
    other MCP capabilities should be added incrementally only after their
    namespace, advertisement, notification behavior, and integration tests are
    specified.

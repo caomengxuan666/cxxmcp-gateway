@@ -265,6 +265,8 @@ Supported MCP method matrix for Phase 1:
 | `notifications/prompts/list_changed` | Not advertised and not forwarded in MVP |
 | tasks | Not advertised unless SDK and gateway routing support exist |
 | `completion/complete` | Routed for gateway prompt names and gateway resource template URIs when upstream supports completion |
+| `logging/setLevel` | Not advertised and not forwarded in MVP |
+| `notifications/message` | Ignored successfully as an unsupported notification; not forwarded upstream |
 | progress/cancellation | Not forwarded in MVP |
 | other unsupported requests | JSON-RPC `MethodNotFound`, except SDK-owned lifecycle/liveness methods |
 | other unsupported notifications | Ignored successfully; not forwarded upstream |

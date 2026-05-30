@@ -1082,6 +1082,33 @@ void test_hosted_completion_routes_after_capability_refresh() {
           "hosted completion should preserve candidates");
   require(result->completion.values[0] == "hosted-summary",
           "hosted completion should rewrite prompt ref to upstream name");
+  require(result->completion.total == 2,
+          "hosted prompt completion should preserve total");
+  require(result->completion.has_more == false,
+          "hosted prompt completion should preserve hasMore");
+
+  mcp::protocol::CompleteParams resource_completion;
+  resource_completion.ref = mcp::protocol::resource_completion_reference(
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          "stdio", "file:///fixture/{path}"));
+  resource_completion.argument.name = "path";
+  resource_completion.argument.value = "hosted/";
+  auto resource_result = running_client->peer().complete(resource_completion);
+  require(resource_result.has_value(),
+          "hosted resource template completion should route");
+  require(resource_result->completion.values.size() == 2,
+          "hosted resource completion should preserve candidates");
+  require(resource_result->completion.values[0] == "hosted/readme.txt",
+          "hosted resource completion should rewrite resource ref to "
+          "upstream URI template");
+  require(resource_result->completion.total == 2,
+          "hosted resource completion should preserve total");
+  require(resource_result->completion.has_more == false,
+          "hosted resource completion should preserve hasMore");
+
+  const auto state = require_upstream_state(gateway.upstream_states(), "stdio");
+  require(state.active_calls == 0,
+          "hosted completions should not leave active upstream calls");
 
   auto stopped_client = running_client->stop();
   require(stopped_client.has_value(), "hosted completion client should stop");
@@ -2577,7 +2604,20 @@ void test_raw_request_routing_surface() {
   require(!repeated_initialize_response.has_value(),
           "repeated initialize should remain SDK-owned/nullopt");
 
-  const std::vector<std::string> unsupported_methods{"tasks/list"};
+  const std::vector<std::string> unsupported_methods{
+      mcp::protocol::ResourcesSubscribeMethod,
+      mcp::protocol::ResourcesUnsubscribeMethod,
+      mcp::protocol::ToolsGetMethod,
+      mcp::protocol::LoggingSetLevelMethod,
+      mcp::protocol::SamplingCreateMessageMethod,
+      mcp::protocol::ElicitationCreateMethod,
+      mcp::protocol::TasksListMethod,
+      mcp::protocol::TasksGetMethod,
+      mcp::protocol::TasksCancelMethod,
+      mcp::protocol::TasksResultMethod,
+      mcp::protocol::TasksCreateMethod,
+      mcp::protocol::RootsListMethod,
+  };
   for (std::size_t i = 0; i < unsupported_methods.size(); ++i) {
     mcp::protocol::JsonRpcRequest unsupported;
     unsupported.method = unsupported_methods[i];
