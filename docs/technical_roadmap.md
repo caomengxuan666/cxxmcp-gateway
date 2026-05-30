@@ -565,8 +565,9 @@ The current MVP baseline has verified coverage for:
    resources, and prompts MVP, including unsupported request/notification
    behavior.
 11. Completion data-plane integration: prompt completions and resource-template
-    completions route through existing gateway namespaces, with hosted
-    advertisement gated by refreshed upstream capabilities.
+    completions route through existing gateway namespaces for process stdio
+    and Streamable HTTP upstreams, with hosted advertisement gated by
+    refreshed upstream capabilities.
 12. Optional performance measurement tooling for stdio/HTTP `tools/list` and
     `tools/call`, excluded from the default build and release-blocking CI.
 13. Capability-aware advertisement refinement: `server_capabilities()` remains

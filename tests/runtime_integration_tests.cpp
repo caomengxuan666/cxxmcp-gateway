@@ -1190,6 +1190,37 @@ void test_http_upstream() {
                         .description = "HTTP file by path",
                         .mime_type = "text/plain",
                     })
+                    .completion(
+                        [](const mcp::protocol::CompleteParams& params,
+                           const mcp::server::CompletionContext&) {
+                          mcp::protocol::CompleteResult result;
+                          if (params.ref.type == "ref/prompt" &&
+                              params.ref.name == "summarize" &&
+                              params.argument.name == "text") {
+                            result.completion.values = {
+                                params.argument.value + "-http-summary",
+                                params.argument.value + "-http-brief",
+                            };
+                            result.completion.total = 2;
+                            result.completion.has_more = false;
+                            return result;
+                          }
+                          if (params.ref.type == "ref/resource" &&
+                              params.ref.uri == "file:///http/{path}" &&
+                              params.argument.name == "path") {
+                            result.completion.values = {
+                                params.argument.value + "readme.txt",
+                                params.argument.value + "config.json",
+                            };
+                            result.completion.total = 2;
+                            result.completion.has_more = false;
+                            return result;
+                          }
+                          result.completion.values = {};
+                          result.completion.total = 0;
+                          result.completion.has_more = false;
+                          return result;
+                        })
                     .build();
   require(server.has_value(), "http fixture server should build");
 
@@ -1204,6 +1235,12 @@ void test_http_upstream() {
   upstream.streamable_http.uri = uri;
   config.upstreams.push_back(std::move(upstream));
   mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto refreshed = runtime.refresh_upstream_capabilities();
+  require(refreshed.has_value(), "http capability refresh should succeed");
+  auto capabilities = runtime.server_capabilities();
+  require(capabilities.completions.enabled,
+          "http runtime should advertise completions after refreshed "
+          "upstream capabilities support completion");
 
   auto tools = runtime.list_tools();
   require(tools.has_value(), "http tools/list should succeed");
@@ -1242,6 +1279,41 @@ void test_http_upstream() {
       runtime.get_prompt("http.summarize", Json{{"text", "from-http"}});
   require(prompt.has_value(), "http prompts/get should succeed");
   require_text_prompt(*prompt, "HTTP summarize from-http");
+
+  mcp::protocol::CompleteParams prompt_completion;
+  prompt_completion.ref =
+      mcp::protocol::prompt_completion_reference("http.summarize");
+  prompt_completion.argument.name = "text";
+  prompt_completion.argument.value = "from-http";
+  auto prompt_completion_result =
+      runtime.complete(std::move(prompt_completion));
+  require(prompt_completion_result.has_value(),
+          "http prompt completion should route");
+  require(prompt_completion_result->completion.values.size() == 2,
+          "http prompt completion should preserve upstream candidates");
+  require(prompt_completion_result->completion.values[0] ==
+              "from-http-http-summary",
+          "http prompt completion should rewrite prompt ref to upstream name");
+  require(prompt_completion_result->completion.total == 2,
+          "http prompt completion should preserve total");
+  require(prompt_completion_result->completion.has_more == false,
+          "http prompt completion should preserve hasMore");
+
+  mcp::protocol::CompleteParams resource_completion;
+  resource_completion.ref =
+      mcp::protocol::resource_completion_reference(http_template_uri);
+  resource_completion.argument.name = "path";
+  resource_completion.argument.value = "docs/";
+  auto resource_completion_result =
+      runtime.complete(std::move(resource_completion));
+  require(resource_completion_result.has_value(),
+          "http resource template completion should route");
+  require(resource_completion_result->completion.values.size() == 2,
+          "http resource completion should preserve upstream candidates");
+  require(resource_completion_result->completion.values[0] ==
+              "docs/readme.txt",
+          "http resource completion should rewrite resource ref to upstream "
+          "URI template");
 
   auto multi_config = make_stdio_config();
   mcp::gateway::UpstreamServer second;
