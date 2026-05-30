@@ -34,6 +34,8 @@
 namespace {
 
 using Json = mcp::protocol::Json;
+using Resource = mcp::protocol::Resource;
+using ResourcesReadResult = mcp::protocol::ResourcesReadResult;
 using ToolDefinition = mcp::protocol::ToolDefinition;
 using ToolResult = mcp::protocol::ToolResult;
 using UpstreamRuntimeState = mcp::gateway::UpstreamRuntimeState;
@@ -160,6 +162,13 @@ bool has_tool(const std::vector<ToolDefinition>& tools,
   });
 }
 
+bool has_resource(const std::vector<Resource>& resources,
+                  std::string_view uri) {
+  return std::any_of(resources.begin(), resources.end(), [&](const auto& r) {
+    return r.uri == uri;
+  });
+}
+
 const ToolDefinition& require_tool(const std::vector<ToolDefinition>& tools,
                                    std::string_view name) {
   const auto it = std::find_if(tools.begin(), tools.end(), [&](const auto& tool) {
@@ -167,6 +176,18 @@ const ToolDefinition& require_tool(const std::vector<ToolDefinition>& tools,
   });
   if (it == tools.end()) {
     throw std::runtime_error("missing tool " + std::string(name));
+  }
+  return *it;
+}
+
+const Resource& require_resource(const std::vector<Resource>& resources,
+                                 std::string_view uri) {
+  const auto it =
+      std::find_if(resources.begin(), resources.end(), [&](const auto& r) {
+        return r.uri == uri;
+      });
+  if (it == resources.end()) {
+    throw std::runtime_error("missing resource " + std::string(uri));
   }
   return *it;
 }
@@ -197,6 +218,19 @@ void require_text_result(const ToolResult& result, std::string_view text) {
   require(!result.content.empty(), "tool result should include content");
   require(result.content.front().type == "text", "tool result should be text");
   require(result.content.front().text == text, "tool result text mismatch");
+}
+
+void require_text_resource(const ResourcesReadResult& result,
+                           std::string_view uri, std::string_view text) {
+  require(!result.contents.empty(), "resource read should include content");
+  require(result.contents.front().uri == uri,
+          "resource read content URI mismatch");
+  require(result.contents.front().mime_type == "text/plain",
+          "resource read content MIME type mismatch");
+  require(result.contents.front().text.has_value(),
+          "resource read content should be text");
+  require(*result.contents.front().text == text,
+          "resource read text mismatch");
 }
 
 void require_gateway_upstream_error(const mcp::core::Error& error,
@@ -261,6 +295,11 @@ void test_disabled_upstream() {
   require(tools.has_value(), "disabled upstream list should still succeed");
   require(tools->empty(), "disabled upstream should not expose tools");
 
+  auto resources = runtime.list_resources();
+  require(resources.has_value(),
+          "disabled upstream resource list should still succeed");
+  require(resources->empty(), "disabled upstream should not expose resources");
+
   auto called = runtime.call_tool("disabled.echo", Json::object());
   require(!called.has_value(), "disabled upstream call should fail");
   require(called.error().code ==
@@ -270,6 +309,19 @@ void test_disabled_upstream() {
           "disabled upstream should report stable routing error message");
   require(called.error().detail == "disabled",
           "disabled upstream error should preserve upstream id context");
+
+  const auto disabled_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "disabled", "file:///fixture/readme.txt");
+  auto read = runtime.read_resource(disabled_uri);
+  require(!read.has_value(), "disabled upstream resource read should fail");
+  require(read.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::ResourceNotFound),
+          "disabled upstream resource should map to resource-not-found");
+  require(read.error().message == "gateway upstream is disabled",
+          "disabled resource upstream should report stable routing error");
+  require(read.error().detail == "disabled",
+          "disabled resource error should preserve upstream id context");
 }
 
 void test_invalid_config_advertises_no_tools() {
@@ -304,6 +356,11 @@ void test_stdio_process_start_failure() {
   auto tools = runtime.list_tools();
   require(!tools.has_value(), "missing stdio process should fail tools/list");
   require_gateway_upstream_error(tools.error(), "missing");
+
+  auto resources = runtime.list_resources();
+  require(!resources.has_value(),
+          "missing stdio process should fail resources/list");
+  require_gateway_upstream_error(resources.error(), "missing");
 
   const auto& state = require_upstream_state(runtime.upstream_states(), "missing");
   require_status(state, UpstreamRuntimeStatus::degraded,
@@ -346,6 +403,39 @@ void test_tools_list_fail_fast_after_partial_success() {
           "tools/list");
 }
 
+void test_resources_list_fail_fast_after_partial_success() {
+  auto config = make_stdio_config();
+
+  mcp::gateway::UpstreamServer missing;
+  missing.id = "missing";
+  missing.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+  missing.process_stdio.command =
+      "cxxmcp-gateway-definitely-missing-upstream-executable";
+  config.upstreams.push_back(std::move(missing));
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto resources = runtime.list_resources();
+  require(!resources.has_value(),
+          "resources/list should fail fast when any enabled upstream fails");
+  require_gateway_upstream_error(resources.error(), "missing");
+
+  const auto states = runtime.upstream_states();
+  const auto stdio = require_upstream_state(states, "stdio");
+  require_status(stdio, UpstreamRuntimeStatus::healthy,
+                 "successful upstream should keep healthy state after "
+                 "fail-fast resources/list");
+  require(stdio.capabilities.has_value(),
+          "successful resource upstream should retain initialized capabilities");
+
+  const auto failed = require_upstream_state(states, "missing");
+  require_status(failed, UpstreamRuntimeStatus::degraded,
+                 "failing upstream should be degraded after fail-fast "
+                 "resources/list");
+  require(failed.last_error.has_value(),
+          "failing upstream should retain last error after fail-fast "
+          "resources/list");
+}
+
 void test_stdio_process_exit_before_initialize() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "exit";
@@ -385,8 +475,12 @@ void test_stdio_upstream() {
           "runtime with enabled upstream should advertise tools");
   require(!capabilities.tools.list_changed,
           "runtime should not advertise tools/listChanged");
-  require(!capabilities.resources.enabled,
-          "runtime should not advertise resources");
+  require(capabilities.resources.enabled,
+          "runtime with enabled upstream should advertise resources");
+  require(!capabilities.resources.list_changed,
+          "runtime should not advertise resources/listChanged");
+  require(!capabilities.resources.subscribe,
+          "runtime should not advertise resource subscriptions");
   require(!capabilities.prompts.enabled,
           "runtime should not advertise prompts");
   require(!capabilities.tasks.has_value(),
@@ -428,6 +522,38 @@ void test_stdio_upstream() {
   require(called.has_value(), "stdio tools/call should succeed");
   require_text_result(*called, "from-stdio");
 
+  const auto stdio_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "stdio", "file:///fixture/readme.txt");
+  auto resources = runtime.list_resources();
+  require(resources.has_value(), "stdio resources/list should succeed");
+  require(has_resource(*resources, stdio_resource_uri),
+          "stdio resource should be exposed");
+  const auto& readme = require_resource(*resources, stdio_resource_uri);
+  require(readme.title == "Fixture Readme",
+          "stdio resource title should be preserved");
+  require(readme.name == "fixture-readme",
+          "stdio resource name should be preserved");
+  require(readme.description == "Fixture readme resource",
+          "stdio resource description should be preserved");
+  require(readme.mime_type == "text/plain",
+          "stdio resource MIME type should be preserved");
+  require(readme.meta.has_value(), "stdio resource metadata should be present");
+  require(readme.meta->at("fixture") == "stdio",
+          "stdio resource upstream metadata should be preserved");
+  require(readme.meta->at("preserve").get<bool>(),
+          "stdio resource upstream metadata fields should be preserved");
+  require(readme.meta->at("gateway").at("upstreamId") == "stdio",
+          "stdio resource metadata should include gateway upstream id");
+  require(readme.meta->at("gateway").at("upstreamResourceUri") ==
+              "file:///fixture/readme.txt",
+          "stdio resource metadata should include upstream resource URI");
+
+  auto read = runtime.read_resource(stdio_resource_uri);
+  require(read.has_value(), "stdio resources/read should succeed");
+  require_text_resource(*read, stdio_resource_uri,
+                        "hello from stdio resource");
+
   auto unknown = runtime.call_tool("missing.echo", Json::object());
   require(!unknown.has_value(), "unknown upstream should fail");
   require(unknown.error().code ==
@@ -458,6 +584,35 @@ void test_stdio_upstream() {
                  "upstream MCP error should mark upstream degraded");
   require(failed.last_error.has_value(),
           "degraded upstream should retain last error");
+
+  const auto missing_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "missing", "file:///fixture/readme.txt");
+  auto missing_resource = runtime.read_resource(missing_resource_uri);
+  require(!missing_resource.has_value(),
+          "unknown upstream resource should fail");
+  require(missing_resource.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::ResourceNotFound),
+          "unknown upstream resource should map to resource-not-found");
+  require(missing_resource.error().message == "gateway upstream not found",
+          "unknown resource upstream should report stable routing error");
+  require(missing_resource.error().detail == "missing",
+          "unknown resource upstream error should preserve upstream id");
+
+  const auto fail_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "stdio", "file:///fixture/fail.txt");
+  auto resource_error = runtime.read_resource(fail_resource_uri);
+  require(!resource_error.has_value(), "upstream resource MCP error should fail");
+  require(resource_error.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "upstream resource MCP error code should be preserved");
+  require(resource_error.error().message == "resource denied",
+          "upstream resource MCP error message should be preserved");
+  require(resource_error.error().detail.find("resource detail") !=
+              std::string::npos,
+          "upstream resource MCP error detail should be preserved");
+  require_gateway_upstream_error(resource_error.error(), "stdio");
 
   auto stopped = runtime.stop();
   require(stopped.has_value(), "runtime stop should succeed without endpoint");
@@ -517,6 +672,25 @@ void test_http_upstream() {
                               input.value("sleepMs", 300)});
                       return ToolResult::text("slow-done");
                     })
+                    .resource(mcp::protocol::Resource{
+                                  .title = "HTTP Readme",
+                                  .uri = "file:///http/readme.txt",
+                                  .name = "http-readme",
+                                  .description = "HTTP readme resource",
+                                  .mime_type = "text/plain",
+                              },
+                              [](const mcp::server::ResourceContext& context)
+                                  -> mcp::core::Result<
+                                      mcp::protocol::ResourcesReadResult> {
+                                mcp::protocol::ResourcesReadResult result;
+                                result.contents.push_back(
+                                    mcp::protocol::ResourceContents{
+                                        .uri = context.uri,
+                                        .mime_type = "text/plain",
+                                        .text = "hello from http resource",
+                                    });
+                                return result;
+                              })
                     .build();
   require(server.has_value(), "http fixture server should build");
 
@@ -540,6 +714,18 @@ void test_http_upstream() {
   require(called.has_value(), "http tools/call should succeed");
   require_text_result(*called, "from-http");
 
+  const auto http_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "http", "file:///http/readme.txt");
+  auto resources = runtime.list_resources();
+  require(resources.has_value(), "http resources/list should succeed");
+  require(has_resource(*resources, http_resource_uri),
+          "http resource should be exposed");
+  auto read = runtime.read_resource(http_resource_uri);
+  require(read.has_value(), "http resources/read should succeed");
+  require_text_resource(*read, http_resource_uri,
+                        "hello from http resource");
+
   auto multi_config = make_stdio_config();
   mcp::gateway::UpstreamServer second;
   second.id = "http";
@@ -553,6 +739,15 @@ void test_http_upstream() {
           "multi-upstream list should include stdio tool");
   require(has_tool(*multi_tools, "http.echo"),
           "multi-upstream list should include http tool");
+  auto multi_resources = multi_runtime.list_resources();
+  require(multi_resources.has_value(),
+          "multi-upstream resources/list should succeed");
+  require(has_resource(*multi_resources,
+                       mcp::gateway::GatewayRouter::expose_resource_uri(
+                           "stdio", "file:///fixture/readme.txt")),
+          "multi-upstream resource list should include stdio resource");
+  require(has_resource(*multi_resources, http_resource_uri),
+          "multi-upstream resource list should include http resource");
 
   const auto stopped = running->stop();
   require(stopped.has_value(), "http fixture server should stop");
@@ -735,8 +930,13 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
           "enabled upstream should advertise tools before notification no-op");
   require(!before_capabilities.tools.list_changed,
           "notification no-op test should not advertise tools/listChanged");
-  require(!before_capabilities.resources.enabled,
-          "notification no-op test should not advertise resources");
+  require(before_capabilities.resources.enabled,
+          "notification no-op test should keep resources advertised");
+  require(!before_capabilities.resources.list_changed,
+          "notification no-op test should not advertise resources/listChanged");
+  require(!before_capabilities.resources.subscribe,
+          "notification no-op test should not advertise resource "
+          "subscriptions");
   require(!before_capabilities.prompts.enabled,
           "notification no-op test should not advertise prompts");
   require(!before_capabilities.tasks.has_value(),
@@ -802,8 +1002,12 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
           "notification no-ops should not remove tools advertisement");
   require(!after_capabilities.tools.list_changed,
           "notification no-ops should not add tools/listChanged");
-  require(!after_capabilities.resources.enabled,
-          "notification no-ops should not add resources");
+  require(after_capabilities.resources.enabled,
+          "notification no-ops should keep resources advertised");
+  require(!after_capabilities.resources.list_changed,
+          "notification no-ops should not add resources/listChanged");
+  require(!after_capabilities.resources.subscribe,
+          "notification no-ops should not add resource subscriptions");
   require(!after_capabilities.prompts.enabled,
           "notification no-ops should not add prompts");
   require(!after_capabilities.tasks.has_value(),
@@ -1260,8 +1464,12 @@ void test_hosted_gateway_http_endpoint() {
   require(capabilities->tools.enabled, "gateway should advertise tools");
   require(!capabilities->tools.list_changed,
           "gateway should not advertise tools/listChanged");
-  require(!capabilities->resources.enabled,
-          "gateway should not advertise resources");
+  require(capabilities->resources.enabled,
+          "gateway should advertise resources");
+  require(!capabilities->resources.list_changed,
+          "gateway should not advertise resources/listChanged");
+  require(!capabilities->resources.subscribe,
+          "gateway should not advertise resource subscriptions");
   require(!capabilities->prompts.enabled,
           "gateway should not advertise prompts");
   require(!capabilities->tasks.has_value(),
@@ -1286,6 +1494,18 @@ void test_hosted_gateway_http_endpoint() {
       "stdio.echo", Json{{"value", "from-downstream"}});
   require(called.has_value(), "downstream tools/call should route");
   require_text_result(*called, "from-downstream");
+
+  const auto downstream_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "stdio", "file:///fixture/readme.txt");
+  auto resources = running_client->peer().list_all_resources();
+  require(resources.has_value(), "downstream resources/list should succeed");
+  require(has_resource(*resources, downstream_resource_uri),
+          "downstream resources/list should include routed stdio resource");
+  auto read = running_client->peer().read_resource(downstream_resource_uri);
+  require(read.has_value(), "downstream resources/read should route");
+  require_text_resource(*read, downstream_resource_uri,
+                        "hello from stdio resource");
 
   auto stopped_client = running_client->stop();
   require(stopped_client.has_value(), "downstream client should stop");
@@ -1552,8 +1772,12 @@ void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
           "hosted notification no-ops should keep tools advertised");
   require(!capabilities.tools.list_changed,
           "hosted notification no-ops should not add tools/listChanged");
-  require(!capabilities.resources.enabled,
-          "hosted notification no-ops should not add resources");
+  require(capabilities.resources.enabled,
+          "hosted notification no-ops should keep resources advertised");
+  require(!capabilities.resources.list_changed,
+          "hosted notification no-ops should not add resources/listChanged");
+  require(!capabilities.resources.subscribe,
+          "hosted notification no-ops should not add resource subscriptions");
   require(!capabilities.prompts.enabled,
           "hosted notification no-ops should not add prompts");
   require(!capabilities.tasks.has_value(),
@@ -1676,7 +1900,7 @@ void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
   require(!capabilities->tools.enabled,
           "gateway should not advertise tools without enabled upstreams");
   require(!capabilities->resources.enabled,
-          "gateway should not advertise resources without routing support");
+          "gateway should not advertise resources without enabled upstreams");
   require(!capabilities->prompts.enabled,
           "gateway should not advertise prompts without routing support");
   require(!capabilities->tasks.has_value(),
@@ -1714,11 +1938,7 @@ void test_raw_request_routing_surface() {
           "repeated initialize should remain SDK-owned/nullopt");
 
   const std::vector<std::string> unsupported_methods{
-      "resources/list",
-      "prompts/list",
-      "tasks/list",
-      "completion/complete",
-  };
+      "prompts/list", "tasks/list", "completion/complete"};
   for (std::size_t i = 0; i < unsupported_methods.size(); ++i) {
     mcp::protocol::JsonRpcRequest unsupported;
     unsupported.method = unsupported_methods[i];
@@ -1791,6 +2011,70 @@ void test_raw_request_routing_surface() {
           Json::object()));
   require(unsupported_notification.has_value(),
           "unsupported gateway notifications should be ignored");
+
+  mcp::protocol::JsonRpcRequest resource_list;
+  resource_list.method = mcp::protocol::ResourcesListMethod;
+  resource_list.id = std::int64_t{6};
+  resource_list.params = Json::object();
+  auto resource_list_response = runtime.handle_request(resource_list);
+  require(resource_list_response.has_value(),
+          "resources/list raw request should respond");
+  require(resource_list_response->result.has_value(),
+          "resources/list raw request should succeed");
+  const auto parsed_resources =
+      mcp::protocol::resources_list_result_from_json(
+          *resource_list_response->result);
+  require(parsed_resources.has_value(),
+          "resources/list raw response should parse");
+  const auto raw_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "stdio", "file:///fixture/readme.txt");
+  require(has_resource(parsed_resources->resources, raw_resource_uri),
+          "resources/list raw response should include routed resource");
+
+  mcp::protocol::JsonRpcRequest resource_read;
+  resource_read.method = mcp::protocol::ResourcesReadMethod;
+  resource_read.id = std::int64_t{7};
+  resource_read.params = Json{{"uri", raw_resource_uri}};
+  auto resource_read_response = runtime.handle_request(resource_read);
+  require(resource_read_response.has_value(),
+          "resources/read raw request should respond");
+  require(resource_read_response->result.has_value(),
+          "resources/read raw request should succeed");
+  const auto parsed_read = mcp::protocol::resources_read_result_from_json(
+      *resource_read_response->result);
+  require(parsed_read.has_value(),
+          "resources/read raw response should parse");
+  require_text_resource(*parsed_read, raw_resource_uri,
+                        "hello from stdio resource");
+
+  mcp::protocol::JsonRpcRequest invalid_resource_params;
+  invalid_resource_params.method = mcp::protocol::ResourcesReadMethod;
+  invalid_resource_params.id = std::int64_t{8};
+  invalid_resource_params.params = Json{{"uri", Json::array()}};
+  auto invalid_resource_response =
+      runtime.handle_request(invalid_resource_params);
+  require(invalid_resource_response.has_value(),
+          "invalid resources/read should respond");
+  require(invalid_resource_response->error.has_value(),
+          "invalid resources/read should error");
+  require(invalid_resource_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "invalid resources/read params should map to invalid request");
+
+  mcp::protocol::JsonRpcRequest invalid_resource_uri;
+  invalid_resource_uri.method = mcp::protocol::ResourcesReadMethod;
+  invalid_resource_uri.id = std::int64_t{9};
+  invalid_resource_uri.params = Json{{"uri", "file:///not-gateway.txt"}};
+  auto invalid_resource_uri_response =
+      runtime.handle_request(invalid_resource_uri);
+  require(invalid_resource_uri_response.has_value(),
+          "invalid gateway resource URI should respond");
+  require(invalid_resource_uri_response->error.has_value(),
+          "invalid gateway resource URI should error");
+  require(invalid_resource_uri_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "invalid gateway resource URI should map to invalid params");
 }
 
 }  // namespace
@@ -1801,6 +2085,7 @@ int main() {
     test_invalid_config_advertises_no_tools();
     test_stdio_process_start_failure();
     test_tools_list_fail_fast_after_partial_success();
+    test_resources_list_fail_fast_after_partial_success();
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();
     test_stdio_upstream();

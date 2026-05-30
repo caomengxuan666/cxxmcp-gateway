@@ -350,7 +350,7 @@ The current grammar is:
 Tool names after the first `.` are preserved as upstream tool names.
 
 Concrete resources use a separate gateway URI namespace instead of the tool
-name grammar. The planned resource URI format is:
+name grammar. The resource URI format is:
 
 ```text
 cxxmcp-gateway-resource://<percent-encoded-upstream-id>/<percent-encoded-upstream-resource-uri>
@@ -363,10 +363,16 @@ catalogs are merged. Resource `name`, `title`, description, annotations, MIME
 type, size, and other metadata are preserved; routing decisions use the gateway
 resource URI, not the display name.
 
+`resources/list` aggregates enabled upstream resource catalogs with the same
+fail-fast policy as `tools/list`. `resources/read` routes by gateway resource
+URI, forwards the decoded upstream URI, and rewrites returned content URIs into
+the gateway resource URI namespace. Missing or disabled upstreams map to
+`ResourceNotFound`.
+
 Resource templates, subscriptions, `resources/list_changed`, and
 `resources/updated` forwarding are not part of this namespace contract yet.
-They require separate ownership and notification rules before resource
-capabilities can be advertised.
+They require separate ownership and notification rules before those resource
+sub-capabilities can be advertised.
 
 Future prompt names, subscriptions, and long-running task ids may need their
 own namespace or metadata rules. They must be defined separately before those

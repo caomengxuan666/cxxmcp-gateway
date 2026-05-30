@@ -289,6 +289,31 @@ core::Result<ToolRoute> GatewayRouter::resolve_tool_route(
   };
 }
 
+core::Result<ResourceRoute> GatewayRouter::resolve_resource_route(
+    std::string_view exposed_uri) const {
+  auto resolved = resolve_resource_uri(exposed_uri);
+  if (!resolved) {
+    return mcp::core::unexpected(resolved.error());
+  }
+
+  const auto* upstream = find_upstream(resolved->upstream_id);
+  if (upstream == nullptr) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::ResourceNotFound, "gateway upstream not found",
+        resolved->upstream_id));
+  }
+  if (!upstream->enabled) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::ResourceNotFound, "gateway upstream is disabled",
+        resolved->upstream_id));
+  }
+
+  return ResourceRoute{
+      .upstream = upstream,
+      .upstream_uri = std::move(resolved->upstream_uri),
+  };
+}
+
 const UpstreamServer* GatewayRouter::find_upstream(
     std::string_view upstream_id) const {
   const auto it = std::find_if(

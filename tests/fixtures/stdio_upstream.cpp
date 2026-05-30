@@ -14,6 +14,7 @@
 
 #include "cxxmcp/core/result.hpp"
 #include "cxxmcp/peer.hpp"
+#include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/types.hpp"
 #include "cxxmcp/protocol/tool.hpp"
 #include "cxxmcp/run.hpp"
@@ -95,5 +96,31 @@ int main(int argc, char** argv) {
                 static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
                 "fixture denied", "fixture detail", "fixture"});
           })
+      .resource(mcp::protocol::Resource{
+                    .title = "Fixture Readme",
+                    .uri = "file:///fixture/readme.txt",
+                    .name = "fixture-readme",
+                    .description = "Fixture readme resource",
+                    .mime_type = "text/plain",
+                    .meta = Json{{"fixture", "stdio"}, {"preserve", true}},
+                },
+                [](const mcp::server::ResourceContext& context)
+                    -> mcp::core::Result<mcp::protocol::ResourcesReadResult> {
+                  mcp::protocol::ResourcesReadResult result;
+                  result.contents.push_back(mcp::protocol::ResourceContents{
+                      .uri = context.uri,
+                      .mime_type = "text/plain",
+                      .text = "hello from stdio resource",
+                  });
+                  return result;
+                })
+      .resource("file:///fixture/fail.txt",
+                [](const mcp::server::ResourceContext&)
+                    -> mcp::core::Result<mcp::protocol::ResourcesReadResult> {
+                  return mcp::core::unexpected(mcp::core::Error{
+                      static_cast<int>(
+                          mcp::protocol::ErrorCode::PermissionDenied),
+                      "resource denied", "resource detail", "fixture"});
+                })
       .run();
 }

@@ -53,6 +53,7 @@ protocol::ServerCapabilities gateway_server_capabilities(
                   [](const auto& upstream) { return upstream.enabled; });
   if (has_enabled_upstream) {
     builder.tools(false);
+    builder.resources(false, false);
   }
   return builder.build();
 }
@@ -327,6 +328,73 @@ struct GatewayRuntime::Impl final {
         [&](ClientPeer& peer) { return peer.call_tool(call); });
   }
 
+  core::Result<std::vector<protocol::Resource>> list_resources() {
+    auto accepting = ensure_runtime_accepting("resources/list");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    std::vector<UpstreamResourceCatalog> catalogs;
+
+    for (const auto& upstream : router.config().upstreams) {
+      if (!upstream.enabled) {
+        continue;
+      }
+
+      auto resources =
+          with_initialized_upstream<std::vector<protocol::Resource>>(
+              upstream,
+              [](ClientPeer& peer) { return peer.list_all_resources(); });
+      if (!resources) {
+        return mcp::core::unexpected(resources.error());
+      }
+      catalogs.push_back(UpstreamResourceCatalog{
+          .upstream_id = upstream.id,
+          .resources = std::move(*resources),
+      });
+    }
+
+    return merge_resource_catalogs(catalogs);
+  }
+
+  core::Result<protocol::ResourcesReadResult> read_resource(
+      std::string_view exposed_uri) {
+    auto accepting = ensure_runtime_accepting("resources/read");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    auto route = router.resolve_resource_route(exposed_uri);
+    if (!route) {
+      return mcp::core::unexpected(route.error());
+    }
+
+    return with_initialized_upstream<protocol::ResourcesReadResult>(
+        *route->upstream, [&](ClientPeer& peer) {
+          auto result = peer.read_resource(route->upstream_uri);
+          if (!result) {
+            return result;
+          }
+          for (auto& contents : result->contents) {
+            const auto upstream_uri =
+                contents.uri.empty() ? route->upstream_uri : contents.uri;
+            contents.uri = GatewayRouter::expose_resource_uri(
+                route->upstream->id, upstream_uri);
+          }
+          return result;
+        });
+  }
+
   std::optional<protocol::JsonRpcResponse> handle_request(
       const protocol::JsonRpcRequest& request) {
     if (request.method == protocol::ToolsListMethod) {
@@ -351,6 +419,30 @@ struct GatewayRuntime::Impl final {
       }
       return protocol::make_response(request.id,
                                      protocol::tool_result_to_json(*result));
+    }
+
+    if (request.method == protocol::ResourcesListMethod) {
+      auto resources = list_resources();
+      if (!resources) {
+        return error_response(request, resources.error());
+      }
+      protocol::ResourcesListResult result;
+      result.resources = std::move(*resources);
+      return protocol::make_response(
+          request.id, protocol::resources_list_result_to_json(result));
+    }
+
+    if (request.method == protocol::ResourcesReadMethod) {
+      auto read = protocol::resources_read_params_from_json(request.params);
+      if (!read) {
+        return error_response(request, read.error());
+      }
+      auto result = read_resource(read->uri);
+      if (!result) {
+        return error_response(request, result.error());
+      }
+      return protocol::make_response(
+          request.id, protocol::resources_read_result_to_json(*result));
     }
 
     if (sdk_owned_request_method(request.method)) {
@@ -397,6 +489,16 @@ GatewayRuntime::list_tools() {
 core::Result<protocol::ToolResult> GatewayRuntime::call_tool(
     std::string_view exposed_name, protocol::Json arguments) {
   return impl_->call_tool(exposed_name, std::move(arguments));
+}
+
+core::Result<std::vector<protocol::Resource>>
+GatewayRuntime::list_resources() {
+  return impl_->list_resources();
+}
+
+core::Result<protocol::ResourcesReadResult> GatewayRuntime::read_resource(
+    std::string_view exposed_uri) {
+  return impl_->read_resource(exposed_uri);
 }
 
 core::Result<core::Unit> GatewayRuntime::handle_notification(

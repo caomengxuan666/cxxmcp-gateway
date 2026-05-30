@@ -12,6 +12,7 @@
 #include "cxxmcp/gateway/config.hpp"
 #include "cxxmcp/gateway/router.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
+#include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/serialization.hpp"
 #include "cxxmcp/protocol/tool.hpp"
 
@@ -51,6 +52,9 @@ class GatewayRuntime final {
   core::Result<protocol::ToolResult> call_tool(
       std::string_view exposed_name,
       protocol::Json arguments = protocol::Json::object());
+  core::Result<std::vector<protocol::Resource>> list_resources();
+  core::Result<protocol::ResourcesReadResult> read_resource(
+      std::string_view exposed_uri);
   core::Result<core::Unit> handle_notification(
       const protocol::JsonRpcNotification& notification);
   std::optional<protocol::JsonRpcResponse> handle_request(

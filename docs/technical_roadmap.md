@@ -256,7 +256,9 @@ Supported MCP method matrix for Phase 1:
 | `tools/call` | Routed by exposed tool name |
 | `notifications/initialized` | SDK-owned |
 | `notifications/tools/list_changed` | Not advertised and not forwarded in MVP |
-| resources | Not advertised |
+| `resources/list` | Aggregated from enabled upstreams with gateway-owned resource URIs |
+| `resources/read` | Routed by gateway resource URI |
+| resource templates/subscriptions/listChanged | Not advertised and not forwarded in MVP |
 | prompts | Not advertised |
 | tasks | Not advertised unless SDK and gateway routing support exist |
 | completion | Not advertised |
@@ -364,20 +366,26 @@ Capability expansion checklist:
 - error mapping and error data preservation;
 - integration tests for both stdio and Streamable HTTP upstreams.
 
-Current resource routing design:
+Current resource routing baseline:
 
-- concrete resource list/read will use gateway-owned resource URIs of the form
+- concrete `resources/list` and `resources/read` use gateway-owned resource
+  URIs of the form
   `cxxmcp-gateway-resource://<encoded-upstream>/<encoded-uri>`;
 - the encoded upstream id is decoded and validated with the gateway upstream id
   grammar;
 - the encoded URI must decode to a non-empty upstream resource URI;
 - resource catalog merging preserves upstream resource metadata and adds
   `_meta.gateway.upstreamId` plus `_meta.gateway.upstreamResourceUri`;
+- `resources/list` uses the same fail-fast upstream policy as `tools/list`;
+- `resources/read` routes by gateway resource URI and maps missing or disabled
+  upstreams to `ResourceNotFound`;
+- gateway content results rewrite returned content URIs into the gateway
+  resource URI namespace;
+- runtime advertises `resources` only when the config is valid and at least one
+  upstream is enabled;
 - resource templates, subscriptions, and resource change notifications remain
-  out of scope until their ownership and routing rules are specified;
-- runtime must not advertise resources until `resources/list` and
-  `resources/read` are both implemented for stdio and Streamable HTTP upstreams
-  and covered by integration tests.
+  out of scope until their ownership and routing rules are specified, so
+  `resources/listChanged` and `subscribe` are not advertised.
 
 Exit criteria:
 

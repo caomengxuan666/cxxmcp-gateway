@@ -26,6 +26,11 @@ struct ToolRoute {
   std::string upstream_tool_name;
 };
 
+struct ResourceRoute {
+  const UpstreamServer* upstream = nullptr;
+  std::string upstream_uri;
+};
+
 class GatewayRouter final {
  public:
   explicit GatewayRouter(GatewayConfig config);
@@ -35,6 +40,8 @@ class GatewayRouter final {
   core::Result<core::Unit> validate_config() const;
   core::Result<ToolRoute> resolve_tool_route(
       std::string_view exposed_name) const;
+  core::Result<ResourceRoute> resolve_resource_route(
+      std::string_view exposed_uri) const;
 
   static std::string expose_tool_name(std::string_view upstream_id,
                                       std::string_view upstream_tool_name);
