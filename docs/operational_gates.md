@@ -68,8 +68,20 @@ changes should not claim compatibility beyond the CI-tested SDK revision.
 ## Performance Measurement
 
 Performance is not yet a release blocker, but regressions must be measurable.
-Use a Release build and the stdio/HTTP integration fixtures as the baseline
-until a dedicated benchmark target exists.
+Use a Release build and the optional `cxxmcp-gateway-perf` tool as the baseline.
+The tool is intentionally excluded from the default build and CI gate.
+
+Build and run it explicitly against a `cxxmcp` SDK built with the same build
+type and MSVC runtime settings:
+
+```powershell
+cmake -S . -B build-perf -G Ninja -DCMAKE_BUILD_TYPE=Release -DCXXMCP_GATEWAY_BUILD_PERF=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\MCPServer.cpp\out\install\gateway-sdk-cxx23\lib\cmake\cxxmcp
+cmake --build build-perf --target cxxmcp_gateway_perf
+build-perf\cxxmcp-gateway-perf.exe --iterations 50
+```
+
+The tool prints CSV rows with transport, operation, iteration count, median
+latency, and p95 latency in microseconds.
 
 Measure at least:
 

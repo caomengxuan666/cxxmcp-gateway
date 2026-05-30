@@ -65,6 +65,10 @@ independent code enabled so the libraries can be linked into host shared
 objects, and Windows shared builds use automatic symbol export while the public
 ABI is still stabilizing.
 
+Optional performance tooling is available with
+`-DCXXMCP_GATEWAY_BUILD_PERF=ON`. It is excluded from the default build and
+prints CSV latency summaries for stdio/HTTP `tools/list` and `tools/call`.
+
 ## CLI
 
 Use the CLI as a thin reference runner, not as the primary architecture.

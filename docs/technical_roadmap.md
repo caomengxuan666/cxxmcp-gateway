@@ -490,13 +490,15 @@ The current MVP baseline has verified coverage for:
    active-call shutdown, and stdio child cleanup on stop.
 8. Supported method and capability advertisement matrix for the tools-only MVP,
    including unsupported request/notification behavior.
+9. Optional performance measurement tooling for stdio/HTTP `tools/list` and
+   `tools/call`, excluded from the default build and release-blocking CI.
 
 ## Remaining Near-Term Backlog
 
 1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks:
    downstream session close semantics, cancellation behavior, and future pooled
    upstream sessions.
-2. Add performance measurement tooling or scripts for `tools/list` and
-   `tools/call` once the operational baseline needs repeatable numbers.
+2. Use the performance tool to record an initial release-candidate baseline
+   when a concrete SDK revision is selected.
 3. Design the next routed MCP capability family only after its namespace,
    advertisement, notification behavior, and integration tests are specified.
