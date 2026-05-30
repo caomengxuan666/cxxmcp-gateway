@@ -3,7 +3,28 @@
 include(CMakeFindDependencyMacro)
 
 find_dependency(cxxmcp CONFIG REQUIRED)
+if(@CXXMCP_GATEWAY_CONFIG_HAS_RUNTIME@)
+    find_dependency(Threads REQUIRED)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/cxxmcp-gatewayTargets.cmake")
 
-check_required_components(cxxmcp-gateway)
+set("cxxmcp-gateway_core_FOUND" TRUE)
+set("cxxmcp-gateway_runtime_FOUND" @CXXMCP_GATEWAY_CONFIG_HAS_RUNTIME@)
+set("cxxmcp-gateway_config_io_FOUND" @CXXMCP_GATEWAY_CONFIG_HAS_CONFIG_IO@)
+set("cxxmcp-gateway_cli_FOUND" @CXXMCP_GATEWAY_CONFIG_HAS_CLI@)
+
+foreach(_cxxmcp_gateway_component IN LISTS cxxmcp-gateway_FIND_COMPONENTS)
+    set(_cxxmcp_gateway_found_var
+        "cxxmcp-gateway_${_cxxmcp_gateway_component}_FOUND")
+    if(NOT DEFINED ${_cxxmcp_gateway_found_var})
+        set(${_cxxmcp_gateway_found_var} FALSE)
+    endif()
+    if(NOT ${${_cxxmcp_gateway_found_var}})
+        if(cxxmcp-gateway_FIND_REQUIRED_${_cxxmcp_gateway_component})
+            set(cxxmcp-gateway_FOUND FALSE)
+            set(cxxmcp-gateway_NOT_FOUND_MESSAGE
+                "cxxmcp-gateway component '${_cxxmcp_gateway_component}' is not available")
+        endif()
+    endif()
+endforeach()

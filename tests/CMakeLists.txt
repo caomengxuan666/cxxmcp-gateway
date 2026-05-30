@@ -1,79 +1,164 @@
-function(cxxmcp_gateway_mark_release_blocking test_name)
-    if(TEST "${test_name}")
-        set(labels release-blocking ${ARGN})
-        set_tests_properties("${test_name}" PROPERTIES LABELS "${labels}")
+add_executable(cxxmcp_gateway_router_tests
+    router_tests.cpp
+)
+target_link_libraries(cxxmcp_gateway_router_tests PRIVATE cxxmcp_gateway_core)
+cxxmcp_gateway_require_cxx23(cxxmcp_gateway_router_tests)
+
+add_test(NAME gateway_router COMMAND cxxmcp_gateway_router_tests)
+
+if(TARGET cxxmcp_gateway_config_io)
+    add_executable(cxxmcp_gateway_config_io_tests
+        config_io_tests.cpp
+    )
+    target_link_libraries(cxxmcp_gateway_config_io_tests
+        PRIVATE cxxmcp_gateway_config_io)
+    target_compile_definitions(cxxmcp_gateway_config_io_tests PRIVATE
+        CXXMCP_GATEWAY_CONFIG_IO_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json"
+    )
+    cxxmcp_gateway_require_cxx23(cxxmcp_gateway_config_io_tests)
+
+    add_test(NAME gateway_config_io COMMAND cxxmcp_gateway_config_io_tests)
+endif()
+
+if(TARGET cxxmcp_gateway_runtime)
+    add_executable(cxxmcp_gateway_stdio_upstream_fixture
+        fixtures/stdio_upstream.cpp
+    )
+    target_link_libraries(cxxmcp_gateway_stdio_upstream_fixture
+        PRIVATE cxxmcp::sdk)
+    cxxmcp_gateway_require_cxx23(cxxmcp_gateway_stdio_upstream_fixture)
+
+    add_executable(cxxmcp_gateway_runtime_integration_tests
+        runtime_integration_tests.cpp
+    )
+    target_link_libraries(cxxmcp_gateway_runtime_integration_tests
+        PRIVATE cxxmcp_gateway_runtime)
+    target_compile_definitions(cxxmcp_gateway_runtime_integration_tests PRIVATE
+        CXXMCP_GATEWAY_STDIO_FIXTURE="$<TARGET_FILE:cxxmcp_gateway_stdio_upstream_fixture>"
+    )
+    add_dependencies(cxxmcp_gateway_runtime_integration_tests
+        cxxmcp_gateway_stdio_upstream_fixture)
+    cxxmcp_gateway_require_cxx23(cxxmcp_gateway_runtime_integration_tests)
+
+    add_test(NAME gateway_runtime_integration
+        COMMAND cxxmcp_gateway_runtime_integration_tests)
+endif()
+
+if(TARGET cxxmcp_gateway_cli)
+    add_test(NAME gateway_cli_help COMMAND cxxmcp_gateway_cli --help)
+    set_tests_properties(gateway_cli_help PROPERTIES
+        PASS_REGULAR_EXPRESSION "Usage:")
+
+    add_test(NAME gateway_cli_version COMMAND cxxmcp_gateway_cli --version)
+    set_tests_properties(gateway_cli_version PROPERTIES
+        PASS_REGULAR_EXPRESSION "${PROJECT_VERSION}")
+
+    if(TARGET cxxmcp_gateway_config_io)
+        add_test(NAME gateway_cli_config_missing
+            COMMAND cxxmcp_gateway_cli serve
+                --config "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/missing_config.json"
+                --port 39999)
+        set_tests_properties(gateway_cli_config_missing PROPERTIES
+            WILL_FAIL TRUE)
+
+        add_test(NAME gateway_cli_config_and_flags_validate_together
+            COMMAND cxxmcp_gateway_cli serve
+                --config "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json"
+                --port 39999
+                --upstream-stdio fixture=other-server)
+        set_tests_properties(
+            gateway_cli_config_and_flags_validate_together PROPERTIES
+            WILL_FAIL TRUE)
     endif()
-endfunction()
-
-if(TARGET mcp_app AND TARGET mcp_gateway)
-    add_executable(mcp_app_tests
-        app/test_app.cpp
-    )
-
-    target_link_libraries(mcp_app_tests PRIVATE mcp_app mcp_gateway)
-
-    add_test(NAME app COMMAND mcp_app_tests)
 endif()
 
-if(TARGET mcp_app)
-    add_executable(mcp_server_management_tests
-        app/test_server_management.cpp
-    )
-
-    target_link_libraries(mcp_server_management_tests PRIVATE mcp_app)
-
-    add_test(NAME server_management COMMAND mcp_server_management_tests)
-
-    add_executable(mcp_client_discovery_tests
-        app/test_client_discovery.cpp
-    )
-
-    target_link_libraries(mcp_client_discovery_tests PRIVATE mcp_app)
-
-    add_test(NAME client_discovery COMMAND mcp_client_discovery_tests)
-
-    add_executable(mcp_tool_management_tests
-        app/test_tool_management.cpp
-    )
-
-    target_link_libraries(mcp_tool_management_tests PRIVATE mcp_app)
-
-    add_test(NAME tool_management COMMAND mcp_tool_management_tests)
-
-    add_executable(mcp_task_management_tests
-        app/test_task_management.cpp
-    )
-
-    target_link_libraries(mcp_task_management_tests PRIVATE mcp_app)
-
-    add_test(NAME task_management COMMAND mcp_task_management_tests)
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME OFF)
+if(TARGET cxxmcp_gateway_runtime)
+    set(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME ON)
+endif()
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO OFF)
+if(TARGET cxxmcp_gateway_config_io)
+    set(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO ON)
 endif()
 
-if(TARGET mcp_gateway)
-    add_executable(mcp_gateway_tests
-        app/test_gateway.cpp
-    )
+string(MAKE_C_IDENTIFIER "${CMAKE_GENERATOR}" CXXMCP_GATEWAY_GENERATOR_ID)
 
-    target_link_libraries(mcp_gateway_tests PRIVATE mcp_gateway)
-
-    add_test(NAME gateway COMMAND mcp_gateway_tests)
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/package_smoke")
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TREE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/package_smoke_build_tree_${CXXMCP_GATEWAY_GENERATOR_ID}")
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_INSTALL_PREFIX
+    "${CMAKE_CURRENT_BINARY_DIR}/package_smoke_install")
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_INSTALL_BUILD_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/package_smoke_install_tree_${CXXMCP_GATEWAY_GENERATOR_ID}")
+set(CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG_ARGS "")
+if(CMAKE_BUILD_TYPE)
+    list(APPEND CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG_ARGS
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
 endif()
 
-if(TARGET mcp_cli AND TARGET mcp_cli_app)
-    add_executable(mcp_cli_tests
-        cli/test_cli.cpp
-    )
+add_test(NAME gateway_package_build_tree_configure
+    COMMAND "${CMAKE_COMMAND}"
+        -G "${CMAKE_GENERATOR}"
+        -S "${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}"
+        -B "${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TREE_DIR}"
+        ${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG_ARGS}
+        -Dcxxmcp-gateway_DIR=${PROJECT_BINARY_DIR}
+        -Dcxxmcp_DIR=${cxxmcp_DIR}
+        -DCXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME=${CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME}
+        -DCXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO=${CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO})
+add_test(NAME gateway_package_build_tree_build
+    COMMAND "${CMAKE_COMMAND}" --build
+        "${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TREE_DIR}")
+set_tests_properties(gateway_package_build_tree_build PROPERTIES
+    DEPENDS gateway_package_build_tree_configure)
 
-    target_link_libraries(mcp_cli_tests PRIVATE mcp_cli)
-    target_compile_definitions(mcp_cli_tests PRIVATE
-        MCP_TEST_CLI_EXE="$<TARGET_FILE:mcp_cli_app>"
-    )
-    add_dependencies(mcp_cli_tests mcp_cli_app)
+add_test(NAME gateway_package_install_tree_install
+    COMMAND "${CMAKE_COMMAND}" --install "${PROJECT_BINARY_DIR}"
+        --prefix "${CXXMCP_GATEWAY_PACKAGE_SMOKE_INSTALL_PREFIX}")
+add_test(NAME gateway_package_install_tree_configure
+    COMMAND "${CMAKE_COMMAND}"
+        -G "${CMAKE_GENERATOR}"
+        -S "${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}"
+        -B "${CXXMCP_GATEWAY_PACKAGE_SMOKE_INSTALL_BUILD_DIR}"
+        ${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG_ARGS}
+        -Dcxxmcp-gateway_DIR=${CXXMCP_GATEWAY_PACKAGE_SMOKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/cxxmcp-gateway
+        -Dcxxmcp_DIR=${cxxmcp_DIR}
+        -DCXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME=${CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME}
+        -DCXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO=${CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO})
+add_test(NAME gateway_package_install_tree_build
+    COMMAND "${CMAKE_COMMAND}" --build
+        "${CXXMCP_GATEWAY_PACKAGE_SMOKE_INSTALL_BUILD_DIR}")
+set_tests_properties(gateway_package_install_tree_configure PROPERTIES
+    DEPENDS gateway_package_install_tree_install)
+set_tests_properties(gateway_package_install_tree_build PROPERTIES
+    DEPENDS gateway_package_install_tree_configure)
 
-    add_test(NAME cli COMMAND mcp_cli_tests)
-endif()
+add_test(NAME gateway_package_core_only_runtime_component_fails
+    COMMAND "${CMAKE_COMMAND}"
+        -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+        -DCXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR=${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}
+        -Dcxxmcp_DIR=${cxxmcp_DIR}
+        -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+        -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/package_core_only_runtime_fail.cmake")
 
-get_property(cxxmcp_gateway_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
-foreach(cxxmcp_gateway_test_target IN LISTS cxxmcp_gateway_test_targets)
-    cxxmcp_gateway_require_cxx20("${cxxmcp_gateway_test_target}")
-endforeach()
+add_test(NAME gateway_package_config_io_component_fails
+    COMMAND "${CMAKE_COMMAND}"
+        -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+        -DCXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR=${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}
+        -Dcxxmcp_DIR=${cxxmcp_DIR}
+        -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+        -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/package_config_io_component_fail.cmake")
+
+add_test(NAME gateway_subproject_defaults
+    COMMAND "${CMAKE_COMMAND}"
+        -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+        -Dcxxmcp_DIR=${cxxmcp_DIR}
+        -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+        -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/subproject_defaults.cmake")
