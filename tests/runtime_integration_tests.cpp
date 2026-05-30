@@ -1653,11 +1653,15 @@ void test_concurrent_http_calls_update_active_state() {
   });
 
   bool observed_active = false;
+  bool observed_initialized_active = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     const auto state = require_upstream_state(runtime.upstream_states(), "busy");
     if (state.active_calls >= 1) {
       observed_active = true;
-      break;
+      if (state.status == UpstreamRuntimeStatus::initialized) {
+        observed_initialized_active = true;
+        break;
+      }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
   }
@@ -1667,6 +1671,8 @@ void test_concurrent_http_calls_update_active_state() {
     std::rethrow_exception(worker_error);
   }
   require(observed_active, "runtime should expose active upstream call count");
+  require(observed_initialized_active,
+          "runtime should expose initialized state during active upstream call");
 
   const auto state = require_upstream_state(runtime.upstream_states(), "busy");
   require(state.active_calls == 0,

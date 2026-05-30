@@ -566,8 +566,8 @@ The current MVP baseline has verified coverage for:
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
    to one upstream, concurrent calls to multiple upstreams, idle shutdown,
    active-call shutdown, downstream session close during an active upstream
-   call, cancellation/progress notification no-ops, and stdio child cleanup on
-   stop.
+   call, observable initialized state during active upstream calls,
+   cancellation/progress notification no-ops, and stdio child cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including unsupported request/notification
    behavior, unsupported notification no-op coverage, and serialized JSON shape
