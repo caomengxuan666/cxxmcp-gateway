@@ -1592,17 +1592,36 @@ void test_raw_request_routing_surface() {
   require(!repeated_initialize_response.has_value(),
           "repeated initialize should remain SDK-owned/nullopt");
 
-  mcp::protocol::JsonRpcRequest unsupported;
-  unsupported.method = "resources/list";
-  unsupported.id = std::int64_t{2};
-  auto unsupported_response = runtime.handle_request(unsupported);
-  require(unsupported_response.has_value(),
-          "unsupported gateway methods should respond");
-  require(unsupported_response->error.has_value(),
-          "unsupported gateway methods should error");
-  require(unsupported_response->error->code ==
-              static_cast<int>(mcp::protocol::ErrorCode::MethodNotFound),
-          "unsupported gateway method should map to method not found");
+  const std::vector<std::string> unsupported_methods{
+      "resources/list",
+      "prompts/list",
+      "tasks/list",
+      "completion/complete",
+  };
+  for (std::size_t i = 0; i < unsupported_methods.size(); ++i) {
+    mcp::protocol::JsonRpcRequest unsupported;
+    unsupported.method = unsupported_methods[i];
+    unsupported.id = static_cast<std::int64_t>(20 + i);
+    auto unsupported_response = runtime.handle_request(unsupported);
+    require(unsupported_response.has_value(),
+            "unsupported gateway methods should respond");
+    require(unsupported_response->error.has_value(),
+            "unsupported gateway methods should error");
+    require(unsupported_response->error->code ==
+                static_cast<int>(mcp::protocol::ErrorCode::MethodNotFound),
+            "unsupported gateway method should map to method not found");
+    require(unsupported_response->error->data.has_value(),
+            "unsupported gateway method should preserve method context");
+    require(*unsupported_response->error->data == unsupported_methods[i],
+            "unsupported gateway method data should match request method");
+  }
+
+  const auto unsupported_state =
+      require_upstream_state(runtime.upstream_states(), "stdio");
+  require_status(unsupported_state, UpstreamRuntimeStatus::configured,
+                 "unsupported methods should not start upstream sessions");
+  require(unsupported_state.active_calls == 0,
+          "unsupported methods should not create active upstream calls");
 
   mcp::protocol::JsonRpcRequest invalid_tool_name;
   invalid_tool_name.method = mcp::protocol::ToolsCallMethod;
