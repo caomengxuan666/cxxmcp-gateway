@@ -1281,6 +1281,21 @@ void test_raw_request_routing_surface() {
   require(!sdk_owned_response.has_value(),
           "SDK-owned methods should remain SDK-owned/nullopt");
 
+  mcp::protocol::JsonRpcRequest first_initialize;
+  first_initialize.method = mcp::protocol::InitializeMethod;
+  first_initialize.id = std::int64_t{10};
+  auto first_initialize_response = runtime.handle_request(first_initialize);
+  require(!first_initialize_response.has_value(),
+          "first initialize should remain SDK-owned/nullopt");
+
+  mcp::protocol::JsonRpcRequest repeated_initialize;
+  repeated_initialize.method = mcp::protocol::InitializeMethod;
+  repeated_initialize.id = std::int64_t{11};
+  auto repeated_initialize_response =
+      runtime.handle_request(repeated_initialize);
+  require(!repeated_initialize_response.has_value(),
+          "repeated initialize should remain SDK-owned/nullopt");
+
   mcp::protocol::JsonRpcRequest unsupported;
   unsupported.method = "resources/list";
   unsupported.id = std::int64_t{2};
