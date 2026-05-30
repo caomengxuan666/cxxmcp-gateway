@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "cxxmcp/gateway/catalog.hpp"
 #include "cxxmcp/gateway/error.hpp"
@@ -54,6 +55,58 @@ protocol::ServerCapabilities gateway_server_capabilities(
   if (has_enabled_upstream) {
     builder.tools(false);
     builder.resources(false, false);
+    builder.prompts(false);
+  }
+  return builder.build();
+}
+
+protocol::ServerCapabilities gateway_server_capabilities(
+    const GatewayConfig& config,
+    const std::unordered_map<std::string, UpstreamRuntimeState>& states) {
+  auto builder = protocol::server_capabilities();
+  if (!validate_gateway_config(config)) {
+    return builder.build();
+  }
+
+  bool has_enabled_upstream = false;
+  bool has_complete_capability_cache = true;
+  bool advertise_tools = false;
+  bool advertise_resources = false;
+  bool advertise_prompts = false;
+
+  for (const auto& upstream : config.upstreams) {
+    if (!upstream.enabled) {
+      continue;
+    }
+    has_enabled_upstream = true;
+    const auto state = states.find(upstream.id);
+    if (state == states.end() || !state->second.capabilities.has_value()) {
+      has_complete_capability_cache = false;
+      break;
+    }
+    advertise_tools =
+        advertise_tools || state->second.capabilities->tools.enabled;
+    advertise_resources =
+        advertise_resources || state->second.capabilities->resources.enabled;
+    advertise_prompts =
+        advertise_prompts || state->second.capabilities->prompts.enabled;
+  }
+
+  if (!has_enabled_upstream) {
+    return builder.build();
+  }
+
+  if (!has_complete_capability_cache) {
+    return gateway_server_capabilities(config);
+  }
+
+  if (advertise_tools) {
+    builder.tools(false);
+  }
+  if (advertise_resources) {
+    builder.resources(false, false);
+  }
+  if (advertise_prompts) {
     builder.prompts(false);
   }
   return builder.build();
@@ -201,7 +254,8 @@ struct GatewayRuntime::Impl final {
   }
 
   protocol::ServerCapabilities server_capabilities() const {
-    return gateway_server_capabilities(router.config());
+    std::lock_guard lock(upstream_state_mutex);
+    return gateway_server_capabilities(router.config(), upstream_states);
   }
 
   template <class Result, class Fn>

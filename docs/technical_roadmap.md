@@ -552,7 +552,11 @@ The current MVP baseline has verified coverage for:
    behavior.
 11. Optional performance measurement tooling for stdio/HTTP `tools/list` and
     `tools/call`, excluded from the default build and release-blocking CI.
-12. Initial local Release performance baseline recorded in
+12. Capability-aware advertisement refinement: `server_capabilities()` remains
+    side-effect-free, uses config-based MVP advertisement before upstream
+    discovery, and narrows tools/resources/prompts advertisement once all
+    enabled upstream capability records are cached.
+13. Initial local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
 

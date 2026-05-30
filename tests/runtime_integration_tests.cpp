@@ -865,6 +865,57 @@ void test_stdio_upstream() {
                  "runtime stop should mark upstream stopped");
 }
 
+void test_capability_advertisement_uses_initialized_upstream_cache() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "tools_only";
+  config.upstreams.front().process_stdio.args = {"--tools-only"};
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+
+  const auto before = runtime.server_capabilities();
+  require(before.tools.enabled,
+          "before upstream discovery, runtime should keep configured tools "
+          "advertisement");
+  require(before.resources.enabled,
+          "before upstream discovery, runtime should keep configured resources "
+          "advertisement");
+  require(before.prompts.enabled,
+          "before upstream discovery, runtime should keep configured prompts "
+          "advertisement");
+  require(!before.completions.enabled,
+          "runtime should not advertise completions before discovery");
+
+  auto tools = runtime.list_tools();
+  require(tools.has_value(), "tools-only upstream tools/list should succeed");
+  require(has_tool(*tools, "tools_only.echo"),
+          "tools-only upstream tool should be exposed");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "tools_only");
+  require(state.capabilities.has_value(),
+          "tools-only upstream initialize should record capabilities");
+  require(state.capabilities->tools.enabled,
+          "tools-only upstream should advertise tools upstream");
+  require(!state.capabilities->resources.enabled,
+          "tools-only upstream should not advertise resources upstream");
+  require(!state.capabilities->prompts.enabled,
+          "tools-only upstream should not advertise prompts upstream");
+
+  const auto after = runtime.server_capabilities();
+  require(after.tools.enabled,
+          "runtime should keep tools advertised from initialized upstream "
+          "capabilities");
+  require(!after.resources.enabled,
+          "runtime should drop resources advertisement when initialized "
+          "upstream capabilities do not support resources");
+  require(!after.prompts.enabled,
+          "runtime should drop prompts advertisement when initialized upstream "
+          "capabilities do not support prompts");
+  require(!after.completions.enabled,
+          "runtime should not advertise completions after discovery");
+  require(!after.tasks.has_value(),
+          "runtime should not advertise tasks after discovery");
+}
+
 void test_repeated_stdio_calls_to_one_upstream() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "repeat";
@@ -2520,6 +2571,7 @@ int main() {
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();
     test_stdio_upstream();
+    test_capability_advertisement_uses_initialized_upstream_cache();
     test_repeated_stdio_calls_to_one_upstream();
     test_http_upstream();
     test_http_unavailable();

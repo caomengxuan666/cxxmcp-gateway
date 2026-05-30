@@ -340,6 +340,13 @@ implemented.
 
 Embedded hosts can inspect the same runtime-owned advertisement decision through
 `GatewayRuntime::server_capabilities()` before starting a hosted endpoint.
+The method itself is side-effect-free: it must not start upstream processes or
+network sessions. Before any enabled upstream has been initialized, the runtime
+advertises the implemented MVP request families from the validated config. Once
+all enabled upstreams have initialized capability records in runtime state, the
+same method narrows `tools`, `resources`, and `prompts` advertisement to the
+families actually advertised by those upstreams. Unsupported families such as
+tasks and completion remain unadvertised.
 
 ## Namespace Rules
 

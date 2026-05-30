@@ -67,6 +67,29 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if (argc > 1 && std::string(argv[1]) == "--tools-only") {
+    return mcp::ServerPeer::builder()
+        .name("cxxmcp-gateway-tools-only-fixture")
+        .version("1.0.0")
+        .stdio()
+        .tool(mcp::server::tool<Json, ToolResult>("echo")
+                  .title("Echo")
+                  .description("Echoes the provided value")
+                  .input_schema(Json{{"type", "object"},
+                                     {"properties",
+                                      Json{{"value",
+                                            Json{{"type", "string"},
+                                                 {"description",
+                                                  "Value to echo"}}}}},
+                                     {"additionalProperties", true}})
+                  .meta(Json{{"fixture", "stdio"}, {"preserve", true}})
+                  .handler([](const Json& input) {
+                    return ToolResult::text(
+                        input.value("value", std::string{}));
+                  }))
+        .run();
+  }
+
   return mcp::ServerPeer::builder()
       .name("cxxmcp-gateway-stdio-fixture")
       .version("1.0.0")
