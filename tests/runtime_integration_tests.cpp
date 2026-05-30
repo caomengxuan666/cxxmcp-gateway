@@ -1666,18 +1666,35 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
   require(observed_active,
           "notification no-op test should observe an active upstream call");
 
-  auto cancelled = runtime.handle_notification(mcp::protocol::make_notification(
-      std::string(mcp::protocol::CancelledNotificationMethod),
-      Json{{"requestId", std::int64_t{1}},
-           {"reason", "downstream cancelled"}}));
-  require(cancelled.has_value(),
-          "cancellation notifications are accepted as local no-ops in MVP");
-
-  auto progress = runtime.handle_notification(mcp::protocol::make_notification(
-      std::string(mcp::protocol::ProgressNotificationMethod),
-      Json{{"progressToken", "call-1"}, {"progress", 0.5}}));
-  require(progress.has_value(),
-          "progress notifications are accepted as local no-ops in MVP");
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesUpdatedNotificationMethod),
+       Json{{"uri", "file:///fixture/readme.txt"}}},
+      {std::string(mcp::protocol::PromptsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::RootsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::LoggingMessageNotificationMethod),
+       Json{{"level", "info"}, {"data", "gateway-log-message"}}},
+      {std::string(mcp::protocol::TasksStatusNotificationMethod),
+       Json{{"taskId", "task-1"}, {"status", "running"}}},
+      {std::string(mcp::protocol::ElicitationCompleteNotificationMethod),
+       Json{{"requestId", "elicitation-1"}, {"action", "cancel"}}},
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "downstream cancelled"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "call-1"}, {"progress", 0.5}}},
+  };
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "unsupported notifications are accepted as local no-ops in MVP");
+  }
 
   const auto during =
       require_upstream_state(runtime.upstream_states(), "notify");
@@ -1713,6 +1730,10 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
           "notification no-ops should not add prompts/listChanged");
   require(!after_capabilities.tasks.has_value(),
           "notification no-ops should not add tasks");
+  require(after_capabilities.completions.enabled,
+          "successful upstream call should allow completion advertisement "
+          "after capabilities are discovered");
+  require_mvp_server_capability_json_shape(after_capabilities, true);
 }
 
 void test_runtime_stop_waits_for_active_stdio_call() {
@@ -2183,12 +2204,26 @@ void test_hosted_gateway_http_endpoint() {
   auto notified = running_client->peer().notify_initialized();
   require(notified.has_value(), "downstream initialized notification should work");
 
-  auto unsupported_notification = running_client->peer().raw_notification(
-      mcp::protocol::make_notification(
-          std::string(mcp::protocol::ToolsListChangedNotificationMethod),
-          Json::object()));
-  require(unsupported_notification.has_value(),
-          "unsupported downstream notifications should be ignored");
+  const std::vector<std::pair<std::string, Json>> unsupported_notifications{
+      {std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesUpdatedNotificationMethod),
+       Json{{"uri", "file:///fixture/readme.txt"}}},
+      {std::string(mcp::protocol::PromptsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::RootsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::LoggingMessageNotificationMethod),
+       Json{{"level", "info"}, {"data", "gateway-log-message"}}},
+  };
+  for (const auto& [method, params] : unsupported_notifications) {
+    auto unsupported_notification = running_client->peer().raw_notification(
+        mcp::protocol::make_notification(method, params));
+    require(unsupported_notification.has_value(),
+            "unsupported downstream notifications should be ignored");
+  }
 
   auto tools = running_client->peer().list_all_tools();
   require(tools.has_value(), "downstream tools/list should succeed");

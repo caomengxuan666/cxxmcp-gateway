@@ -568,7 +568,8 @@ The current MVP baseline has verified coverage for:
    stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including unsupported request/notification
-   behavior and serialized JSON shape for non-advertised sub-capabilities.
+   behavior, unsupported notification no-op coverage, and serialized JSON shape
+   for non-advertised sub-capabilities.
 11. Completion data-plane integration: prompt completions and resource-template
     completions route through existing gateway namespaces for process stdio
     and Streamable HTTP upstreams, with hosted advertisement gated by
