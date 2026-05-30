@@ -585,7 +585,7 @@ The current MVP baseline has verified coverage for:
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
     initialize upstream capability caches without fetching catalogs or routing
     a data-plane request.
-15. Initial local Release performance baseline recorded in
+15. Current local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
 

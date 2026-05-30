@@ -4,12 +4,12 @@ This file records reproducible release-candidate evidence for the current
 library-first routing MVP. It complements the release-blocking gates in
 [`operational_gates.md`](operational_gates.md).
 
-## 2026-05-31 Routing MVP Baseline
+## 2026-05-31 Refreshed Routing MVP Baseline
 
 Gateway code commit measured:
 
 ```text
-a2bda953e64b8e76d2bf49762cdb1d15aabd3154
+6317886e7965d9e1c651929f315ed1c1967a1bcb
 ```
 
 SDK source revision:
@@ -53,10 +53,10 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list,50,42967,75973
-stdio,tools/call,50,42664,73434
-http,tools/list,50,48611,63912
-http,tools/call,50,47100,64125
+stdio,tools/list,50,39889,56601
+stdio,tools/call,50,37346,46337
+http,tools/list,50,60752,63054
+http,tools/call,50,59436,63227
 ```
 
 Notes:
@@ -67,3 +67,6 @@ Notes:
 - The initial Release perf build against the adjacent SDK install failed because
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.
+- This refreshed baseline supersedes the earlier local measurement at gateway
+  commit `a2bda953e64b8e76d2bf49762cdb1d15aabd3154` after routing/runtime test
+  and capability-advertisement changes landed in the PR branch.
