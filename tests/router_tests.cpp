@@ -46,6 +46,11 @@ int main() {
   const auto invalid = mcp::gateway::GatewayRouter::resolve_tool_name("broken");
   require(!invalid.has_value(), "invalid gateway tool name should fail");
 
+  const auto empty_id = mcp::gateway::validate_upstream_id("");
+  require(!empty_id.has_value(), "empty upstream id should fail");
+  require(empty_id.error().category == "gateway",
+          "empty upstream id validation should use gateway error category");
+
   const auto invalid_id =
       mcp::gateway::validate_upstream_id("bad/id");
   require(!invalid_id.has_value(), "path separator in upstream id should fail");

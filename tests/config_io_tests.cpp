@@ -90,6 +90,14 @@ void test_reject_invalid_config() {
   parsed = mcp::gateway::gateway_config_from_json(enabled_http_missing_uri);
   require(!parsed.has_value(), "enabled HTTP uri should be required");
 
+  const Json empty_id = Json{
+      {"upstreams",
+       Json::array({Json{{"id", ""},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(empty_id);
+  require(!parsed.has_value(), "empty upstream id should fail validation");
+
   const Json invalid_id = Json{
       {"upstreams",
        Json::array({Json{{"id", "bad/id"},
