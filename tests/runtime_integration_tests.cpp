@@ -1169,16 +1169,28 @@ void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
 void test_raw_request_routing_surface() {
   mcp::gateway::GatewayRuntime runtime(make_stdio_config());
 
+  mcp::protocol::JsonRpcRequest sdk_owned;
+  sdk_owned.method = mcp::protocol::PingMethod;
+  sdk_owned.id = std::int64_t{1};
+  auto sdk_owned_response = runtime.handle_request(sdk_owned);
+  require(!sdk_owned_response.has_value(),
+          "SDK-owned methods should remain SDK-owned/nullopt");
+
   mcp::protocol::JsonRpcRequest unsupported;
   unsupported.method = "resources/list";
-  unsupported.id = std::int64_t{1};
+  unsupported.id = std::int64_t{2};
   auto unsupported_response = runtime.handle_request(unsupported);
-  require(!unsupported_response.has_value(),
-          "unsupported methods should remain SDK-owned/nullopt");
+  require(unsupported_response.has_value(),
+          "unsupported gateway methods should respond");
+  require(unsupported_response->error.has_value(),
+          "unsupported gateway methods should error");
+  require(unsupported_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::MethodNotFound),
+          "unsupported gateway method should map to method not found");
 
   mcp::protocol::JsonRpcRequest invalid_tool_name;
   invalid_tool_name.method = mcp::protocol::ToolsCallMethod;
-  invalid_tool_name.id = std::int64_t{2};
+  invalid_tool_name.id = std::int64_t{3};
   invalid_tool_name.params = Json{{"name", "bad"}, {"arguments", Json::object()}};
   auto invalid_response = runtime.handle_request(invalid_tool_name);
   require(invalid_response.has_value(), "invalid tool call should respond");

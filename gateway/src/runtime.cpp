@@ -35,6 +35,12 @@ protocol::JsonRpcResponse error_response(const protocol::JsonRpcRequest& req,
                                              error.detail}));
 }
 
+bool sdk_owned_request_method(std::string_view method) {
+  return method == std::string_view(protocol::InitializeMethod) ||
+         method == std::string_view(protocol::PingMethod) ||
+         method == std::string_view(protocol::ServerDiscoverMethod);
+}
+
 protocol::ServerCapabilities gateway_server_capabilities(
     const GatewayConfig& config) {
   auto builder = protocol::server_capabilities();
@@ -347,7 +353,14 @@ struct GatewayRuntime::Impl final {
                                      protocol::tool_result_to_json(*result));
     }
 
-    return std::nullopt;
+    if (sdk_owned_request_method(request.method)) {
+      return std::nullopt;
+    }
+
+    return error_response(
+        request, make_gateway_error(protocol::ErrorCode::MethodNotFound,
+                                    "gateway method is not supported",
+                                    request.method));
   }
 };
 

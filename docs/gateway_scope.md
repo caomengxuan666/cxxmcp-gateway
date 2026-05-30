@@ -314,6 +314,9 @@ Not yet supported:
 The gateway must not advertise a capability until it can route that capability.
 Unsupported request methods should fail predictably instead of being partially
 proxied.
+The current runtime leaves SDK-owned lifecycle and liveness requests such as
+`initialize`, `ping`, and `server/discover` to the SDK. Other unsupported MCP
+request methods are rejected with JSON-RPC `MethodNotFound`.
 
 Capability advertisement is runtime-owned. CLI flags, GUI settings, config
 files, and control-plane state may request behavior, but they must not force
