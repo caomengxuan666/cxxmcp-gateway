@@ -334,6 +334,38 @@ void test_stdio_upstream() {
                  "runtime stop should mark upstream stopped");
 }
 
+void test_repeated_stdio_calls_to_one_upstream() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "repeat";
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+
+  auto first = runtime.call_tool("repeat.echo", Json{{"value", "first"}});
+  require(first.has_value(), "first repeated stdio call should succeed");
+  require_text_result(*first, "first");
+
+  auto first_state = require_upstream_state(runtime.upstream_states(), "repeat");
+  require(first_state.active_calls == 0,
+          "first repeated call should leave no active upstream calls");
+  require_status(first_state, UpstreamRuntimeStatus::healthy,
+                 "first repeated call should leave upstream healthy");
+  require(first_state.capabilities.has_value(),
+          "first repeated call should record upstream capabilities");
+
+  auto second = runtime.call_tool("repeat.echo", Json{{"value", "second"}});
+  require(second.has_value(), "second repeated stdio call should succeed");
+  require_text_result(*second, "second");
+
+  auto second_state = require_upstream_state(runtime.upstream_states(), "repeat");
+  require(second_state.active_calls == 0,
+          "second repeated call should leave no active upstream calls");
+  require_status(second_state, UpstreamRuntimeStatus::healthy,
+                 "second repeated call should leave upstream healthy");
+  require(second_state.capabilities.has_value(),
+          "second repeated call should retain upstream capabilities");
+  require(!second_state.last_error.has_value(),
+          "successful repeated calls should leave no upstream error");
+}
+
 void test_http_upstream() {
   constexpr auto kPort = 39947;
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -1466,6 +1498,7 @@ int main() {
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();
     test_stdio_upstream();
+    test_repeated_stdio_calls_to_one_upstream();
     test_http_upstream();
     test_http_unavailable();
     test_start_http_invalid_config_fails_before_binding_port();
