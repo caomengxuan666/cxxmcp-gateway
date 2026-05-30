@@ -15,6 +15,11 @@ endfunction()
 add_test(NAME gateway_router COMMAND cxxmcp_gateway_router_tests)
 cxxmcp_gateway_prepend_target_dir_to_test(gateway_router cxxmcp_gateway_core)
 
+add_test(NAME gateway_source_dependency_guard
+    COMMAND "${CMAKE_COMMAND}"
+        -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/source_dependency_guard.cmake")
+
 if(TARGET cxxmcp_gateway_config_io)
     add_executable(cxxmcp_gateway_config_io_tests
         config_io_tests.cpp
