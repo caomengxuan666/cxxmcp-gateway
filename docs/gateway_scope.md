@@ -326,6 +326,10 @@ proxied.
 The current runtime leaves SDK-owned lifecycle and liveness requests such as
 `initialize`, `ping`, and `server/discover` to the SDK. Other unsupported MCP
 request methods are rejected with JSON-RPC `MethodNotFound`.
+When the gateway initializes an upstream server as an MCP client, it advertises
+no optional client capabilities by default. Roots, sampling, elicitation, and
+task client capabilities must remain disabled until the gateway has explicit
+forwarding and ownership rules for those flows.
 
 Capability advertisement is runtime-owned. CLI flags, GUI settings, config
 files, and control-plane state may request behavior, but they must not force

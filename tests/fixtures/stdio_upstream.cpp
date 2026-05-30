@@ -116,6 +116,18 @@ int main(int argc, char** argv) {
         return ToolResult::text("slow-done");
       })
       .tool<Json, ToolResult>(
+          "client-capabilities",
+          [](const Json&, const mcp::server::ToolContext& context) {
+            const auto client = context.client();
+            return ToolResult::text(
+                std::string{"roots="} +
+                (client.supports_roots() ? "1" : "0") + ";sampling=" +
+                (client.supports_sampling_tools() ? "1" : "0") +
+                ";elicitation=" +
+                (client.supports_elicitation() ? "1" : "0") + ";tasks=" +
+                (client.supports_tasks() ? "1" : "0"));
+          })
+      .tool<Json, ToolResult>(
           "fail", [](const Json&) -> mcp::core::Result<ToolResult> {
             return mcp::core::unexpected(mcp::core::Error{
                 static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),

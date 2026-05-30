@@ -865,6 +865,22 @@ void test_stdio_upstream() {
                  "runtime stop should mark upstream stopped");
 }
 
+void test_upstream_client_capabilities_are_minimal() {
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+
+  auto result =
+      runtime.call_tool("stdio.client-capabilities", Json::object());
+  require(result.has_value(),
+          "upstream client capability inspection should succeed");
+  require_text_result(*result, "roots=0;sampling=0;elicitation=0;tasks=0");
+
+  const auto state = require_upstream_state(runtime.upstream_states(), "stdio");
+  require(state.capabilities.has_value(),
+          "client capability inspection should record upstream capabilities");
+  require(state.active_calls == 0,
+          "client capability inspection should not leave active calls");
+}
+
 void test_capability_advertisement_uses_initialized_upstream_cache() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "tools_only";
@@ -2855,6 +2871,7 @@ int main() {
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();
     test_stdio_upstream();
+    test_upstream_client_capabilities_are_minimal();
     test_capability_advertisement_uses_initialized_upstream_cache();
     test_hosted_capability_advertisement_uses_refresh_cache();
     test_completion_routes_to_stdio_upstream();

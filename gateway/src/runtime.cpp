@@ -120,6 +120,7 @@ protocol::ServerCapabilities gateway_server_capabilities(
 
 core::Result<ClientPeer> build_client_peer(const UpstreamServer& upstream) {
   auto builder = ClientPeer::builder();
+  builder.capabilities(protocol::client_capabilities().build());
   switch (upstream.transport) {
     case UpstreamTransportKind::process_stdio: {
       client::Client::StdioEndpoint endpoint;

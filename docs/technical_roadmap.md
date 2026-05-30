@@ -276,6 +276,9 @@ behavior, current gateway implementation, upstream initialization results, and
 namespace/routing reachability. CLI, GUI, config files, and control-plane state
 may request capabilities, but they must not force unsupported capabilities into
 the downstream MCP advertisement.
+Upstream client initialization must follow the same boundary: the gateway must
+not advertise optional client capabilities such as roots, sampling, elicitation,
+or tasks until those flows have explicit forwarding and ownership semantics.
 
 Required tests:
 
