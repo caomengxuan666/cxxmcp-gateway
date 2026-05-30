@@ -54,6 +54,7 @@ protocol::ServerCapabilities gateway_server_capabilities(
   if (has_enabled_upstream) {
     builder.tools(false);
     builder.resources(false, false);
+    builder.prompts(false);
   }
   return builder.build();
 }
@@ -395,6 +396,65 @@ struct GatewayRuntime::Impl final {
         });
   }
 
+  core::Result<std::vector<protocol::Prompt>> list_prompts() {
+    auto accepting = ensure_runtime_accepting("prompts/list");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    std::vector<UpstreamPromptCatalog> catalogs;
+
+    for (const auto& upstream : router.config().upstreams) {
+      if (!upstream.enabled) {
+        continue;
+      }
+
+      auto prompts = with_initialized_upstream<
+          std::vector<protocol::Prompt>>(
+          upstream, [](ClientPeer& peer) { return peer.list_all_prompts(); });
+      if (!prompts) {
+        return mcp::core::unexpected(prompts.error());
+      }
+      catalogs.push_back(UpstreamPromptCatalog{
+          .upstream_id = upstream.id,
+          .prompts = std::move(*prompts),
+      });
+    }
+
+    return merge_prompt_catalogs(catalogs);
+  }
+
+  core::Result<protocol::PromptsGetResult> get_prompt(
+      std::string_view exposed_name, protocol::Json arguments) {
+    auto accepting = ensure_runtime_accepting("prompts/get");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    auto route = router.resolve_prompt_route(exposed_name);
+    if (!route) {
+      return mcp::core::unexpected(route.error());
+    }
+
+    protocol::PromptsGetParams request;
+    request.name = route->upstream_prompt_name;
+    request.arguments = std::move(arguments);
+
+    return with_initialized_upstream<protocol::PromptsGetResult>(
+        *route->upstream,
+        [&](ClientPeer& peer) { return peer.get_prompt(request); });
+  }
+
   std::optional<protocol::JsonRpcResponse> handle_request(
       const protocol::JsonRpcRequest& request) {
     if (request.method == protocol::ToolsListMethod) {
@@ -443,6 +503,30 @@ struct GatewayRuntime::Impl final {
       }
       return protocol::make_response(
           request.id, protocol::resources_read_result_to_json(*result));
+    }
+
+    if (request.method == protocol::PromptsListMethod) {
+      auto prompts = list_prompts();
+      if (!prompts) {
+        return error_response(request, prompts.error());
+      }
+      protocol::PromptsListResult result;
+      result.prompts = std::move(*prompts);
+      return protocol::make_response(
+          request.id, protocol::prompts_list_result_to_json(result));
+    }
+
+    if (request.method == protocol::PromptsGetMethod) {
+      auto get = protocol::prompts_get_params_from_json(request.params);
+      if (!get) {
+        return error_response(request, get.error());
+      }
+      auto result = get_prompt(get->name, std::move(get->arguments));
+      if (!result) {
+        return error_response(request, result.error());
+      }
+      return protocol::make_response(
+          request.id, protocol::prompts_get_result_to_json(*result));
     }
 
     if (sdk_owned_request_method(request.method)) {
@@ -499,6 +583,15 @@ GatewayRuntime::list_resources() {
 core::Result<protocol::ResourcesReadResult> GatewayRuntime::read_resource(
     std::string_view exposed_uri) {
   return impl_->read_resource(exposed_uri);
+}
+
+core::Result<std::vector<protocol::Prompt>> GatewayRuntime::list_prompts() {
+  return impl_->list_prompts();
+}
+
+core::Result<protocol::PromptsGetResult> GatewayRuntime::get_prompt(
+    std::string_view exposed_name, protocol::Json arguments) {
+  return impl_->get_prompt(exposed_name, std::move(arguments));
 }
 
 core::Result<core::Unit> GatewayRuntime::handle_notification(

@@ -300,11 +300,16 @@ Current MVP:
 
 - `tools/list`: aggregated from enabled upstreams.
 - `tools/call`: routed by exposed tool name.
+- `resources/list`: aggregated from enabled upstreams with gateway-owned
+  resource URIs.
+- `resources/read`: routed by gateway resource URI.
+- `prompts/list`: aggregated from enabled upstreams.
+- `prompts/get`: routed by exposed prompt name.
 
 Not yet supported:
 
-- resources;
-- prompts;
+- resource templates, subscriptions, and change notifications;
+- prompt list-change notifications;
 - tasks;
 - completion;
 - mutation workflows;
@@ -325,7 +330,9 @@ unsupported or unreachable capabilities into downstream MCP advertisement.
 The current runtime advertises the tools capability only when at least one
 upstream is enabled and the runtime can route `tools/list` and `tools/call`
 requests. A gateway instance with no enabled upstreams does not advertise tools.
-Resources, prompts, tasks, completion, progress, and cancellation remain
+Resources and prompts follow the same runtime-owned rule for their implemented
+list/read or list/get data-plane methods. Resource templates, prompt/resource
+list-change notifications, tasks, completion, progress, and cancellation remain
 unadvertised until their routing behavior is implemented.
 
 Embedded hosts can inspect the same runtime-owned advertisement decision through
@@ -374,9 +381,19 @@ Resource templates, subscriptions, `resources/list_changed`, and
 They require separate ownership and notification rules before those resource
 sub-capabilities can be advertised.
 
-Future prompt names, subscriptions, and long-running task ids may need their
-own namespace or metadata rules. They must be defined separately before those
-capability families are advertised.
+Prompt names use an explicit prompt namespace of `<upstream>.<prompt>`, with
+the same upstream id grammar as tools. Prompt names after the first `.` are
+preserved as upstream prompt names and `_meta.gateway.upstreamPromptName` when
+prompt catalogs are merged. `prompts/list` aggregates enabled upstream prompt
+catalogs with the same fail-fast policy as `tools/list`. `prompts/get` routes by
+exposed prompt name and forwards arguments unchanged. Missing or disabled
+gateway upstreams map to `InvalidParams` because the SDK protocol surface has no
+standard prompt-not-found error code. `prompts/list_changed` forwarding is not
+part of this contract yet.
+
+Future subscriptions and long-running task ids may need their own namespace or
+metadata rules. They must be defined separately before those capability
+families are advertised.
 
 ## Session and Notification Semantics
 
@@ -566,10 +583,12 @@ The gateway should not be considered mature until these paths are covered:
    - static linking;
    - Windows, Linux, and macOS.
 
-8. Future MCP capabilities
+8. Additional MCP capabilities
 
-   Resources, prompts, tasks, and other MCP capabilities should be added
-   incrementally after the tool path is validated.
+   Routed resource and prompt list/read or list/get flows are part of the
+   current MVP. Resource templates, subscriptions, tasks, completion, and other
+   MCP capabilities should be added incrementally only after their namespace,
+   advertisement, notification behavior, and integration tests are specified.
 
 ## Design Rule
 

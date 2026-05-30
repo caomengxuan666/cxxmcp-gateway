@@ -259,7 +259,9 @@ Supported MCP method matrix for Phase 1:
 | `resources/list` | Aggregated from enabled upstreams with gateway-owned resource URIs |
 | `resources/read` | Routed by gateway resource URI |
 | resource templates/subscriptions/listChanged | Not advertised and not forwarded in MVP |
-| prompts | Not advertised |
+| `prompts/list` | Aggregated from enabled upstreams |
+| `prompts/get` | Routed by exposed prompt name |
+| `notifications/prompts/list_changed` | Not advertised and not forwarded in MVP |
 | tasks | Not advertised unless SDK and gateway routing support exist |
 | completion | Not advertised |
 | progress/cancellation | Not forwarded in MVP |
@@ -335,8 +337,8 @@ Goal: extend beyond tools without weakening tool-path correctness.
 
 Candidate capabilities:
 
-- resources;
-- prompts;
+- resource templates, subscriptions, and change notifications;
+- prompt list-change notifications;
 - tasks, if supported by the SDK surface;
 - completion or other MCP capabilities when SDK support is mature.
 
@@ -386,6 +388,23 @@ Current resource routing baseline:
 - resource templates, subscriptions, and resource change notifications remain
   out of scope until their ownership and routing rules are specified, so
   `resources/listChanged` and `subscribe` are not advertised.
+
+Current prompt routing design:
+
+- prompt list/get uses exposed prompt names of the form
+  `<upstream>.<prompt>`, with the same upstream id grammar as tools;
+- prompt names after the first `.` are preserved as upstream prompt names;
+- prompt catalog merging preserves upstream prompt metadata and adds
+  `_meta.gateway.upstreamId` plus `_meta.gateway.upstreamPromptName`;
+- `prompts/list` uses the same fail-fast upstream policy as `tools/list`;
+- `prompts/get` routes by exposed prompt name and forwards arguments
+  unchanged;
+- missing or disabled gateway upstreams map to `InvalidParams` because the
+  current SDK protocol surface has no standard prompt-not-found error code;
+- runtime advertises `prompts` only when the config is valid and at least one
+  upstream is enabled;
+- prompt list-change notifications remain out of scope, so
+  `prompts/listChanged` is not advertised.
 
 Exit criteria:
 
@@ -504,16 +523,24 @@ The current MVP baseline has verified coverage for:
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
    upstream responses, and upstream-returned MCP errors.
-5. Gateway error mapping for routing, transport, timeout, protocol, and
+5. Resource data-plane integration: process stdio upstreams, Streamable HTTP
+   upstreams, multiple upstreams, gateway-owned resource URI routing, fail-fast
+   resource catalogs, unknown or disabled upstreams, and upstream-returned MCP
+   errors.
+6. Prompt data-plane integration: process stdio upstreams, Streamable HTTP
+   upstreams, multiple upstreams, exposed prompt-name routing, fail-fast prompt
+   catalogs, unknown or disabled upstreams, and upstream-returned MCP errors.
+7. Gateway error mapping for routing, transport, timeout, protocol, and
    upstream MCP failures.
-6. Runtime lifecycle decision: explicit per-call upstream sessions, with
+8. Runtime lifecycle decision: explicit per-call upstream sessions, with
    initialized upstream capabilities recorded in runtime state.
-7. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
+9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
    to one upstream, concurrent calls to multiple upstreams, idle shutdown,
    active-call shutdown, and stdio child cleanup on stop.
-8. Supported method and capability advertisement matrix for the tools-only MVP,
-   including unsupported request/notification behavior.
-9. Optional performance measurement tooling for stdio/HTTP `tools/list` and
+10. Supported method and capability advertisement matrix for the routed tools,
+   resources, and prompts MVP, including unsupported request/notification
+   behavior.
+11. Optional performance measurement tooling for stdio/HTTP `tools/list` and
    `tools/call`, excluded from the default build and release-blocking CI.
 
 ## Remaining Near-Term Backlog

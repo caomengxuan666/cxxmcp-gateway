@@ -34,6 +34,8 @@
 namespace {
 
 using Json = mcp::protocol::Json;
+using Prompt = mcp::protocol::Prompt;
+using PromptsGetResult = mcp::protocol::PromptsGetResult;
 using Resource = mcp::protocol::Resource;
 using ResourcesReadResult = mcp::protocol::ResourcesReadResult;
 using ToolDefinition = mcp::protocol::ToolDefinition;
@@ -169,6 +171,12 @@ bool has_resource(const std::vector<Resource>& resources,
   });
 }
 
+bool has_prompt(const std::vector<Prompt>& prompts, std::string_view name) {
+  return std::any_of(prompts.begin(), prompts.end(), [&](const auto& prompt) {
+    return prompt.name == name;
+  });
+}
+
 const ToolDefinition& require_tool(const std::vector<ToolDefinition>& tools,
                                    std::string_view name) {
   const auto it = std::find_if(tools.begin(), tools.end(), [&](const auto& tool) {
@@ -188,6 +196,18 @@ const Resource& require_resource(const std::vector<Resource>& resources,
       });
   if (it == resources.end()) {
     throw std::runtime_error("missing resource " + std::string(uri));
+  }
+  return *it;
+}
+
+const Prompt& require_prompt(const std::vector<Prompt>& prompts,
+                             std::string_view name) {
+  const auto it =
+      std::find_if(prompts.begin(), prompts.end(), [&](const auto& prompt) {
+        return prompt.name == name;
+      });
+  if (it == prompts.end()) {
+    throw std::runtime_error("missing prompt " + std::string(name));
   }
   return *it;
 }
@@ -231,6 +251,17 @@ void require_text_resource(const ResourcesReadResult& result,
           "resource read content should be text");
   require(*result.contents.front().text == text,
           "resource read text mismatch");
+}
+
+void require_text_prompt(const PromptsGetResult& result,
+                         std::string_view text) {
+  require(!result.messages.empty(), "prompt get should include messages");
+  require(result.messages.front().role == "user",
+          "prompt message role mismatch");
+  require(result.messages.front().content.type == "text",
+          "prompt message should be text");
+  require(result.messages.front().content.text == text,
+          "prompt message text mismatch");
 }
 
 void require_gateway_upstream_error(const mcp::core::Error& error,
@@ -300,6 +331,11 @@ void test_disabled_upstream() {
           "disabled upstream resource list should still succeed");
   require(resources->empty(), "disabled upstream should not expose resources");
 
+  auto prompts = runtime.list_prompts();
+  require(prompts.has_value(),
+          "disabled upstream prompt list should still succeed");
+  require(prompts->empty(), "disabled upstream should not expose prompts");
+
   auto called = runtime.call_tool("disabled.echo", Json::object());
   require(!called.has_value(), "disabled upstream call should fail");
   require(called.error().code ==
@@ -322,6 +358,17 @@ void test_disabled_upstream() {
           "disabled resource upstream should report stable routing error");
   require(read.error().detail == "disabled",
           "disabled resource error should preserve upstream id context");
+
+  auto prompt =
+      runtime.get_prompt("disabled.summarize", Json{{"text", "ignored"}});
+  require(!prompt.has_value(), "disabled upstream prompt get should fail");
+  require(prompt.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "disabled upstream prompt should map to invalid params");
+  require(prompt.error().message == "gateway upstream is disabled",
+          "disabled prompt upstream should report stable routing error");
+  require(prompt.error().detail == "disabled",
+          "disabled prompt error should preserve upstream id context");
 }
 
 void test_invalid_config_advertises_no_tools() {
@@ -361,6 +408,11 @@ void test_stdio_process_start_failure() {
   require(!resources.has_value(),
           "missing stdio process should fail resources/list");
   require_gateway_upstream_error(resources.error(), "missing");
+
+  auto prompts = runtime.list_prompts();
+  require(!prompts.has_value(),
+          "missing stdio process should fail prompts/list");
+  require_gateway_upstream_error(prompts.error(), "missing");
 
   const auto& state = require_upstream_state(runtime.upstream_states(), "missing");
   require_status(state, UpstreamRuntimeStatus::degraded,
@@ -436,6 +488,39 @@ void test_resources_list_fail_fast_after_partial_success() {
           "resources/list");
 }
 
+void test_prompts_list_fail_fast_after_partial_success() {
+  auto config = make_stdio_config();
+
+  mcp::gateway::UpstreamServer missing;
+  missing.id = "missing";
+  missing.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+  missing.process_stdio.command =
+      "cxxmcp-gateway-definitely-missing-upstream-executable";
+  config.upstreams.push_back(std::move(missing));
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto prompts = runtime.list_prompts();
+  require(!prompts.has_value(),
+          "prompts/list should fail fast when any enabled upstream fails");
+  require_gateway_upstream_error(prompts.error(), "missing");
+
+  const auto states = runtime.upstream_states();
+  const auto stdio = require_upstream_state(states, "stdio");
+  require_status(stdio, UpstreamRuntimeStatus::healthy,
+                 "successful upstream should keep healthy state after "
+                 "fail-fast prompts/list");
+  require(stdio.capabilities.has_value(),
+          "successful prompt upstream should retain initialized capabilities");
+
+  const auto failed = require_upstream_state(states, "missing");
+  require_status(failed, UpstreamRuntimeStatus::degraded,
+                 "failing upstream should be degraded after fail-fast "
+                 "prompts/list");
+  require(failed.last_error.has_value(),
+          "failing upstream should retain last error after fail-fast "
+          "prompts/list");
+}
+
 void test_stdio_process_exit_before_initialize() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "exit";
@@ -481,8 +566,10 @@ void test_stdio_upstream() {
           "runtime should not advertise resources/listChanged");
   require(!capabilities.resources.subscribe,
           "runtime should not advertise resource subscriptions");
-  require(!capabilities.prompts.enabled,
-          "runtime should not advertise prompts");
+  require(capabilities.prompts.enabled,
+          "runtime with enabled upstream should advertise prompts");
+  require(!capabilities.prompts.list_changed,
+          "runtime should not advertise prompts/listChanged");
   require(!capabilities.tasks.has_value(),
           "runtime should not advertise tasks");
 
@@ -554,6 +641,35 @@ void test_stdio_upstream() {
   require_text_resource(*read, stdio_resource_uri,
                         "hello from stdio resource");
 
+  auto prompts = runtime.list_prompts();
+  require(prompts.has_value(), "stdio prompts/list should succeed");
+  require(has_prompt(*prompts, "stdio.summarize"),
+          "stdio prompt should be exposed");
+  const auto& summary = require_prompt(*prompts, "stdio.summarize");
+  require(summary.title == "Fixture Summary",
+          "stdio prompt title should be preserved");
+  require(summary.description == "Summarize fixture text",
+          "stdio prompt description should be preserved");
+  require(!summary.arguments.empty(),
+          "stdio prompt arguments should be preserved");
+  require(summary.arguments.front().name == "text",
+          "stdio prompt argument name should be preserved");
+  require(summary.meta.has_value(), "stdio prompt metadata should be present");
+  require(summary.meta->at("fixture") == "stdio",
+          "stdio prompt upstream metadata should be preserved");
+  require(summary.meta->at("gateway").at("upstreamId") == "stdio",
+          "stdio prompt metadata should include gateway upstream id");
+  require(summary.meta->at("gateway").at("upstreamPromptName") ==
+              "summarize",
+          "stdio prompt metadata should include upstream prompt name");
+
+  auto prompt =
+      runtime.get_prompt("stdio.summarize", Json{{"text", "from-stdio"}});
+  require(prompt.has_value(), "stdio prompts/get should succeed");
+  require(prompt->description == "Summarize fixture text",
+          "stdio prompt description should be returned");
+  require_text_prompt(*prompt, "Summarize from-stdio");
+
   auto unknown = runtime.call_tool("missing.echo", Json::object());
   require(!unknown.has_value(), "unknown upstream should fail");
   require(unknown.error().code ==
@@ -614,6 +730,30 @@ void test_stdio_upstream() {
           "upstream resource MCP error detail should be preserved");
   require_gateway_upstream_error(resource_error.error(), "stdio");
 
+  auto missing_prompt =
+      runtime.get_prompt("missing.summarize", Json{{"text", "ignored"}});
+  require(!missing_prompt.has_value(), "unknown upstream prompt should fail");
+  require(missing_prompt.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "unknown upstream prompt should map to invalid params");
+  require(missing_prompt.error().message == "gateway upstream not found",
+          "unknown prompt upstream should report stable routing error");
+  require(missing_prompt.error().detail == "missing",
+          "unknown prompt upstream error should preserve upstream id");
+
+  auto prompt_error =
+      runtime.get_prompt("stdio.fail-prompt", Json::object());
+  require(!prompt_error.has_value(), "upstream prompt MCP error should fail");
+  require(prompt_error.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "upstream prompt MCP error code should be preserved");
+  require(prompt_error.error().message == "prompt denied",
+          "upstream prompt MCP error message should be preserved");
+  require(prompt_error.error().detail.find("prompt detail") !=
+              std::string::npos,
+          "upstream prompt MCP error detail should be preserved");
+  require_gateway_upstream_error(prompt_error.error(), "stdio");
+
   auto stopped = runtime.stop();
   require(stopped.has_value(), "runtime stop should succeed without endpoint");
   const auto& stopped_state =
@@ -672,6 +812,31 @@ void test_http_upstream() {
                               input.value("sleepMs", 300)});
                       return ToolResult::text("slow-done");
                     })
+                    .prompt(mcp::protocol::Prompt{
+                                .title = "HTTP Summary",
+                                .name = "summarize",
+                                .description = "Summarize HTTP text",
+                                .arguments =
+                                    {
+                                        mcp::protocol::PromptArgument{
+                                            .name = "text",
+                                            .description = "Text to summarize",
+                                            .required = true,
+                                            .required_present = true,
+                                        },
+                                    },
+                            },
+                            [](const mcp::server::PromptContext& context) {
+                              mcp::protocol::PromptsGetResult result;
+                              result.description = "Summarize HTTP text";
+                              result.messages.push_back(
+                                  mcp::protocol::PromptMessage::text(
+                                      "user",
+                                      "HTTP summarize " +
+                                          context.arguments.value(
+                                              "text", std::string{})));
+                              return result;
+                            })
                     .resource(mcp::protocol::Resource{
                                   .title = "HTTP Readme",
                                   .uri = "file:///http/readme.txt",
@@ -726,6 +891,15 @@ void test_http_upstream() {
   require_text_resource(*read, http_resource_uri,
                         "hello from http resource");
 
+  auto prompts = runtime.list_prompts();
+  require(prompts.has_value(), "http prompts/list should succeed");
+  require(has_prompt(*prompts, "http.summarize"),
+          "http prompt should be exposed");
+  auto prompt =
+      runtime.get_prompt("http.summarize", Json{{"text", "from-http"}});
+  require(prompt.has_value(), "http prompts/get should succeed");
+  require_text_prompt(*prompt, "HTTP summarize from-http");
+
   auto multi_config = make_stdio_config();
   mcp::gateway::UpstreamServer second;
   second.id = "http";
@@ -748,6 +922,13 @@ void test_http_upstream() {
           "multi-upstream resource list should include stdio resource");
   require(has_resource(*multi_resources, http_resource_uri),
           "multi-upstream resource list should include http resource");
+  auto multi_prompts = multi_runtime.list_prompts();
+  require(multi_prompts.has_value(),
+          "multi-upstream prompts/list should succeed");
+  require(has_prompt(*multi_prompts, "stdio.summarize"),
+          "multi-upstream prompt list should include stdio prompt");
+  require(has_prompt(*multi_prompts, "http.summarize"),
+          "multi-upstream prompt list should include http prompt");
 
   const auto stopped = running->stop();
   require(stopped.has_value(), "http fixture server should stop");
@@ -937,8 +1118,10 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
   require(!before_capabilities.resources.subscribe,
           "notification no-op test should not advertise resource "
           "subscriptions");
-  require(!before_capabilities.prompts.enabled,
-          "notification no-op test should not advertise prompts");
+  require(before_capabilities.prompts.enabled,
+          "notification no-op test should keep prompts advertised");
+  require(!before_capabilities.prompts.list_changed,
+          "notification no-op test should not advertise prompts/listChanged");
   require(!before_capabilities.tasks.has_value(),
           "notification no-op test should not advertise tasks");
 
@@ -1008,8 +1191,10 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
           "notification no-ops should not add resources/listChanged");
   require(!after_capabilities.resources.subscribe,
           "notification no-ops should not add resource subscriptions");
-  require(!after_capabilities.prompts.enabled,
-          "notification no-ops should not add prompts");
+  require(after_capabilities.prompts.enabled,
+          "notification no-ops should keep prompts advertised");
+  require(!after_capabilities.prompts.list_changed,
+          "notification no-ops should not add prompts/listChanged");
   require(!after_capabilities.tasks.has_value(),
           "notification no-ops should not add tasks");
 }
@@ -1470,8 +1655,10 @@ void test_hosted_gateway_http_endpoint() {
           "gateway should not advertise resources/listChanged");
   require(!capabilities->resources.subscribe,
           "gateway should not advertise resource subscriptions");
-  require(!capabilities->prompts.enabled,
-          "gateway should not advertise prompts");
+  require(capabilities->prompts.enabled,
+          "gateway should advertise prompts");
+  require(!capabilities->prompts.list_changed,
+          "gateway should not advertise prompts/listChanged");
   require(!capabilities->tasks.has_value(),
           "gateway should not advertise tasks");
 
@@ -1506,6 +1693,15 @@ void test_hosted_gateway_http_endpoint() {
   require(read.has_value(), "downstream resources/read should route");
   require_text_resource(*read, downstream_resource_uri,
                         "hello from stdio resource");
+
+  auto prompts = running_client->peer().list_all_prompts();
+  require(prompts.has_value(), "downstream prompts/list should succeed");
+  require(has_prompt(*prompts, "stdio.summarize"),
+          "downstream prompts/list should include routed stdio prompt");
+  auto prompt = running_client->peer().get_prompt(
+      "stdio.summarize", Json{{"text", "from-downstream"}});
+  require(prompt.has_value(), "downstream prompts/get should route");
+  require_text_prompt(*prompt, "Summarize from-downstream");
 
   auto stopped_client = running_client->stop();
   require(stopped_client.has_value(), "downstream client should stop");
@@ -1778,8 +1974,10 @@ void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
           "hosted notification no-ops should not add resources/listChanged");
   require(!capabilities.resources.subscribe,
           "hosted notification no-ops should not add resource subscriptions");
-  require(!capabilities.prompts.enabled,
-          "hosted notification no-ops should not add prompts");
+  require(capabilities.prompts.enabled,
+          "hosted notification no-ops should keep prompts advertised");
+  require(!capabilities.prompts.list_changed,
+          "hosted notification no-ops should not add prompts/listChanged");
   require(!capabilities.tasks.has_value(),
           "hosted notification no-ops should not add tasks");
 
@@ -1902,7 +2100,7 @@ void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
   require(!capabilities->resources.enabled,
           "gateway should not advertise resources without enabled upstreams");
   require(!capabilities->prompts.enabled,
-          "gateway should not advertise prompts without routing support");
+          "gateway should not advertise prompts without enabled upstreams");
   require(!capabilities->tasks.has_value(),
           "gateway should not advertise tasks without routing support");
 
@@ -1938,7 +2136,7 @@ void test_raw_request_routing_surface() {
           "repeated initialize should remain SDK-owned/nullopt");
 
   const std::vector<std::string> unsupported_methods{
-      "prompts/list", "tasks/list", "completion/complete"};
+      "tasks/list", "completion/complete"};
   for (std::size_t i = 0; i < unsupported_methods.size(); ++i) {
     mcp::protocol::JsonRpcRequest unsupported;
     unsupported.method = unsupported_methods[i];
@@ -2075,6 +2273,68 @@ void test_raw_request_routing_surface() {
   require(invalid_resource_uri_response->error->code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
           "invalid gateway resource URI should map to invalid params");
+
+  mcp::protocol::JsonRpcRequest prompt_list;
+  prompt_list.method = mcp::protocol::PromptsListMethod;
+  prompt_list.id = std::int64_t{10};
+  prompt_list.params = Json::object();
+  auto prompt_list_response = runtime.handle_request(prompt_list);
+  require(prompt_list_response.has_value(),
+          "prompts/list raw request should respond");
+  require(prompt_list_response->result.has_value(),
+          "prompts/list raw request should succeed");
+  const auto parsed_prompts = mcp::protocol::prompts_list_result_from_json(
+      *prompt_list_response->result);
+  require(parsed_prompts.has_value(),
+          "prompts/list raw response should parse");
+  require(has_prompt(parsed_prompts->prompts, "stdio.summarize"),
+          "prompts/list raw response should include routed prompt");
+
+  mcp::protocol::JsonRpcRequest prompt_get;
+  prompt_get.method = mcp::protocol::PromptsGetMethod;
+  prompt_get.id = std::int64_t{11};
+  prompt_get.params =
+      Json{{"name", "stdio.summarize"},
+           {"arguments", Json{{"text", "from-raw"}}}};
+  auto prompt_get_response = runtime.handle_request(prompt_get);
+  require(prompt_get_response.has_value(),
+          "prompts/get raw request should respond");
+  require(prompt_get_response->result.has_value(),
+          "prompts/get raw request should succeed");
+  const auto parsed_prompt = mcp::protocol::prompts_get_result_from_json(
+      *prompt_get_response->result);
+  require(parsed_prompt.has_value(),
+          "prompts/get raw response should parse");
+  require_text_prompt(*parsed_prompt, "Summarize from-raw");
+
+  mcp::protocol::JsonRpcRequest invalid_prompt_params;
+  invalid_prompt_params.method = mcp::protocol::PromptsGetMethod;
+  invalid_prompt_params.id = std::int64_t{12};
+  invalid_prompt_params.params = Json{{"name", Json::array()}};
+  auto invalid_prompt_response =
+      runtime.handle_request(invalid_prompt_params);
+  require(invalid_prompt_response.has_value(),
+          "invalid prompts/get should respond");
+  require(invalid_prompt_response->error.has_value(),
+          "invalid prompts/get should error");
+  require(invalid_prompt_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "invalid prompts/get params should map to invalid request");
+
+  mcp::protocol::JsonRpcRequest invalid_prompt_name;
+  invalid_prompt_name.method = mcp::protocol::PromptsGetMethod;
+  invalid_prompt_name.id = std::int64_t{13};
+  invalid_prompt_name.params =
+      Json{{"name", "bad"}, {"arguments", Json::object()}};
+  auto invalid_prompt_name_response =
+      runtime.handle_request(invalid_prompt_name);
+  require(invalid_prompt_name_response.has_value(),
+          "invalid gateway prompt name should respond");
+  require(invalid_prompt_name_response->error.has_value(),
+          "invalid gateway prompt name should error");
+  require(invalid_prompt_name_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "invalid gateway prompt name should map to invalid params");
 }
 
 }  // namespace
@@ -2086,6 +2346,7 @@ int main() {
     test_stdio_process_start_failure();
     test_tools_list_fail_fast_after_partial_success();
     test_resources_list_fail_fast_after_partial_success();
+    test_prompts_list_fail_fast_after_partial_success();
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();
     test_stdio_upstream();

@@ -106,4 +106,51 @@ core::Result<std::vector<protocol::Resource>> merge_resource_catalogs(
   return exposed;
 }
 
+core::Result<std::vector<protocol::Prompt>> merge_prompt_catalogs(
+    const std::vector<UpstreamPromptCatalog>& catalogs) {
+  std::vector<protocol::Prompt> exposed;
+  std::unordered_set<std::string> exposed_names;
+
+  for (const auto& catalog : catalogs) {
+    auto valid_id = validate_upstream_id(catalog.upstream_id);
+    if (!valid_id) {
+      return mcp::core::unexpected(valid_id.error());
+    }
+
+    for (auto prompt : catalog.prompts) {
+      const auto upstream_name = prompt.name;
+      if (upstream_name.empty()) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "upstream prompt name must not be empty", catalog.upstream_id));
+      }
+
+      prompt.name =
+          GatewayRouter::expose_prompt_name(catalog.upstream_id, upstream_name);
+      if (!exposed_names.insert(prompt.name).second) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "duplicate exposed gateway prompt name", prompt.name));
+      }
+
+      protocol::Json meta =
+          prompt.meta.has_value() && prompt.meta->is_object()
+              ? *prompt.meta
+              : protocol::Json::object();
+      meta["gateway"] = protocol::Json{
+          {"upstreamId", catalog.upstream_id},
+          {"upstreamPromptName", upstream_name},
+      };
+      prompt.meta = std::move(meta);
+      exposed.push_back(std::move(prompt));
+    }
+  }
+
+  std::sort(exposed.begin(), exposed.end(), [](const auto& lhs,
+                                               const auto& rhs) {
+    return lhs.name < rhs.name;
+  });
+  return exposed;
+}
+
 }  // namespace mcp::gateway

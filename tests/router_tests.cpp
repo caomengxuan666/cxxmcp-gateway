@@ -9,6 +9,7 @@
 #include "cxxmcp/gateway/catalog.hpp"
 #include "cxxmcp/gateway/error.hpp"
 #include "cxxmcp/gateway/router.hpp"
+#include "cxxmcp/protocol/prompt.hpp"
 #include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/types.hpp"
 #include "cxxmcp/protocol/tool.hpp"
@@ -46,6 +47,23 @@ int main() {
 
   const auto invalid = mcp::gateway::GatewayRouter::resolve_tool_name("broken");
   require(!invalid.has_value(), "invalid gateway tool name should fail");
+
+  const auto exposed_prompt =
+      mcp::gateway::GatewayRouter::expose_prompt_name("fs", "summarize");
+  require(exposed_prompt == "fs.summarize",
+          "exposed prompt name mismatch");
+  const auto resolved_prompt =
+      mcp::gateway::GatewayRouter::resolve_prompt_name("fs.summarize");
+  require(resolved_prompt.has_value(),
+          "valid gateway prompt name should resolve");
+  require(resolved_prompt->upstream_id == "fs",
+          "prompt upstream id mismatch");
+  require(resolved_prompt->upstream_prompt_name == "summarize",
+          "upstream prompt name mismatch");
+  const auto invalid_prompt =
+      mcp::gateway::GatewayRouter::resolve_prompt_name("broken");
+  require(!invalid_prompt.has_value(),
+          "invalid gateway prompt name should fail");
 
   const auto exposed_resource = mcp::gateway::GatewayRouter::expose_resource_uri(
       "fs:local", "file:///tmp/a b.txt?x=1#frag");
@@ -127,6 +145,10 @@ int main() {
   mcp::gateway::GatewayRouter disabled_router(std::move(disabled_config));
   const auto disabled_route = disabled_router.resolve_tool_route("fs.read_file");
   require(!disabled_route.has_value(), "disabled upstream route should fail");
+  const auto disabled_prompt_route =
+      disabled_router.resolve_prompt_route("fs.summarize");
+  require(!disabled_prompt_route.has_value(),
+          "disabled prompt route should fail");
 
   mcp::protocol::ToolDefinition read_file;
   read_file.name = "read_file";
@@ -220,6 +242,49 @@ int main() {
       }});
   require(!empty_resource_uri.has_value(),
           "catalog merge should reject empty upstream resource URIs");
+
+  mcp::protocol::Prompt summarize;
+  summarize.name = "summarize";
+  summarize.meta = mcp::protocol::Json{{"existing", true}};
+  mcp::protocol::Prompt rewrite;
+  rewrite.name = "rewrite";
+
+  const auto merged_prompts = mcp::gateway::merge_prompt_catalogs(
+      {mcp::gateway::UpstreamPromptCatalog{
+          .upstream_id = "fs",
+          .prompts = {rewrite, summarize},
+      }});
+  require(merged_prompts.has_value(), "prompt catalog merge should succeed");
+  require(merged_prompts->size() == 2, "prompt catalog merge size mismatch");
+  require((*merged_prompts)[0].name == "fs.rewrite",
+          "prompt catalog merge should sort exposed names");
+  require((*merged_prompts)[1].meta.has_value(),
+          "prompt catalog merge should attach metadata");
+  require((*merged_prompts)[1].meta->at("existing").get<bool>(),
+          "prompt catalog merge should preserve existing metadata");
+  require((*merged_prompts)[1].meta->at("gateway").at("upstreamId") == "fs",
+          "prompt catalog merge should include upstream id metadata");
+  require((*merged_prompts)[1]
+              .meta->at("gateway")
+              .at("upstreamPromptName") == "summarize",
+          "prompt catalog merge should include upstream prompt name metadata");
+
+  const auto duplicate_prompts = mcp::gateway::merge_prompt_catalogs(
+      {mcp::gateway::UpstreamPromptCatalog{
+          .upstream_id = "fs",
+          .prompts = {summarize, summarize},
+      }});
+  require(!duplicate_prompts.has_value(),
+          "duplicate exposed prompt names should fail catalog merge");
+
+  mcp::protocol::Prompt empty_name_prompt;
+  const auto empty_prompt_name = mcp::gateway::merge_prompt_catalogs(
+      {mcp::gateway::UpstreamPromptCatalog{
+          .upstream_id = "fs",
+          .prompts = {empty_name_prompt},
+      }});
+  require(!empty_prompt_name.has_value(),
+          "catalog merge should reject empty upstream prompt names");
 
   auto upstream_timeout = mcp::gateway::annotate_gateway_upstream_error(
       mcp::core::Error{1, "Connection timed out", "socket timeout",

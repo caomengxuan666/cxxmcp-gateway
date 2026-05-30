@@ -14,6 +14,7 @@
 
 #include "cxxmcp/core/result.hpp"
 #include "cxxmcp/peer.hpp"
+#include "cxxmcp/protocol/prompt.hpp"
 #include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/types.hpp"
 #include "cxxmcp/protocol/tool.hpp"
@@ -96,6 +97,37 @@ int main(int argc, char** argv) {
                 static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
                 "fixture denied", "fixture detail", "fixture"});
           })
+      .prompt(mcp::protocol::Prompt{
+                  .title = "Fixture Summary",
+                  .name = "summarize",
+                  .description = "Summarize fixture text",
+                  .arguments =
+                      {
+                          mcp::protocol::PromptArgument{
+                              .name = "text",
+                              .description = "Text to summarize",
+                              .required = true,
+                              .required_present = true,
+                          },
+                      },
+                  .meta = Json{{"fixture", "stdio"}, {"preserve", true}},
+              },
+              [](const mcp::server::PromptContext& context) {
+                mcp::protocol::PromptsGetResult result;
+                result.description = "Summarize fixture text";
+                result.messages.push_back(mcp::protocol::PromptMessage::text(
+                    "user", "Summarize " +
+                                context.arguments.value("text",
+                                                        std::string{})));
+                return result;
+              })
+      .prompt("fail-prompt",
+              [](const mcp::server::PromptContext&)
+                  -> mcp::core::Result<mcp::protocol::PromptsGetResult> {
+                return mcp::core::unexpected(mcp::core::Error{
+                    static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+                    "prompt denied", "prompt detail", "fixture"});
+              })
       .resource(mcp::protocol::Resource{
                     .title = "Fixture Readme",
                     .uri = "file:///fixture/readme.txt",

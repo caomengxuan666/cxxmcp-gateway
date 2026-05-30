@@ -213,6 +213,34 @@ core::Result<ResolvedToolName> GatewayRouter::resolve_tool_name(
   };
 }
 
+std::string GatewayRouter::expose_prompt_name(
+    std::string_view upstream_id, std::string_view upstream_prompt_name) {
+  return std::string(upstream_id) + "." + std::string(upstream_prompt_name);
+}
+
+core::Result<ResolvedPromptName> GatewayRouter::resolve_prompt_name(
+    std::string_view exposed_name) {
+  const auto dot = exposed_name.find('.');
+  if (dot == std::string_view::npos || dot == 0 ||
+      dot + 1 >= exposed_name.size()) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway prompt name must use '<upstream>.<prompt>'",
+        std::string(exposed_name)));
+  }
+
+  const auto upstream_id = exposed_name.substr(0, dot);
+  auto valid_id = validate_upstream_id(upstream_id);
+  if (!valid_id) {
+    return mcp::core::unexpected(valid_id.error());
+  }
+
+  return ResolvedPromptName{
+      .upstream_id = std::string(upstream_id),
+      .upstream_prompt_name = std::string(exposed_name.substr(dot + 1)),
+  };
+}
+
 std::string GatewayRouter::expose_resource_uri(
     std::string_view upstream_id, std::string_view upstream_uri) {
   return std::string(kGatewayResourceUriPrefix) + percent_encode(upstream_id) +
@@ -311,6 +339,31 @@ core::Result<ResourceRoute> GatewayRouter::resolve_resource_route(
   return ResourceRoute{
       .upstream = upstream,
       .upstream_uri = std::move(resolved->upstream_uri),
+  };
+}
+
+core::Result<PromptRoute> GatewayRouter::resolve_prompt_route(
+    std::string_view exposed_name) const {
+  auto resolved = resolve_prompt_name(exposed_name);
+  if (!resolved) {
+    return mcp::core::unexpected(resolved.error());
+  }
+
+  const auto* upstream = find_upstream(resolved->upstream_id);
+  if (upstream == nullptr) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams, "gateway upstream not found",
+        resolved->upstream_id));
+  }
+  if (!upstream->enabled) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams, "gateway upstream is disabled",
+        resolved->upstream_id));
+  }
+
+  return PromptRoute{
+      .upstream = upstream,
+      .upstream_prompt_name = std::move(resolved->upstream_prompt_name),
   };
 }
 
