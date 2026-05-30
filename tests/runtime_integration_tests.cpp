@@ -532,6 +532,91 @@ void test_concurrent_stdio_calls_to_one_upstream() {
                  "same-upstream stdio calls should leave upstream healthy");
 }
 
+void test_cancellation_and_progress_notifications_are_local_noops() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "notify";
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+
+  const auto before_capabilities = runtime.server_capabilities();
+  require(before_capabilities.tools.enabled,
+          "enabled upstream should advertise tools before notification no-op");
+  require(!before_capabilities.tools.list_changed,
+          "notification no-op test should not advertise tools/listChanged");
+  require(!before_capabilities.resources.enabled,
+          "notification no-op test should not advertise resources");
+  require(!before_capabilities.prompts.enabled,
+          "notification no-op test should not advertise prompts");
+  require(!before_capabilities.tasks.has_value(),
+          "notification no-op test should not advertise tasks");
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = runtime.call_tool("notify.slow", Json{{"sleepMs", 600}});
+      require(called.has_value(),
+              "cancel/progress notifications should not cancel active calls");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "notify");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "notification no-op test should observe an active upstream call");
+
+  auto cancelled = runtime.handle_notification(mcp::protocol::make_notification(
+      std::string(mcp::protocol::CancelledNotificationMethod),
+      Json{{"requestId", std::int64_t{1}},
+           {"reason", "downstream cancelled"}}));
+  require(cancelled.has_value(),
+          "cancellation notifications are accepted as local no-ops in MVP");
+
+  auto progress = runtime.handle_notification(mcp::protocol::make_notification(
+      std::string(mcp::protocol::ProgressNotificationMethod),
+      Json{{"progressToken", "call-1"}, {"progress", 0.5}}));
+  require(progress.has_value(),
+          "progress notifications are accepted as local no-ops in MVP");
+
+  const auto during =
+      require_upstream_state(runtime.upstream_states(), "notify");
+  require(during.active_calls >= 1,
+          "notification no-ops should not clear active call state");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "notify");
+  require(state.active_calls == 0,
+          "notification no-op test should clear active call count");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "notification no-ops should leave successful upstream healthy");
+
+  const auto after_capabilities = runtime.server_capabilities();
+  require(after_capabilities.tools.enabled,
+          "notification no-ops should not remove tools advertisement");
+  require(!after_capabilities.tools.list_changed,
+          "notification no-ops should not add tools/listChanged");
+  require(!after_capabilities.resources.enabled,
+          "notification no-ops should not add resources");
+  require(!after_capabilities.prompts.enabled,
+          "notification no-ops should not add prompts");
+  require(!after_capabilities.tasks.has_value(),
+          "notification no-ops should not add tasks");
+}
+
 void test_runtime_stop_waits_for_active_stdio_call() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "stdio_stop";
@@ -1361,6 +1446,7 @@ int main() {
     test_http_timeout();
     test_concurrent_http_calls_update_active_state();
     test_concurrent_stdio_calls_to_one_upstream();
+    test_cancellation_and_progress_notifications_are_local_noops();
     test_runtime_stop_waits_for_active_stdio_call();
     test_runtime_stop_waits_for_active_http_call();
     test_concurrent_calls_to_multiple_upstreams();
