@@ -80,6 +80,8 @@ are rejected. The hosted endpoint remains CLI-owned through `--host`, `--port`,
 and `--path`.
 Disabled upstreams may omit transport connection fields such as `command` or
 `uri`; enabled upstreams must provide the fields required by their transport.
+Config values are parsed literally; environment-variable substitution is not
+performed by `cxxmcp_gateway_config_io`.
 
 ```json
 {

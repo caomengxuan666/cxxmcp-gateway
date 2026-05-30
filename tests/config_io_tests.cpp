@@ -26,9 +26,11 @@ void test_parse_json_config() {
            Json{{"id", "stdio"},
                 {"transport", "stdio"},
                 {"command", "fixture"},
-                {"args", Json::array({"--flag"})},
-                {"cwd", "C:/tmp"},
-                {"env", Json{{"A", "B"}}}},
+                {"args", Json::array({"--flag", "${GATEWAY_ROOT}"})},
+                {"cwd", "${GATEWAY_CWD}"},
+                {"env",
+                 Json{{"A", "B"},
+                      {"TOKEN", "${GATEWAY_TOKEN}"}}}},
            Json{{"id", "http"},
                 {"transport", "http"},
                 {"displayName", "HTTP upstream"},
@@ -47,10 +49,17 @@ void test_parse_json_config() {
   require(parsed->upstreams[0].id == "stdio", "stdio id should parse");
   require(parsed->upstreams[0].process_stdio.command == "fixture",
           "stdio command should parse");
-  require(parsed->upstreams[0].process_stdio.args.size() == 1,
+  require(parsed->upstreams[0].process_stdio.args.size() == 2,
           "stdio args should parse");
+  require(parsed->upstreams[0].process_stdio.args.at(1) == "${GATEWAY_ROOT}",
+          "stdio args should preserve literal environment placeholders");
+  require(parsed->upstreams[0].process_stdio.cwd == "${GATEWAY_CWD}",
+          "stdio cwd should preserve literal environment placeholders");
   require(parsed->upstreams[0].process_stdio.env.at("A") == "B",
           "stdio env should parse");
+  require(parsed->upstreams[0].process_stdio.env.at("TOKEN") ==
+              "${GATEWAY_TOKEN}",
+          "stdio env should preserve literal environment placeholders");
   require(parsed->upstreams[1].id == "http", "http id should parse");
   require(parsed->upstreams[1].display_name == "HTTP upstream",
           "display name should parse");
