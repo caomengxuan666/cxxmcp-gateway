@@ -77,6 +77,19 @@ void test_reject_invalid_config() {
   parsed = mcp::gateway::gateway_config_from_json(invalid_transport);
   require(!parsed.has_value(), "unknown transport should fail");
 
+  const Json enabled_stdio_missing_command = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"}, {"transport", "stdio"}}})}};
+  parsed =
+      mcp::gateway::gateway_config_from_json(enabled_stdio_missing_command);
+  require(!parsed.has_value(), "enabled stdio command should be required");
+
+  const Json enabled_http_missing_uri = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "http"}, {"transport", "http"}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(enabled_http_missing_uri);
+  require(!parsed.has_value(), "enabled HTTP uri should be required");
+
   const Json invalid_id = Json{
       {"upstreams",
        Json::array({Json{{"id", "bad/id"},
@@ -95,6 +108,31 @@ void test_reject_invalid_config() {
   require(!parsed.has_value(), "zero HTTP timeout should fail validation");
 }
 
+void test_parse_disabled_upstreams_without_connection_fields() {
+  const Json json = {
+      {"upstreams",
+       Json::array({
+           Json{{"id", "disabled_stdio"},
+                {"transport", "stdio"},
+                {"enabled", false}},
+           Json{{"id", "disabled_http"},
+                {"transport", "http"},
+                {"enabled", false}},
+       })},
+  };
+
+  auto parsed = mcp::gateway::gateway_config_from_json(json);
+  require(parsed.has_value(),
+          "disabled upstreams should not require connection fields");
+  require(parsed->upstreams.size() == 2, "disabled upstreams should parse");
+  require(!parsed->upstreams[0].enabled, "disabled stdio flag should parse");
+  require(parsed->upstreams[0].process_stdio.command.empty(),
+          "disabled stdio command should remain empty");
+  require(!parsed->upstreams[1].enabled, "disabled HTTP flag should parse");
+  require(parsed->upstreams[1].streamable_http.uri.empty(),
+          "disabled HTTP uri should remain empty");
+}
+
 void test_load_config_file() {
   auto loaded = mcp::gateway::load_gateway_config_file(
       CXXMCP_GATEWAY_CONFIG_IO_FIXTURE);
@@ -110,6 +148,7 @@ int main() {
   try {
     test_parse_json_config();
     test_reject_invalid_config();
+    test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
     return 0;
   } catch (const std::exception& ex) {

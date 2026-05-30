@@ -288,6 +288,12 @@ Library consumers must be able to construct `GatewayConfig` directly without
 pulling in a file parser. Config IO is an optional adapter for runners and
 deployments, not part of the routing contract.
 
+Disabled upstream entries are allowed to omit transport connection fields such
+as stdio `command` or Streamable HTTP `uri`. These entries remain visible in
+the normalized `GatewayConfig` and runtime state, but they are not routable and
+do not contribute to advertised capabilities. When an upstream is enabled, the
+transport-specific connection fields are required.
+
 ## Supported Capability Surface
 
 Current MVP:

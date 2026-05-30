@@ -26,6 +26,21 @@ core::Result<std::string> require_string(const protocol::Json& json,
   return json.at(key).get<std::string>();
 }
 
+core::Result<std::string> optional_transport_string(
+    const protocol::Json& json, std::string_view field,
+    std::string_view path) {
+  const auto key = std::string(field);
+  if (!json.contains(key)) {
+    return std::string{};
+  }
+  if (!json.at(key).is_string()) {
+    return mcp::core::unexpected(make_gateway_config_error(
+        "gateway config field must be a string",
+        std::string(path) + "." + key));
+  }
+  return json.at(key).get<std::string>();
+}
+
 std::string optional_string(const protocol::Json& json,
                             std::string_view field) {
   const auto key = std::string(field);
@@ -114,7 +129,9 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
 
   if (*transport == "stdio") {
     upstream.transport = UpstreamTransportKind::process_stdio;
-    auto command = require_string(json, "command", path);
+    auto command = upstream.enabled ? require_string(json, "command", path)
+                                    : optional_transport_string(
+                                          json, "command", path);
     if (!command) {
       return mcp::core::unexpected(command.error());
     }
@@ -132,7 +149,8 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
     upstream.process_stdio.env = std::move(*env);
   } else if (*transport == "http" || *transport == "streamable_http") {
     upstream.transport = UpstreamTransportKind::streamable_http;
-    auto uri = require_string(json, "uri", path);
+    auto uri = upstream.enabled ? require_string(json, "uri", path)
+                                : optional_transport_string(json, "uri", path);
     if (!uri) {
       return mcp::core::unexpected(uri.error());
     }
