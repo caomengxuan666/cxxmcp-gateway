@@ -94,6 +94,9 @@ Record the gateway commit, SDK commit, OS, compiler, build type, transport,
 operation, iteration count, median latency, p95 latency, and notes about local
 load. Do not compare Debug-build timings across releases.
 
+The current recorded release-candidate performance evidence is in
+[`release_baseline.md`](release_baseline.md).
+
 ## Non-Goals For This Gate
 
 This gate does not add:

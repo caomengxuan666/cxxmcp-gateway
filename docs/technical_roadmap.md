@@ -544,20 +544,24 @@ The current MVP baseline has verified coverage for:
    initialized upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
    to one upstream, concurrent calls to multiple upstreams, idle shutdown,
-   active-call shutdown, and stdio child cleanup on stop.
+   active-call shutdown, downstream session close during an active upstream
+   call, cancellation/progress notification no-ops, and stdio child cleanup on
+   stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including unsupported request/notification
    behavior.
 11. Optional performance measurement tooling for stdio/HTTP `tools/list` and
-   `tools/call`, excluded from the default build and release-blocking CI.
+    `tools/call`, excluded from the default build and release-blocking CI.
+12. Initial local Release performance baseline recorded in
+    [`release_baseline.md`](release_baseline.md) against a clean
+    `caomengxuan666/cxxmcp` SDK revision.
 
 ## Remaining Near-Term Backlog
 
-1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks:
-   downstream session close semantics, cancellation behavior, and future pooled
-   upstream sessions.
-2. Use the performance tool to record an initial release-candidate baseline
-   when a concrete SDK revision is selected.
+1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks,
+   especially if future pooled upstream sessions are introduced.
+2. Refresh the performance baseline whenever the release-candidate SDK revision
+   or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,
    advertisement, notification behavior, integration tests, and upstream
    capability-discovery requirements are specified.
