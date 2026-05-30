@@ -341,6 +341,8 @@ void test_disabled_upstream() {
           "runtime should not advertise resources");
   require(!capabilities.prompts.enabled,
           "runtime should not advertise prompts");
+  require(!capabilities.completions.enabled,
+          "runtime should not advertise completions");
   require(!capabilities.tasks.has_value(),
           "runtime should not advertise tasks");
 
@@ -414,6 +416,8 @@ void test_invalid_config_advertises_no_tools() {
           "invalid runtime config should not advertise resources");
   require(!capabilities.prompts.enabled,
           "invalid runtime config should not advertise prompts");
+  require(!capabilities.completions.enabled,
+          "invalid runtime config should not advertise completions");
   require(!capabilities.tasks.has_value(),
           "invalid runtime config should not advertise tasks");
 }
@@ -638,6 +642,8 @@ void test_stdio_upstream() {
           "runtime with enabled upstream should advertise prompts");
   require(!capabilities.prompts.list_changed,
           "runtime should not advertise prompts/listChanged");
+  require(!capabilities.completions.enabled,
+          "runtime should not advertise completions");
   require(!capabilities.tasks.has_value(),
           "runtime should not advertise tasks");
 
@@ -1784,6 +1790,8 @@ void test_hosted_gateway_http_endpoint() {
           "gateway should advertise prompts");
   require(!capabilities->prompts.list_changed,
           "gateway should not advertise prompts/listChanged");
+  require(!capabilities->completions.enabled,
+          "gateway should not advertise completions");
   require(!capabilities->tasks.has_value(),
           "gateway should not advertise tasks");
 
@@ -2237,6 +2245,8 @@ void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
           "gateway should not advertise resources without enabled upstreams");
   require(!capabilities->prompts.enabled,
           "gateway should not advertise prompts without enabled upstreams");
+  require(!capabilities->completions.enabled,
+          "gateway should not advertise completions without routing support");
   require(!capabilities->tasks.has_value(),
           "gateway should not advertise tasks without routing support");
 

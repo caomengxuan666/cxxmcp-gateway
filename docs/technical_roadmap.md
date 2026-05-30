@@ -341,7 +341,8 @@ Candidate capabilities:
 - resource subscriptions and change notifications;
 - prompt list-change notifications;
 - tasks, if supported by the SDK surface;
-- completion or other MCP capabilities when SDK support is mature.
+- completion or other MCP capabilities when SDK support is mature and runtime
+  advertisement can be driven by initialized upstream capabilities.
 
 Rules:
 
@@ -351,6 +352,9 @@ Rules:
   reusing tool names by default;
 - each capability needs integration tests before being treated as supported.
 - each capability must define capability advertisement before implementation;
+- capabilities that depend on upstream support, such as completion, require
+  capability-aware upstream discovery or cache state before they can be
+  advertised downstream;
 - each capability must define namespace rules separately from tool names;
 - each capability must define notification behavior;
 - subscription ownership and cancellation must be explicit before resources or
@@ -555,4 +559,5 @@ The current MVP baseline has verified coverage for:
 2. Use the performance tool to record an initial release-candidate baseline
    when a concrete SDK revision is selected.
 3. Design the next routed MCP capability family only after its namespace,
-   advertisement, notification behavior, and integration tests are specified.
+   advertisement, notification behavior, integration tests, and upstream
+   capability-discovery requirements are specified.
