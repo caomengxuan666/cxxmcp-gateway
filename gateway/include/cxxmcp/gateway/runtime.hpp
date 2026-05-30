@@ -51,6 +51,8 @@ class GatewayRuntime final {
   core::Result<protocol::ToolResult> call_tool(
       std::string_view exposed_name,
       protocol::Json arguments = protocol::Json::object());
+  core::Result<core::Unit> handle_notification(
+      const protocol::JsonRpcNotification& notification);
   std::optional<protocol::JsonRpcResponse> handle_request(
       const protocol::JsonRpcRequest& request);
   std::vector<UpstreamRuntimeState> upstream_states() const;

@@ -974,6 +974,13 @@ void test_hosted_gateway_http_endpoint() {
   auto notified = running_client->peer().notify_initialized();
   require(notified.has_value(), "downstream initialized notification should work");
 
+  auto unsupported_notification = running_client->peer().raw_notification(
+      mcp::protocol::make_notification(
+          std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+          Json::object()));
+  require(unsupported_notification.has_value(),
+          "unsupported downstream notifications should be ignored");
+
   auto tools = running_client->peer().list_all_tools();
   require(tools.has_value(), "downstream tools/list should succeed");
   require(has_tool(*tools, "stdio.echo"),
@@ -1225,6 +1232,13 @@ void test_raw_request_routing_surface() {
   require(invalid_response->error->code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
           "invalid exposed tool name should map to invalid params");
+
+  auto unsupported_notification = runtime.handle_notification(
+      mcp::protocol::make_notification(
+          std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+          Json::object()));
+  require(unsupported_notification.has_value(),
+          "unsupported gateway notifications should be ignored");
 }
 
 }  // namespace

@@ -262,6 +262,7 @@ Supported MCP method matrix for Phase 1:
 | completion | Not advertised |
 | progress/cancellation | Not forwarded in MVP |
 | other unsupported requests | JSON-RPC `MethodNotFound`, except SDK-owned lifecycle/liveness methods |
+| other unsupported notifications | Ignored successfully; not forwarded upstream |
 
 Runtime must generate downstream capability advertisement from real routed
 behavior, current gateway implementation, upstream initialization results, and

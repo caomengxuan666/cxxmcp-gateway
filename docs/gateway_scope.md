@@ -369,8 +369,9 @@ MVP notification policy:
 - upstream `tools/list_changed` is not forwarded yet;
 - resource change notifications are not forwarded yet;
 - progress and cancellation are not forwarded yet;
-- unsupported notifications must be ignored or rejected according to a documented
-  rule before the gateway advertises the related capability.
+- unsupported non-SDK-owned notifications are ignored successfully by
+  `GatewayRuntime`; they are not forwarded upstream and do not imply capability
+  support.
 
 ## Upstream Lifecycle Model
 

@@ -362,6 +362,11 @@ struct GatewayRuntime::Impl final {
                                     "gateway method is not supported",
                                     request.method));
   }
+
+  core::Result<core::Unit> handle_notification(
+      const protocol::JsonRpcNotification& /*notification*/) {
+    return core::Unit{};
+  }
 };
 
 GatewayRuntime::GatewayRuntime(GatewayConfig config)
@@ -392,6 +397,11 @@ GatewayRuntime::list_tools() {
 core::Result<protocol::ToolResult> GatewayRuntime::call_tool(
     std::string_view exposed_name, protocol::Json arguments) {
   return impl_->call_tool(exposed_name, std::move(arguments));
+}
+
+core::Result<core::Unit> GatewayRuntime::handle_notification(
+    const protocol::JsonRpcNotification& notification) {
+  return impl_->handle_notification(notification);
 }
 
 std::optional<protocol::JsonRpcResponse> GatewayRuntime::handle_request(
@@ -440,6 +450,12 @@ core::Result<core::Unit> GatewayRuntime::start_http(HttpEndpoint endpoint) {
                                    const protocol::JsonRpcRequest& request) {
                     return impl->handle_request(request);
                   })
+                  .on_raw_notification(
+                      [impl = impl_.get()](
+                          const protocol::JsonRpcNotification& notification,
+                          const server::SessionContext& /*context*/) {
+                        return impl->handle_notification(notification);
+                      })
                   .build();
   if (!peer) {
     return mcp::core::unexpected(peer.error());
