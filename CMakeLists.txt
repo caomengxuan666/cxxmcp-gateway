@@ -152,19 +152,8 @@ if(CXXMCP_GATEWAY_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-set(CXXMCP_GATEWAY_INSTALL_TARGETS cxxmcp_gateway_core)
-if(TARGET cxxmcp_gateway_runtime)
-    list(APPEND CXXMCP_GATEWAY_INSTALL_TARGETS cxxmcp_gateway_runtime)
-endif()
-if(TARGET cxxmcp_gateway_config_io)
-    list(APPEND CXXMCP_GATEWAY_INSTALL_TARGETS cxxmcp_gateway_config_io)
-endif()
-if(TARGET cxxmcp_gateway_cli)
-    list(APPEND CXXMCP_GATEWAY_INSTALL_TARGETS cxxmcp_gateway_cli)
-endif()
-
 install(TARGETS cxxmcp_gateway_core
-    EXPORT cxxmcp-gatewayTargets
+    EXPORT cxxmcp-gatewayCoreTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT core
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT core
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT core
@@ -172,7 +161,7 @@ install(TARGETS cxxmcp_gateway_core
 
 if(TARGET cxxmcp_gateway_runtime)
     install(TARGETS cxxmcp_gateway_runtime
-        EXPORT cxxmcp-gatewayTargets
+        EXPORT cxxmcp-gatewayRuntimeTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT runtime
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT runtime
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT runtime
@@ -181,7 +170,7 @@ endif()
 
 if(TARGET cxxmcp_gateway_config_io)
     install(TARGETS cxxmcp_gateway_config_io
-        EXPORT cxxmcp-gatewayTargets
+        EXPORT cxxmcp-gatewayConfigIoTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT config_io
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT config_io
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT config_io
@@ -190,7 +179,7 @@ endif()
 
 if(TARGET cxxmcp_gateway_cli)
     install(TARGETS cxxmcp_gateway_cli
-        EXPORT cxxmcp-gatewayTargets
+        EXPORT cxxmcp-gatewayCliTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT cli
     )
 endif()
@@ -221,19 +210,6 @@ if(TARGET cxxmcp_gateway_config_io)
         COMPONENT config_io)
 endif()
 
-set(CXXMCP_GATEWAY_CONFIG_HAS_RUNTIME FALSE)
-if(TARGET cxxmcp_gateway_runtime)
-    set(CXXMCP_GATEWAY_CONFIG_HAS_RUNTIME TRUE)
-endif()
-set(CXXMCP_GATEWAY_CONFIG_HAS_CLI FALSE)
-if(TARGET cxxmcp_gateway_cli)
-    set(CXXMCP_GATEWAY_CONFIG_HAS_CLI TRUE)
-endif()
-set(CXXMCP_GATEWAY_CONFIG_HAS_CONFIG_IO FALSE)
-if(TARGET cxxmcp_gateway_config_io)
-    set(CXXMCP_GATEWAY_CONFIG_HAS_CONFIG_IO TRUE)
-endif()
-
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
@@ -246,9 +222,24 @@ configure_package_config_file(
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxxmcp-gateway
 )
 
-export(TARGETS ${CXXMCP_GATEWAY_INSTALL_TARGETS}
+export(TARGETS cxxmcp_gateway_core
     NAMESPACE cxxmcp-gateway::
-    FILE "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayTargets.cmake")
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayCoreTargets.cmake")
+if(TARGET cxxmcp_gateway_runtime)
+    export(TARGETS cxxmcp_gateway_runtime
+        NAMESPACE cxxmcp-gateway::
+        FILE "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayRuntimeTargets.cmake")
+endif()
+if(TARGET cxxmcp_gateway_config_io)
+    export(TARGETS cxxmcp_gateway_config_io
+        NAMESPACE cxxmcp-gateway::
+        FILE "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayConfigIoTargets.cmake")
+endif()
+if(TARGET cxxmcp_gateway_cli)
+    export(TARGETS cxxmcp_gateway_cli
+        NAMESPACE cxxmcp-gateway::
+        FILE "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayCliTargets.cmake")
+endif()
 
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp-gatewayConfig.cmake"
@@ -257,8 +248,36 @@ install(FILES
     COMPONENT core
 )
 
-install(EXPORT cxxmcp-gatewayTargets
+install(EXPORT cxxmcp-gatewayCoreTargets
     NAMESPACE cxxmcp-gateway::
+    FILE cxxmcp-gatewayCoreTargets.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxxmcp-gateway
     COMPONENT core
 )
+
+if(TARGET cxxmcp_gateway_runtime)
+    install(EXPORT cxxmcp-gatewayRuntimeTargets
+        NAMESPACE cxxmcp-gateway::
+        FILE cxxmcp-gatewayRuntimeTargets.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxxmcp-gateway
+        COMPONENT runtime
+    )
+endif()
+
+if(TARGET cxxmcp_gateway_config_io)
+    install(EXPORT cxxmcp-gatewayConfigIoTargets
+        NAMESPACE cxxmcp-gateway::
+        FILE cxxmcp-gatewayConfigIoTargets.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxxmcp-gateway
+        COMPONENT config_io
+    )
+endif()
+
+if(TARGET cxxmcp_gateway_cli)
+    install(EXPORT cxxmcp-gatewayCliTargets
+        NAMESPACE cxxmcp-gateway::
+        FILE cxxmcp-gatewayCliTargets.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxxmcp-gateway
+        COMPONENT cli
+    )
+endif()

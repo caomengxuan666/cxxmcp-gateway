@@ -4,7 +4,16 @@ add_executable(cxxmcp_gateway_router_tests
 target_link_libraries(cxxmcp_gateway_router_tests PRIVATE cxxmcp_gateway_core)
 cxxmcp_gateway_require_cxx23(cxxmcp_gateway_router_tests)
 
+function(cxxmcp_gateway_prepend_target_dir_to_test test_name target_name)
+    if(WIN32)
+        set_tests_properties("${test_name}" PROPERTIES
+            ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:${target_name}>")
+    endif()
+endfunction()
+
 add_test(NAME gateway_router COMMAND cxxmcp_gateway_router_tests)
+cxxmcp_gateway_prepend_target_dir_to_test(gateway_router cxxmcp_gateway_core)
 
 if(TARGET cxxmcp_gateway_config_io)
     add_executable(cxxmcp_gateway_config_io_tests
@@ -18,6 +27,8 @@ if(TARGET cxxmcp_gateway_config_io)
     cxxmcp_gateway_require_cxx23(cxxmcp_gateway_config_io_tests)
 
     add_test(NAME gateway_config_io COMMAND cxxmcp_gateway_config_io_tests)
+    cxxmcp_gateway_prepend_target_dir_to_test(
+        gateway_config_io cxxmcp_gateway_config_io)
 endif()
 
 if(TARGET cxxmcp_gateway_runtime)
@@ -42,14 +53,20 @@ if(TARGET cxxmcp_gateway_runtime)
 
     add_test(NAME gateway_runtime_integration
         COMMAND cxxmcp_gateway_runtime_integration_tests)
+    cxxmcp_gateway_prepend_target_dir_to_test(
+        gateway_runtime_integration cxxmcp_gateway_runtime)
 endif()
 
 if(TARGET cxxmcp_gateway_cli)
     add_test(NAME gateway_cli_help COMMAND cxxmcp_gateway_cli --help)
+    cxxmcp_gateway_prepend_target_dir_to_test(
+        gateway_cli_help cxxmcp_gateway_cli)
     set_tests_properties(gateway_cli_help PROPERTIES
         PASS_REGULAR_EXPRESSION "Usage:")
 
     add_test(NAME gateway_cli_version COMMAND cxxmcp_gateway_cli --version)
+    cxxmcp_gateway_prepend_target_dir_to_test(
+        gateway_cli_version cxxmcp_gateway_cli)
     set_tests_properties(gateway_cli_version PROPERTIES
         PASS_REGULAR_EXPRESSION "${PROJECT_VERSION}")
 
@@ -58,6 +75,8 @@ if(TARGET cxxmcp_gateway_cli)
             COMMAND cxxmcp_gateway_cli serve
                 --config "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/missing_config.json"
                 --port 39999)
+        cxxmcp_gateway_prepend_target_dir_to_test(
+            gateway_cli_config_missing cxxmcp_gateway_cli)
         set_tests_properties(gateway_cli_config_missing PROPERTIES
             WILL_FAIL TRUE)
 
@@ -66,6 +85,8 @@ if(TARGET cxxmcp_gateway_cli)
                 --config "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json"
                 --port 39999
                 --upstream-stdio fixture=other-server)
+        cxxmcp_gateway_prepend_target_dir_to_test(
+            gateway_cli_config_and_flags_validate_together cxxmcp_gateway_cli)
         set_tests_properties(
             gateway_cli_config_and_flags_validate_together PROPERTIES
             WILL_FAIL TRUE)
@@ -159,6 +180,20 @@ add_test(NAME gateway_package_config_io_component_fails
         -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
         -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/package_config_io_component_fail.cmake")
+
+if(TARGET cxxmcp_gateway_runtime AND
+   TARGET cxxmcp_gateway_config_io AND
+   TARGET cxxmcp_gateway_cli)
+    add_test(NAME gateway_package_full_build_core_component_fails
+        COMMAND "${CMAKE_COMMAND}"
+            -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+            -DCXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR=${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}
+            -Dcxxmcp_DIR=${cxxmcp_DIR}
+            -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+            -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+            -DCXXMCP_GATEWAY_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/package_full_build_core_component_fail.cmake")
+endif()
 
 add_test(NAME gateway_subproject_defaults
     COMMAND "${CMAKE_COMMAND}"
