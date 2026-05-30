@@ -38,6 +38,10 @@ protocol::JsonRpcResponse error_response(const protocol::JsonRpcRequest& req,
 protocol::ServerCapabilities gateway_server_capabilities(
     const GatewayConfig& config) {
   auto builder = protocol::server_capabilities();
+  if (!validate_gateway_config(config)) {
+    return builder.build();
+  }
+
   const auto has_enabled_upstream =
       std::any_of(config.upstreams.begin(), config.upstreams.end(),
                   [](const auto& upstream) { return upstream.enabled; });

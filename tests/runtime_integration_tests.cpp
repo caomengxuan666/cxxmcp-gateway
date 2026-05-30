@@ -132,6 +132,25 @@ void test_disabled_upstream() {
           "disabled upstream should map to tool-not-found");
 }
 
+void test_invalid_config_advertises_no_tools() {
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "invalid";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto capabilities = runtime.server_capabilities();
+  require(!capabilities.tools.enabled,
+          "invalid runtime config should not advertise tools");
+  require(!capabilities.resources.enabled,
+          "invalid runtime config should not advertise resources");
+  require(!capabilities.prompts.enabled,
+          "invalid runtime config should not advertise prompts");
+  require(!capabilities.tasks.has_value(),
+          "invalid runtime config should not advertise tasks");
+}
+
 void test_stdio_process_start_failure() {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
@@ -1174,6 +1193,7 @@ void test_raw_request_routing_surface() {
 int main() {
   try {
     test_disabled_upstream();
+    test_invalid_config_advertises_no_tools();
     test_stdio_process_start_failure();
     test_tools_list_fail_fast_after_partial_success();
     test_stdio_process_exit_before_initialize();
