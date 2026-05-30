@@ -1,6 +1,7 @@
 // Copyright (c) 2025 [caomengxuan666]
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -83,6 +84,122 @@ void close_socket(SocketHandle socket) { close(socket); }
 
 bool socket_failed(int result) { return result < 0; }
 #endif
+
+void serve_one_raw_http_response(std::uint16_t port, std::string_view body,
+                                 std::atomic_bool& ready) {
+  SocketHandle server = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (server == kInvalidSocket) {
+    throw std::runtime_error("failed to create raw HTTP fixture socket");
+  }
+
+  const int reuse = 1;
+  (void)::setsockopt(server, SOL_SOCKET, SO_REUSEADDR,
+                     reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(port);
+  if (inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) != 1) {
+    close_socket(server);
+    throw std::runtime_error("failed to parse raw HTTP fixture address");
+  }
+
+  if (socket_failed(::bind(server, reinterpret_cast<sockaddr*>(&address),
+                           sizeof(address)))) {
+    close_socket(server);
+    throw std::runtime_error("failed to bind raw HTTP fixture");
+  }
+  if (socket_failed(::listen(server, 1))) {
+    close_socket(server);
+    throw std::runtime_error("failed to listen on raw HTTP fixture");
+  }
+  ready.store(true);
+
+  sockaddr_in client_address{};
+#ifdef _WIN32
+  int client_address_length = sizeof(client_address);
+#else
+  socklen_t client_address_length = sizeof(client_address);
+#endif
+  SocketHandle client =
+      ::accept(server, reinterpret_cast<sockaddr*>(&client_address),
+               &client_address_length);
+  if (client == kInvalidSocket) {
+    close_socket(server);
+    throw std::runtime_error("failed to accept raw HTTP fixture client");
+  }
+
+  std::string request;
+  char buffer[1024];
+  std::size_t expected_request_size = 0;
+  while (true) {
+#ifdef _WIN32
+    const int received = ::recv(client, buffer, sizeof(buffer), 0);
+#else
+    const auto received = ::recv(client, buffer, sizeof(buffer), 0);
+#endif
+    if (received == 0) {
+      break;
+    }
+    if (socket_failed(static_cast<int>(received))) {
+      close_socket(client);
+      close_socket(server);
+      throw std::runtime_error("failed to read raw HTTP fixture request");
+    }
+    request.append(buffer, static_cast<std::size_t>(received));
+    const auto header_end = request.find("\r\n\r\n");
+    if (header_end == std::string::npos) {
+      continue;
+    }
+    if (expected_request_size == 0) {
+      expected_request_size = header_end + 4;
+      const auto content_length = request.find("Content-Length:");
+      if (content_length != std::string::npos &&
+          content_length < header_end) {
+        const auto value_start =
+            request.find_first_not_of(" \t", content_length + 15);
+        if (value_start != std::string::npos && value_start < header_end) {
+          const auto value_end = request.find("\r\n", value_start);
+          expected_request_size += static_cast<std::size_t>(
+              std::stoul(request.substr(value_start,
+                                        value_end - value_start)));
+        }
+      }
+    }
+    if (request.size() >= expected_request_size) {
+      break;
+    }
+  }
+
+  const std::string response =
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/json\r\n"
+      "Content-Length: " +
+      std::to_string(body.size()) +
+      "\r\n"
+      "Connection: close\r\n\r\n" +
+      std::string(body);
+  std::size_t sent = 0;
+  while (sent < response.size()) {
+#ifdef _WIN32
+    const int chunk = ::send(client, response.data() + sent,
+                             static_cast<int>(response.size() - sent), 0);
+#else
+    const auto chunk =
+        ::send(client, response.data() + sent, response.size() - sent, 0);
+#endif
+    if (socket_failed(static_cast<int>(chunk))) {
+      close_socket(client);
+      close_socket(server);
+      throw std::runtime_error("failed to send raw HTTP fixture response");
+    }
+    sent += static_cast<std::size_t>(chunk);
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+
+  close_socket(client);
+  close_socket(server);
+}
 
 std::string post_raw_http(std::uint16_t port, std::string_view path,
                           std::string_view body) {
@@ -349,8 +466,12 @@ void require_gateway_upstream_timeout(const mcp::core::Error& error,
 void require_gateway_upstream_protocol(const mcp::core::Error& error,
                                        std::string_view upstream_id) {
   require_gateway_upstream_error(error, upstream_id);
-  require(error.category == "gateway.upstream.protocol",
-          "upstream protocol errors should use gateway protocol category");
+  if (error.category != "gateway.upstream.protocol") {
+    throw std::runtime_error("upstream protocol errors should use gateway "
+                             "protocol category, got: " +
+                             error.category + " / " + error.message + " / " +
+                             error.detail);
+  }
 }
 
 mcp::gateway::GatewayConfig make_stdio_config() {
@@ -2044,6 +2165,55 @@ void test_http_unavailable() {
   require_gateway_upstream_error(tools.error(), "down");
 }
 
+void test_http_malformed_response_before_initialize() {
+  constexpr auto kPort = 39969;
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  SocketRuntime sockets;
+  std::atomic_bool server_ready{false};
+  std::exception_ptr server_error;
+  std::thread server([&] {
+    try {
+      serve_one_raw_http_response(kPort, "{not-json}\n", server_ready);
+    } catch (...) {
+      server_error = std::current_exception();
+      server_ready.store(true);
+    }
+  });
+
+  for (int attempt = 0; attempt < 200 && !server_ready.load(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(server_ready.load(), "malformed HTTP fixture should become ready");
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "malformed_http";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto tools = runtime.list_tools();
+
+  server.join();
+  if (server_error) {
+    std::rethrow_exception(server_error);
+  }
+
+  require(!tools.has_value(), "malformed http upstream should fail tools/list");
+  require_gateway_upstream_protocol(tools.error(), "malformed_http");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "malformed_http");
+  require_status(state, UpstreamRuntimeStatus::degraded,
+                 "malformed http response should mark upstream degraded");
+  require(state.last_error.has_value(),
+          "malformed http response should record last error");
+  require_gateway_upstream_protocol(*state.last_error, "malformed_http");
+}
+
 void test_start_http_invalid_config_fails_before_binding_port() {
   constexpr auto kPort = 39956;
 
@@ -2960,6 +3130,7 @@ int main() {
     test_repeated_stdio_calls_to_one_upstream();
     test_http_upstream();
     test_http_unavailable();
+    test_http_malformed_response_before_initialize();
     test_start_http_invalid_config_fails_before_binding_port();
     test_hosted_gateway_http_endpoint_stops_while_idle();
     test_hosted_gateway_rejects_invalid_json_rpc_request();

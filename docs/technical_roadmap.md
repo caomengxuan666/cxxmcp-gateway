@@ -550,7 +550,7 @@ The current MVP baseline has verified coverage for:
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
-   upstream responses, and upstream-returned MCP errors.
+   stdio and HTTP upstream responses, and upstream-returned MCP errors.
 5. Resource data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, gateway-owned resource URI and resource
    template URI routing, fail-fast resource catalogs, unknown or disabled
