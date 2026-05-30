@@ -26,3 +26,10 @@ if(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CONFIG_IO)
     target_compile_features(cxxmcp_gateway_package_config_io
         PRIVATE cxx_std_23)
 endif()
+
+if(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CLI)
+    find_package(cxxmcp-gateway CONFIG REQUIRED COMPONENTS cli)
+    if(NOT TARGET cxxmcp-gateway::cli)
+        message(FATAL_ERROR "cli component did not export cxxmcp-gateway::cli")
+    endif()
+endif()

@@ -141,8 +141,10 @@ if(CXXMCP_GATEWAY_BUILD_CLI)
     target_compile_definitions(cxxmcp_gateway_cli PRIVATE
         CXXMCP_GATEWAY_VERSION="${PROJECT_VERSION}")
     set_target_properties(cxxmcp_gateway_cli PROPERTIES
-        OUTPUT_NAME cxxmcp-gateway)
+        OUTPUT_NAME cxxmcp-gateway
+        EXPORT_NAME cli)
     cxxmcp_gateway_require_cxx23(cxxmcp_gateway_cli)
+    add_executable(cxxmcp-gateway::cli ALIAS cxxmcp_gateway_cli)
 endif()
 
 if(CXXMCP_GATEWAY_BUILD_TESTS)
@@ -156,6 +158,9 @@ if(TARGET cxxmcp_gateway_runtime)
 endif()
 if(TARGET cxxmcp_gateway_config_io)
     list(APPEND CXXMCP_GATEWAY_INSTALL_TARGETS cxxmcp_gateway_config_io)
+endif()
+if(TARGET cxxmcp_gateway_cli)
+    list(APPEND CXXMCP_GATEWAY_INSTALL_TARGETS cxxmcp_gateway_cli)
 endif()
 
 install(TARGETS cxxmcp_gateway_core
@@ -185,6 +190,7 @@ endif()
 
 if(TARGET cxxmcp_gateway_cli)
     install(TARGETS cxxmcp_gateway_cli
+        EXPORT cxxmcp-gatewayTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT cli
     )
 endif()
