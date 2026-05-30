@@ -371,7 +371,14 @@ GatewayRuntime::~GatewayRuntime() { (void)stop(); }
 
 GatewayRuntime::GatewayRuntime(GatewayRuntime&&) noexcept = default;
 
-GatewayRuntime& GatewayRuntime::operator=(GatewayRuntime&&) noexcept = default;
+GatewayRuntime& GatewayRuntime::operator=(GatewayRuntime&& other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+  (void)stop();
+  impl_ = std::move(other.impl_);
+  return *this;
+}
 
 const GatewayRouter& GatewayRuntime::router() const noexcept {
   return impl_->router;

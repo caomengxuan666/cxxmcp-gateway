@@ -103,14 +103,17 @@ mcp::gateway::GatewayConfig make_stdio_config() {
   return config;
 }
 
-void test_disabled_upstream() {
+mcp::gateway::GatewayConfig make_disabled_config(std::string id = "disabled") {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
-  upstream.id = "disabled";
+  upstream.id = std::move(id);
   upstream.enabled = false;
   config.upstreams.push_back(std::move(upstream));
+  return config;
+}
 
-  mcp::gateway::GatewayRuntime runtime(std::move(config));
+void test_disabled_upstream() {
+  mcp::gateway::GatewayRuntime runtime(make_disabled_config());
   auto capabilities = runtime.server_capabilities();
   require(!capabilities.tools.enabled,
           "disabled-only runtime should not advertise tools");
@@ -885,13 +888,7 @@ void test_start_http_invalid_config_fails_before_binding_port() {
 void test_hosted_gateway_http_endpoint_stops_while_idle() {
   constexpr auto kPort = 39957;
 
-  mcp::gateway::GatewayConfig config;
-  mcp::gateway::UpstreamServer upstream;
-  upstream.id = "disabled";
-  upstream.enabled = false;
-  config.upstreams.push_back(std::move(upstream));
-
-  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  mcp::gateway::GatewayRuntime gateway(make_disabled_config());
   auto started = gateway.start_http(
       {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
   require(started.has_value(), "idle hosted gateway endpoint should start");
@@ -909,6 +906,36 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
   const auto state = require_upstream_state(states, "disabled");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "idle hosted gateway should mark upstream stopped");
+}
+
+void test_runtime_move_assignment_stops_existing_endpoint() {
+  constexpr auto kOldPort = 39961;
+  constexpr auto kMovedPort = 39962;
+
+  mcp::gateway::GatewayRuntime gateway(make_disabled_config("old"));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kOldPort, .path = "/mcp"});
+  require(started.has_value(),
+          "move-assigned gateway source endpoint should start");
+
+  mcp::gateway::GatewayRuntime replacement(make_stdio_config());
+  gateway = std::move(replacement);
+
+  mcp::gateway::GatewayRuntime rebound(make_disabled_config("rebound"));
+  auto rebound_started = rebound.start_http(
+      {.host = "127.0.0.1", .port = kOldPort, .path = "/mcp"});
+  require(rebound_started.has_value(),
+          "move assignment should stop the replaced gateway endpoint");
+  auto rebound_stopped = rebound.stop();
+  require(rebound_stopped.has_value(),
+          "rebound gateway should stop after port reuse check");
+
+  auto moved_started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kMovedPort, .path = "/mcp"});
+  require(moved_started.has_value(),
+          "move-assigned gateway should retain moved-in runtime");
+  auto moved_stopped = gateway.stop();
+  require(moved_stopped.has_value(), "move-assigned gateway should stop");
 }
 
 void test_hosted_gateway_http_endpoint() {
@@ -1215,6 +1242,7 @@ int main() {
     test_http_unavailable();
     test_start_http_invalid_config_fails_before_binding_port();
     test_hosted_gateway_http_endpoint_stops_while_idle();
+    test_runtime_move_assignment_stops_existing_endpoint();
     test_http_timeout();
     test_concurrent_http_calls_update_active_state();
     test_concurrent_stdio_calls_to_one_upstream();
