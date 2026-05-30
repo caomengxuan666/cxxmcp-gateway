@@ -131,6 +131,18 @@ int main() {
   require(duplicate_tools.error().category == "gateway",
           "catalog merge should use gateway error category");
 
+  mcp::protocol::ToolDefinition empty_name_tool;
+  empty_name_tool.name = "";
+  const auto empty_tool_name = mcp::gateway::merge_tool_catalogs(
+      {mcp::gateway::UpstreamToolCatalog{
+          .upstream_id = "fs",
+          .tools = {empty_name_tool},
+      }});
+  require(!empty_tool_name.has_value(),
+          "catalog merge should reject empty upstream tool names");
+  require(empty_tool_name.error().category == "gateway",
+          "empty tool name error should use gateway category");
+
   auto upstream_timeout = mcp::gateway::annotate_gateway_upstream_error(
       mcp::core::Error{1, "Connection timed out", "socket timeout",
                        "transport"},

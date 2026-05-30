@@ -27,6 +27,11 @@ core::Result<std::vector<protocol::ToolDefinition>> merge_tool_catalogs(
 
     for (auto tool : catalog.tools) {
       const auto upstream_name = tool.name;
+      if (upstream_name.empty()) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "upstream tool name must not be empty", catalog.upstream_id));
+      }
       tool.name =
           GatewayRouter::expose_tool_name(catalog.upstream_id, upstream_name);
       if (!exposed_names.insert(tool.name).second) {
