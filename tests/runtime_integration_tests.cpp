@@ -38,6 +38,17 @@ bool has_tool(const std::vector<ToolDefinition>& tools,
   });
 }
 
+const ToolDefinition& require_tool(const std::vector<ToolDefinition>& tools,
+                                   std::string_view name) {
+  const auto it = std::find_if(tools.begin(), tools.end(), [&](const auto& tool) {
+    return tool.name == name;
+  });
+  if (it == tools.end()) {
+    throw std::runtime_error("missing tool " + std::string(name));
+  }
+  return *it;
+}
+
 UpstreamRuntimeState require_upstream_state(
     const std::vector<UpstreamRuntimeState>& states, std::string_view id) {
   const auto it = std::find_if(states.begin(), states.end(), [&](const auto& s) {
@@ -263,6 +274,23 @@ void test_stdio_upstream() {
   auto tools = runtime.list_tools();
   require(tools.has_value(), "stdio tools/list should succeed");
   require(has_tool(*tools, "stdio.echo"), "stdio tool should be exposed");
+  const auto& echo_tool = require_tool(*tools, "stdio.echo");
+  require(echo_tool.title == "Echo", "stdio tool title should be preserved");
+  require(echo_tool.description == "Echoes the provided value",
+          "stdio tool description should be preserved");
+  require(echo_tool.input_schema.at("properties")
+              .at("value")
+              .at("description") == "Value to echo",
+          "stdio tool input schema should be preserved");
+  require(echo_tool.meta.has_value(), "stdio tool metadata should be present");
+  require(echo_tool.meta->at("fixture") == "stdio",
+          "stdio tool upstream metadata should be preserved");
+  require(echo_tool.meta->at("preserve").get<bool>(),
+          "stdio tool upstream metadata fields should be preserved");
+  require(echo_tool.meta->at("gateway").at("upstreamId") == "stdio",
+          "stdio tool metadata should include gateway upstream id");
+  require(echo_tool.meta->at("gateway").at("upstreamToolName") == "echo",
+          "stdio tool metadata should include gateway upstream tool name");
   const auto& listed = require_upstream_state(runtime.upstream_states(), "stdio");
   require_status(listed, UpstreamRuntimeStatus::healthy,
                  "successful tools/list should mark upstream healthy");

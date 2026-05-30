@@ -17,6 +17,7 @@
 #include "cxxmcp/protocol/types.hpp"
 #include "cxxmcp/protocol/tool.hpp"
 #include "cxxmcp/run.hpp"
+#include "cxxmcp/server/authoring.hpp"
 
 namespace {
 
@@ -68,9 +69,21 @@ int main(int argc, char** argv) {
       .name("cxxmcp-gateway-stdio-fixture")
       .version("1.0.0")
       .stdio()
-      .tool<Json, ToolResult>("echo", [](const Json& input) {
-        return ToolResult::text(input.value("value", std::string{}));
-      })
+      .tool(mcp::server::tool<Json, ToolResult>("echo")
+                .title("Echo")
+                .description("Echoes the provided value")
+                .input_schema(Json{{"type", "object"},
+                                   {"properties",
+                                    Json{{"value",
+                                          Json{{"type", "string"},
+                                               {"description",
+                                                "Value to echo"}}}}},
+                                   {"additionalProperties", true}})
+                .meta(Json{{"fixture", "stdio"}, {"preserve", true}})
+                .handler([](const Json& input) {
+                  return ToolResult::text(
+                      input.value("value", std::string{}));
+                }))
       .tool<Json, ToolResult>("slow", [](const Json& input) {
         std::this_thread::sleep_for(std::chrono::milliseconds{
             input.value("sleepMs", 500)});
