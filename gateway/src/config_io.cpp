@@ -41,11 +41,17 @@ core::Result<std::string> optional_transport_string(
   return json.at(key).get<std::string>();
 }
 
-std::string optional_string(const protocol::Json& json,
-                            std::string_view field) {
+core::Result<std::string> optional_string(const protocol::Json& json,
+                                          std::string_view field,
+                                          std::string_view path) {
   const auto key = std::string(field);
-  if (!json.contains(key) || !json.at(key).is_string()) {
-    return {};
+  if (!json.contains(key)) {
+    return std::string{};
+  }
+  if (!json.at(key).is_string()) {
+    return mcp::core::unexpected(make_gateway_config_error(
+        "gateway config field must be a string",
+        std::string(path) + "." + key));
   }
   return json.at(key).get<std::string>();
 }
@@ -118,7 +124,11 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
 
   UpstreamServer upstream;
   upstream.id = std::move(*id);
-  upstream.display_name = optional_string(json, "displayName");
+  auto display_name = optional_string(json, "displayName", path);
+  if (!display_name) {
+    return mcp::core::unexpected(display_name.error());
+  }
+  upstream.display_name = std::move(*display_name);
   if (json.contains("enabled")) {
     if (!json.at("enabled").is_boolean()) {
       return mcp::core::unexpected(make_gateway_config_error(
@@ -141,7 +151,11 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
       return mcp::core::unexpected(args.error());
     }
     upstream.process_stdio.args = std::move(*args);
-    upstream.process_stdio.cwd = optional_string(json, "cwd");
+    auto cwd = optional_string(json, "cwd", path);
+    if (!cwd) {
+      return mcp::core::unexpected(cwd.error());
+    }
+    upstream.process_stdio.cwd = std::move(*cwd);
     auto env = optional_string_map(json, "env", path);
     if (!env) {
       return mcp::core::unexpected(env.error());
@@ -189,11 +203,19 @@ core::Result<GatewayConfig> gateway_config_from_json(
   }
 
   GatewayConfig config;
-  config.name = optional_string(json, "name");
+  auto name = optional_string(json, "name", "$");
+  if (!name) {
+    return mcp::core::unexpected(name.error());
+  }
+  config.name = std::move(*name);
   if (config.name.empty()) {
     config.name = "cxxmcp-gateway";
   }
-  config.version = optional_string(json, "version");
+  auto version = optional_string(json, "version", "$");
+  if (!version) {
+    return mcp::core::unexpected(version.error());
+  }
+  config.version = std::move(*version);
   if (config.version.empty()) {
     config.version = "0.1.0";
   }

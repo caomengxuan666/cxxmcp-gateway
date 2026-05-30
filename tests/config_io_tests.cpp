@@ -125,6 +125,41 @@ void test_reject_invalid_config() {
   require(!parsed.has_value(), "zero HTTP timeout should fail validation");
 }
 
+void test_reject_optional_string_type_mismatches() {
+  const Json numeric_name = Json{
+      {"name", 42},
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})}};
+  auto parsed = mcp::gateway::gateway_config_from_json(numeric_name);
+  require(!parsed.has_value(), "non-string gateway name should fail");
+  require(parsed.error().detail == "$.name",
+          "name type error should include field path");
+
+  const Json numeric_display_name = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"displayName", 42},
+                         {"command", "fixture"}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(numeric_display_name);
+  require(!parsed.has_value(), "non-string displayName should fail");
+  require(parsed.error().detail == "upstreams[0].displayName",
+          "displayName type error should include field path");
+
+  const Json numeric_cwd = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"},
+                         {"cwd", 42}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(numeric_cwd);
+  require(!parsed.has_value(), "non-string cwd should fail");
+  require(parsed.error().detail == "upstreams[0].cwd",
+          "cwd type error should include field path");
+}
+
 void test_parse_disabled_upstreams_without_connection_fields() {
   const Json json = {
       {"upstreams",
@@ -165,6 +200,7 @@ int main() {
   try {
     test_parse_json_config();
     test_reject_invalid_config();
+    test_reject_optional_string_type_mismatches();
     test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
     return 0;

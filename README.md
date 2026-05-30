@@ -80,6 +80,7 @@ upstreams to the loaded config. File config and command-line upstreams are
 validated together before the HTTP endpoint is started; duplicate upstream ids
 are rejected. The hosted endpoint remains CLI-owned through `--host`, `--port`,
 and `--path`.
+Endpoint defaults are `--host 127.0.0.1`, `--port 3000`, and `--path /mcp`.
 Disabled upstreams may omit transport connection fields such as `command` or
 `uri`; enabled upstreams must provide the fields required by their transport.
 Config values are parsed literally; environment-variable substitution is not

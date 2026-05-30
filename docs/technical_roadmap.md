@@ -477,6 +477,5 @@ Exit criteria:
 5. Define gateway error mapping for routing, transport, timeout, and upstream
    protocol failures.
 6. Decide upstream connection lifecycle: per-call, pooled, or configurable.
-7. Add graceful shutdown tests.
+7. Add or expand graceful shutdown and concurrent-call tests.
 8. Implement and test supported method/capability advertisement matrix.
-9. Add install-tree and build-tree package smoke to regular tests.

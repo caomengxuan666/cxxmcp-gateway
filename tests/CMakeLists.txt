@@ -81,15 +81,12 @@ if(TARGET cxxmcp_gateway_cli)
             WILL_FAIL TRUE)
 
         add_test(NAME gateway_cli_config_and_flags_validate_together
-            COMMAND cxxmcp_gateway_cli serve
-                --config "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json"
-                --port 39999
-                --upstream-stdio fixture=other-server)
+            COMMAND "${CMAKE_COMMAND}"
+                -DCXXMCP_GATEWAY_CLI=$<TARGET_FILE:cxxmcp_gateway_cli>
+                -DCXXMCP_GATEWAY_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_duplicate_config_flag_upstream.cmake")
         cxxmcp_gateway_prepend_target_dir_to_test(
             gateway_cli_config_and_flags_validate_together cxxmcp_gateway_cli)
-        set_tests_properties(
-            gateway_cli_config_and_flags_validate_together PROPERTIES
-            WILL_FAIL TRUE)
     endif()
 endif()
 

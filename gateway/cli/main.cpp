@@ -20,8 +20,8 @@ void print_usage(std::ostream& out) {
   out << "Usage:\n"
       << "  cxxmcp-gateway --help\n"
       << "  cxxmcp-gateway --version\n"
-      << "  cxxmcp-gateway serve [--config <file>] --port <port>\n"
-      << "      [--host <host>] [--path <path>]\n"
+      << "  cxxmcp-gateway serve [--config <file>] [--host <host>]\n"
+      << "      [--port <port>] [--path <path>]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";
 }
