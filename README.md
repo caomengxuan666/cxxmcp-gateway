@@ -23,6 +23,8 @@ See [Gateway Scope and Boundaries](docs/gateway_scope.md) for the current
 responsibility split and validation plan.
 See [Gateway Technical Roadmap](docs/technical_roadmap.md) for the phased
 implementation path.
+See [Operational Gates](docs/operational_gates.md) for release-blocking checks,
+the supported CI matrix, and performance measurement expectations.
 
 ## Use as a Library
 

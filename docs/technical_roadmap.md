@@ -438,6 +438,9 @@ Scope:
 - performance baseline for `tools/list` and `tools/call`;
 - basic observability hooks without binding core to a concrete logger.
 
+Current operational gates are documented in
+[`operational_gates.md`](operational_gates.md).
+
 Exit criteria:
 
 - release-blocking tests are defined;
