@@ -54,6 +54,23 @@ std::string percent_encode(std::string_view value) {
   return encoded;
 }
 
+std::string percent_encode_resource_template(std::string_view value) {
+  std::string encoded;
+  encoded.reserve(value.size());
+  for (std::size_t i = 0; i < value.size(); ++i) {
+    if (value[i] == '{') {
+      const auto close = value.find('}', i + 1);
+      if (close != std::string_view::npos) {
+        encoded.append(value.substr(i, close - i + 1));
+        i = close;
+        continue;
+      }
+    }
+    encoded.append(percent_encode(value.substr(i, 1)));
+  }
+  return encoded;
+}
+
 std::optional<unsigned char> from_hex(char ch) {
   if (ch >= '0' && ch <= '9') {
     return static_cast<unsigned char>(ch - '0');
@@ -245,6 +262,12 @@ std::string GatewayRouter::expose_resource_uri(
     std::string_view upstream_id, std::string_view upstream_uri) {
   return std::string(kGatewayResourceUriPrefix) + percent_encode(upstream_id) +
          "/" + percent_encode(upstream_uri);
+}
+
+std::string GatewayRouter::expose_resource_template_uri(
+    std::string_view upstream_id, std::string_view upstream_uri_template) {
+  return std::string(kGatewayResourceUriPrefix) + percent_encode(upstream_id) +
+         "/" + percent_encode_resource_template(upstream_uri_template);
 }
 
 core::Result<ResolvedResourceUri> GatewayRouter::resolve_resource_uri(

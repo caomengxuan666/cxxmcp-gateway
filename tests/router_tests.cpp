@@ -80,6 +80,14 @@ int main() {
   require(resolved_resource->upstream_uri == "file:///tmp/a b.txt?x=1#frag",
           "resource URI upstream URI mismatch");
 
+  const auto exposed_template =
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          "fs", "file:///workspace/{path}");
+  require(exposed_template ==
+              "cxxmcp-gateway-resource://fs/"
+              "file%3A%2F%2F%2Fworkspace%2F{path}",
+          "exposed resource template URI should preserve template variables");
+
   const auto invalid_resource_scheme =
       mcp::gateway::GatewayRouter::resolve_resource_uri("file:///tmp/a.txt");
   require(!invalid_resource_scheme.has_value(),
@@ -242,6 +250,60 @@ int main() {
       }});
   require(!empty_resource_uri.has_value(),
           "catalog merge should reject empty upstream resource URIs");
+
+  mcp::protocol::ResourceTemplate workspace_template;
+  workspace_template.uri_template = "file:///workspace/{path}";
+  workspace_template.name = "Workspace";
+  workspace_template.meta = mcp::protocol::Json{{"existing", true}};
+  mcp::protocol::ResourceTemplate tmp_template;
+  tmp_template.uri_template = "file:///tmp/{path}";
+  tmp_template.name = "Tmp";
+
+  const auto merged_templates =
+      mcp::gateway::merge_resource_template_catalogs(
+          {mcp::gateway::UpstreamResourceTemplateCatalog{
+              .upstream_id = "fs",
+              .resource_templates = {workspace_template, tmp_template},
+          }});
+  require(merged_templates.has_value(),
+          "resource template catalog merge should succeed");
+  require(merged_templates->size() == 2,
+          "resource template catalog merge size mismatch");
+  require((*merged_templates)[0].uri_template.find("tmp") !=
+              std::string::npos,
+          "resource template catalog merge should sort exposed URI templates");
+  require((*merged_templates)[1].meta.has_value(),
+          "resource template catalog merge should attach metadata");
+  require((*merged_templates)[1].meta->at("existing").get<bool>(),
+          "resource template catalog merge should preserve existing metadata");
+  require((*merged_templates)[1].meta->at("gateway").at("upstreamId") == "fs",
+          "resource template catalog merge should include upstream id");
+  require((*merged_templates)[1]
+              .meta->at("gateway")
+              .at("upstreamResourceTemplateUri") ==
+          "file:///workspace/{path}",
+          "resource template catalog merge should include upstream URI "
+          "template");
+
+  const auto duplicate_templates =
+      mcp::gateway::merge_resource_template_catalogs(
+          {mcp::gateway::UpstreamResourceTemplateCatalog{
+              .upstream_id = "fs",
+              .resource_templates = {workspace_template, workspace_template},
+          }});
+  require(!duplicate_templates.has_value(),
+          "duplicate exposed resource template URIs should fail catalog merge");
+
+  mcp::protocol::ResourceTemplate empty_template_uri;
+  empty_template_uri.name = "empty";
+  const auto empty_template =
+      mcp::gateway::merge_resource_template_catalogs(
+          {mcp::gateway::UpstreamResourceTemplateCatalog{
+              .upstream_id = "fs",
+              .resource_templates = {empty_template_uri},
+          }});
+  require(!empty_template.has_value(),
+          "catalog merge should reject empty upstream resource template URIs");
 
   mcp::protocol::Prompt summarize;
   summarize.name = "summarize";

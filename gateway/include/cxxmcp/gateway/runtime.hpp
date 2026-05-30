@@ -54,6 +54,8 @@ class GatewayRuntime final {
       std::string_view exposed_name,
       protocol::Json arguments = protocol::Json::object());
   core::Result<std::vector<protocol::Resource>> list_resources();
+  core::Result<std::vector<protocol::ResourceTemplate>>
+  list_resource_templates();
   core::Result<protocol::ResourcesReadResult> read_resource(
       std::string_view exposed_uri);
   core::Result<std::vector<protocol::Prompt>> list_prompts();

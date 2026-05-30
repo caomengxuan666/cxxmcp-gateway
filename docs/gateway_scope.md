@@ -303,12 +303,14 @@ Current MVP:
 - `resources/list`: aggregated from enabled upstreams with gateway-owned
   resource URIs.
 - `resources/read`: routed by gateway resource URI.
+- `resources/templates/list`: aggregated from enabled upstreams with
+  gateway-owned resource URI templates.
 - `prompts/list`: aggregated from enabled upstreams.
 - `prompts/get`: routed by exposed prompt name.
 
 Not yet supported:
 
-- resource templates, subscriptions, and change notifications;
+- resource subscriptions and change notifications;
 - prompt list-change notifications;
 - tasks;
 - completion;
@@ -331,9 +333,10 @@ The current runtime advertises the tools capability only when at least one
 upstream is enabled and the runtime can route `tools/list` and `tools/call`
 requests. A gateway instance with no enabled upstreams does not advertise tools.
 Resources and prompts follow the same runtime-owned rule for their implemented
-list/read or list/get data-plane methods. Resource templates, prompt/resource
-list-change notifications, tasks, completion, progress, and cancellation remain
-unadvertised until their routing behavior is implemented.
+list/read, templates/list, or list/get data-plane methods. Prompt/resource
+list-change notifications, resource subscriptions, tasks, completion, progress,
+and cancellation remain unadvertised until their routing behavior is
+implemented.
 
 Embedded hosts can inspect the same runtime-owned advertisement decision through
 `GatewayRuntime::server_capabilities()` before starting a hosted endpoint.
@@ -376,10 +379,16 @@ URI, forwards the decoded upstream URI, and rewrites returned content URIs into
 the gateway resource URI namespace. Missing or disabled upstreams map to
 `ResourceNotFound`.
 
-Resource templates, subscriptions, `resources/list_changed`, and
-`resources/updated` forwarding are not part of this namespace contract yet.
-They require separate ownership and notification rules before those resource
-sub-capabilities can be advertised.
+`resources/templates/list` aggregates enabled upstream resource template
+catalogs with the same fail-fast policy. Exposed resource template URIs use the
+same gateway resource URI namespace while preserving URI template variables such
+as `{path}`, so a client-expanded URI can still be routed through
+`resources/read`.
+
+Resource subscriptions, `resources/list_changed`, and `resources/updated`
+forwarding are not part of this namespace contract yet. They require separate
+ownership and notification rules before those resource sub-capabilities can be
+advertised.
 
 Prompt names use an explicit prompt namespace of `<upstream>.<prompt>`, with
 the same upstream id grammar as tools. Prompt names after the first `.` are
@@ -585,10 +594,11 @@ The gateway should not be considered mature until these paths are covered:
 
 8. Additional MCP capabilities
 
-   Routed resource and prompt list/read or list/get flows are part of the
-   current MVP. Resource templates, subscriptions, tasks, completion, and other
-   MCP capabilities should be added incrementally only after their namespace,
-   advertisement, notification behavior, and integration tests are specified.
+   Routed resource and prompt list/read, templates/list, or list/get flows are
+   part of the current MVP. Resource subscriptions, tasks, completion, and
+   other MCP capabilities should be added incrementally only after their
+   namespace, advertisement, notification behavior, and integration tests are
+   specified.
 
 ## Design Rule
 

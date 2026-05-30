@@ -106,6 +106,59 @@ core::Result<std::vector<protocol::Resource>> merge_resource_catalogs(
   return exposed;
 }
 
+core::Result<std::vector<protocol::ResourceTemplate>>
+merge_resource_template_catalogs(
+    const std::vector<UpstreamResourceTemplateCatalog>& catalogs) {
+  std::vector<protocol::ResourceTemplate> exposed;
+  std::unordered_set<std::string> exposed_uri_templates;
+
+  for (const auto& catalog : catalogs) {
+    auto valid_id = validate_upstream_id(catalog.upstream_id);
+    if (!valid_id) {
+      return mcp::core::unexpected(valid_id.error());
+    }
+
+    for (auto resource_template : catalog.resource_templates) {
+      const auto upstream_uri_template = resource_template.uri_template;
+      if (upstream_uri_template.empty()) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "upstream resource template URI must not be empty",
+            catalog.upstream_id));
+      }
+
+      resource_template.uri_template =
+          GatewayRouter::expose_resource_template_uri(
+              catalog.upstream_id, upstream_uri_template);
+      if (!exposed_uri_templates.insert(resource_template.uri_template)
+               .second) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "duplicate exposed gateway resource template URI",
+            resource_template.uri_template));
+      }
+
+      protocol::Json meta =
+          resource_template.meta.has_value() &&
+                  resource_template.meta->is_object()
+              ? *resource_template.meta
+              : protocol::Json::object();
+      meta["gateway"] = protocol::Json{
+          {"upstreamId", catalog.upstream_id},
+          {"upstreamResourceTemplateUri", upstream_uri_template},
+      };
+      resource_template.meta = std::move(meta);
+      exposed.push_back(std::move(resource_template));
+    }
+  }
+
+  std::sort(exposed.begin(), exposed.end(), [](const auto& lhs,
+                                               const auto& rhs) {
+    return lhs.uri_template < rhs.uri_template;
+  });
+  return exposed;
+}
+
 core::Result<std::vector<protocol::Prompt>> merge_prompt_catalogs(
     const std::vector<UpstreamPromptCatalog>& catalogs) {
   std::vector<protocol::Prompt> exposed;

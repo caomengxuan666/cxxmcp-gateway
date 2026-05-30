@@ -258,7 +258,8 @@ Supported MCP method matrix for Phase 1:
 | `notifications/tools/list_changed` | Not advertised and not forwarded in MVP |
 | `resources/list` | Aggregated from enabled upstreams with gateway-owned resource URIs |
 | `resources/read` | Routed by gateway resource URI |
-| resource templates/subscriptions/listChanged | Not advertised and not forwarded in MVP |
+| `resources/templates/list` | Aggregated from enabled upstreams with gateway-owned resource URI templates |
+| resource subscriptions/listChanged/updated | Not advertised and not forwarded in MVP |
 | `prompts/list` | Aggregated from enabled upstreams |
 | `prompts/get` | Routed by exposed prompt name |
 | `notifications/prompts/list_changed` | Not advertised and not forwarded in MVP |
@@ -337,7 +338,7 @@ Goal: extend beyond tools without weakening tool-path correctness.
 
 Candidate capabilities:
 
-- resource templates, subscriptions, and change notifications;
+- resource subscriptions and change notifications;
 - prompt list-change notifications;
 - tasks, if supported by the SDK surface;
 - completion or other MCP capabilities when SDK support is mature.
@@ -383,10 +384,13 @@ Current resource routing baseline:
   upstreams to `ResourceNotFound`;
 - gateway content results rewrite returned content URIs into the gateway
   resource URI namespace;
+- `resources/templates/list` exposes upstream resource templates as gateway URI
+  templates under the same gateway resource URI namespace while preserving URI
+  template variables such as `{path}`;
 - runtime advertises `resources` only when the config is valid and at least one
   upstream is enabled;
-- resource templates, subscriptions, and resource change notifications remain
-  out of scope until their ownership and routing rules are specified, so
+- resource subscriptions and resource change notifications remain out of scope
+  until their ownership and routing rules are specified, so
   `resources/listChanged` and `subscribe` are not advertised.
 
 Current prompt routing design:
@@ -524,9 +528,9 @@ The current MVP baseline has verified coverage for:
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
    upstream responses, and upstream-returned MCP errors.
 5. Resource data-plane integration: process stdio upstreams, Streamable HTTP
-   upstreams, multiple upstreams, gateway-owned resource URI routing, fail-fast
-   resource catalogs, unknown or disabled upstreams, and upstream-returned MCP
-   errors.
+   upstreams, multiple upstreams, gateway-owned resource URI and resource
+   template URI routing, fail-fast resource catalogs, unknown or disabled
+   upstreams, and upstream-returned MCP errors.
 6. Prompt data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, exposed prompt-name routing, fail-fast prompt
    catalogs, unknown or disabled upstreams, and upstream-returned MCP errors.

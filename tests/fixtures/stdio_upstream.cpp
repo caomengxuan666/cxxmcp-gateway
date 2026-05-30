@@ -154,5 +154,13 @@ int main(int argc, char** argv) {
                           mcp::protocol::ErrorCode::PermissionDenied),
                       "resource denied", "resource detail", "fixture"});
                 })
+      .resource_template(mcp::protocol::ResourceTemplate{
+          .title = "Fixture File",
+          .uri_template = "file:///fixture/{path}",
+          .name = "fixture-file",
+          .description = "Fixture file by path",
+          .mime_type = "text/plain",
+          .meta = Json{{"fixture", "stdio"}, {"preserve", true}},
+      })
       .run();
 }

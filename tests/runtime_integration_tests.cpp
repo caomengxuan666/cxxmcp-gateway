@@ -37,6 +37,7 @@ using Json = mcp::protocol::Json;
 using Prompt = mcp::protocol::Prompt;
 using PromptsGetResult = mcp::protocol::PromptsGetResult;
 using Resource = mcp::protocol::Resource;
+using ResourceTemplate = mcp::protocol::ResourceTemplate;
 using ResourcesReadResult = mcp::protocol::ResourcesReadResult;
 using ToolDefinition = mcp::protocol::ToolDefinition;
 using ToolResult = mcp::protocol::ToolResult;
@@ -171,6 +172,13 @@ bool has_resource(const std::vector<Resource>& resources,
   });
 }
 
+bool has_resource_template(const std::vector<ResourceTemplate>& templates,
+                           std::string_view uri_template) {
+  return std::any_of(templates.begin(), templates.end(), [&](const auto& t) {
+    return t.uri_template == uri_template;
+  });
+}
+
 bool has_prompt(const std::vector<Prompt>& prompts, std::string_view name) {
   return std::any_of(prompts.begin(), prompts.end(), [&](const auto& prompt) {
     return prompt.name == name;
@@ -196,6 +204,20 @@ const Resource& require_resource(const std::vector<Resource>& resources,
       });
   if (it == resources.end()) {
     throw std::runtime_error("missing resource " + std::string(uri));
+  }
+  return *it;
+}
+
+const ResourceTemplate& require_resource_template(
+    const std::vector<ResourceTemplate>& templates,
+    std::string_view uri_template) {
+  const auto it =
+      std::find_if(templates.begin(), templates.end(), [&](const auto& t) {
+        return t.uri_template == uri_template;
+      });
+  if (it == templates.end()) {
+    throw std::runtime_error("missing resource template " +
+                             std::string(uri_template));
   }
   return *it;
 }
@@ -331,6 +353,12 @@ void test_disabled_upstream() {
           "disabled upstream resource list should still succeed");
   require(resources->empty(), "disabled upstream should not expose resources");
 
+  auto resource_templates = runtime.list_resource_templates();
+  require(resource_templates.has_value(),
+          "disabled upstream resource template list should still succeed");
+  require(resource_templates->empty(),
+          "disabled upstream should not expose resource templates");
+
   auto prompts = runtime.list_prompts();
   require(prompts.has_value(),
           "disabled upstream prompt list should still succeed");
@@ -409,6 +437,11 @@ void test_stdio_process_start_failure() {
           "missing stdio process should fail resources/list");
   require_gateway_upstream_error(resources.error(), "missing");
 
+  auto resource_templates = runtime.list_resource_templates();
+  require(!resource_templates.has_value(),
+          "missing stdio process should fail resources/templates/list");
+  require_gateway_upstream_error(resource_templates.error(), "missing");
+
   auto prompts = runtime.list_prompts();
   require(!prompts.has_value(),
           "missing stdio process should fail prompts/list");
@@ -486,6 +519,41 @@ void test_resources_list_fail_fast_after_partial_success() {
   require(failed.last_error.has_value(),
           "failing upstream should retain last error after fail-fast "
           "resources/list");
+}
+
+void test_resource_templates_list_fail_fast_after_partial_success() {
+  auto config = make_stdio_config();
+
+  mcp::gateway::UpstreamServer missing;
+  missing.id = "missing";
+  missing.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+  missing.process_stdio.command =
+      "cxxmcp-gateway-definitely-missing-upstream-executable";
+  config.upstreams.push_back(std::move(missing));
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto resource_templates = runtime.list_resource_templates();
+  require(!resource_templates.has_value(),
+          "resources/templates/list should fail fast when any enabled upstream "
+          "fails");
+  require_gateway_upstream_error(resource_templates.error(), "missing");
+
+  const auto states = runtime.upstream_states();
+  const auto stdio = require_upstream_state(states, "stdio");
+  require_status(stdio, UpstreamRuntimeStatus::healthy,
+                 "successful upstream should keep healthy state after "
+                 "fail-fast resources/templates/list");
+  require(stdio.capabilities.has_value(),
+          "successful resource template upstream should retain initialized "
+          "capabilities");
+
+  const auto failed = require_upstream_state(states, "missing");
+  require_status(failed, UpstreamRuntimeStatus::degraded,
+                 "failing upstream should be degraded after fail-fast "
+                 "resources/templates/list");
+  require(failed.last_error.has_value(),
+          "failing upstream should retain last error after fail-fast "
+          "resources/templates/list");
 }
 
 void test_prompts_list_fail_fast_after_partial_success() {
@@ -640,6 +708,35 @@ void test_stdio_upstream() {
   require(read.has_value(), "stdio resources/read should succeed");
   require_text_resource(*read, stdio_resource_uri,
                         "hello from stdio resource");
+
+  const auto stdio_template_uri =
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          "stdio", "file:///fixture/{path}");
+  auto resource_templates = runtime.list_resource_templates();
+  require(resource_templates.has_value(),
+          "stdio resources/templates/list should succeed");
+  require(has_resource_template(*resource_templates, stdio_template_uri),
+          "stdio resource template should be exposed");
+  const auto& template_file =
+      require_resource_template(*resource_templates, stdio_template_uri);
+  require(template_file.title == "Fixture File",
+          "stdio resource template title should be preserved");
+  require(template_file.name == "fixture-file",
+          "stdio resource template name should be preserved");
+  require(template_file.description == "Fixture file by path",
+          "stdio resource template description should be preserved");
+  require(template_file.mime_type == "text/plain",
+          "stdio resource template MIME type should be preserved");
+  require(template_file.meta.has_value(),
+          "stdio resource template metadata should be present");
+  require(template_file.meta->at("fixture") == "stdio",
+          "stdio resource template upstream metadata should be preserved");
+  require(template_file.meta->at("gateway").at("upstreamId") == "stdio",
+          "stdio resource template metadata should include gateway upstream id");
+  require(template_file.meta->at("gateway")
+              .at("upstreamResourceTemplateUri") == "file:///fixture/{path}",
+          "stdio resource template metadata should include upstream URI "
+          "template");
 
   auto prompts = runtime.list_prompts();
   require(prompts.has_value(), "stdio prompts/list should succeed");
@@ -856,6 +953,13 @@ void test_http_upstream() {
                                     });
                                 return result;
                               })
+                    .resource_template(mcp::protocol::ResourceTemplate{
+                        .title = "HTTP File",
+                        .uri_template = "file:///http/{path}",
+                        .name = "http-file",
+                        .description = "HTTP file by path",
+                        .mime_type = "text/plain",
+                    })
                     .build();
   require(server.has_value(), "http fixture server should build");
 
@@ -891,6 +995,15 @@ void test_http_upstream() {
   require_text_resource(*read, http_resource_uri,
                         "hello from http resource");
 
+  const auto http_template_uri =
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          "http", "file:///http/{path}");
+  auto resource_templates = runtime.list_resource_templates();
+  require(resource_templates.has_value(),
+          "http resources/templates/list should succeed");
+  require(has_resource_template(*resource_templates, http_template_uri),
+          "http resource template should be exposed");
+
   auto prompts = runtime.list_prompts();
   require(prompts.has_value(), "http prompts/list should succeed");
   require(has_prompt(*prompts, "http.summarize"),
@@ -922,6 +1035,18 @@ void test_http_upstream() {
           "multi-upstream resource list should include stdio resource");
   require(has_resource(*multi_resources, http_resource_uri),
           "multi-upstream resource list should include http resource");
+  auto multi_resource_templates = multi_runtime.list_resource_templates();
+  require(multi_resource_templates.has_value(),
+          "multi-upstream resources/templates/list should succeed");
+  require(has_resource_template(
+              *multi_resource_templates,
+              mcp::gateway::GatewayRouter::expose_resource_template_uri(
+                  "stdio", "file:///fixture/{path}")),
+          "multi-upstream resource template list should include stdio "
+          "template");
+  require(has_resource_template(*multi_resource_templates, http_template_uri),
+          "multi-upstream resource template list should include http template");
+
   auto multi_prompts = multi_runtime.list_prompts();
   require(multi_prompts.has_value(),
           "multi-upstream prompts/list should succeed");
@@ -1694,6 +1819,17 @@ void test_hosted_gateway_http_endpoint() {
   require_text_resource(*read, downstream_resource_uri,
                         "hello from stdio resource");
 
+  const auto downstream_template_uri =
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          "stdio", "file:///fixture/{path}");
+  auto resource_templates =
+      running_client->peer().list_all_resource_templates();
+  require(resource_templates.has_value(),
+          "downstream resources/templates/list should succeed");
+  require(has_resource_template(*resource_templates, downstream_template_uri),
+          "downstream resources/templates/list should include routed stdio "
+          "template");
+
   auto prompts = running_client->peer().list_all_prompts();
   require(prompts.has_value(), "downstream prompts/list should succeed");
   require(has_prompt(*prompts, "stdio.summarize"),
@@ -2274,9 +2410,32 @@ void test_raw_request_routing_surface() {
               static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
           "invalid gateway resource URI should map to invalid params");
 
+  mcp::protocol::JsonRpcRequest resource_templates_list;
+  resource_templates_list.method =
+      mcp::protocol::ResourcesTemplatesListMethod;
+  resource_templates_list.id = std::int64_t{10};
+  resource_templates_list.params = Json::object();
+  auto resource_templates_response =
+      runtime.handle_request(resource_templates_list);
+  require(resource_templates_response.has_value(),
+          "resources/templates/list raw request should respond");
+  require(resource_templates_response->result.has_value(),
+          "resources/templates/list raw request should succeed");
+  const auto parsed_resource_templates =
+      mcp::protocol::resource_templates_list_result_from_json(
+          *resource_templates_response->result);
+  require(parsed_resource_templates.has_value(),
+          "resources/templates/list raw response should parse");
+  require(has_resource_template(
+              parsed_resource_templates->resource_templates,
+              mcp::gateway::GatewayRouter::expose_resource_template_uri(
+                  "stdio", "file:///fixture/{path}")),
+          "resources/templates/list raw response should include routed "
+          "resource template");
+
   mcp::protocol::JsonRpcRequest prompt_list;
   prompt_list.method = mcp::protocol::PromptsListMethod;
-  prompt_list.id = std::int64_t{10};
+  prompt_list.id = std::int64_t{11};
   prompt_list.params = Json::object();
   auto prompt_list_response = runtime.handle_request(prompt_list);
   require(prompt_list_response.has_value(),
@@ -2292,7 +2451,7 @@ void test_raw_request_routing_surface() {
 
   mcp::protocol::JsonRpcRequest prompt_get;
   prompt_get.method = mcp::protocol::PromptsGetMethod;
-  prompt_get.id = std::int64_t{11};
+  prompt_get.id = std::int64_t{12};
   prompt_get.params =
       Json{{"name", "stdio.summarize"},
            {"arguments", Json{{"text", "from-raw"}}}};
@@ -2309,7 +2468,7 @@ void test_raw_request_routing_surface() {
 
   mcp::protocol::JsonRpcRequest invalid_prompt_params;
   invalid_prompt_params.method = mcp::protocol::PromptsGetMethod;
-  invalid_prompt_params.id = std::int64_t{12};
+  invalid_prompt_params.id = std::int64_t{13};
   invalid_prompt_params.params = Json{{"name", Json::array()}};
   auto invalid_prompt_response =
       runtime.handle_request(invalid_prompt_params);
@@ -2323,7 +2482,7 @@ void test_raw_request_routing_surface() {
 
   mcp::protocol::JsonRpcRequest invalid_prompt_name;
   invalid_prompt_name.method = mcp::protocol::PromptsGetMethod;
-  invalid_prompt_name.id = std::int64_t{13};
+  invalid_prompt_name.id = std::int64_t{14};
   invalid_prompt_name.params =
       Json{{"name", "bad"}, {"arguments", Json::object()}};
   auto invalid_prompt_name_response =
@@ -2346,6 +2505,7 @@ int main() {
     test_stdio_process_start_failure();
     test_tools_list_fail_fast_after_partial_success();
     test_resources_list_fail_fast_after_partial_success();
+    test_resource_templates_list_fail_fast_after_partial_success();
     test_prompts_list_fail_fast_after_partial_success();
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();

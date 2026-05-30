@@ -396,6 +396,41 @@ struct GatewayRuntime::Impl final {
         });
   }
 
+  core::Result<std::vector<protocol::ResourceTemplate>>
+  list_resource_templates() {
+    auto accepting = ensure_runtime_accepting("resources/templates/list");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    std::vector<UpstreamResourceTemplateCatalog> catalogs;
+
+    for (const auto& upstream : router.config().upstreams) {
+      if (!upstream.enabled) {
+        continue;
+      }
+
+      auto resource_templates = with_initialized_upstream<
+          std::vector<protocol::ResourceTemplate>>(
+          upstream,
+          [](ClientPeer& peer) { return peer.list_all_resource_templates(); });
+      if (!resource_templates) {
+        return mcp::core::unexpected(resource_templates.error());
+      }
+      catalogs.push_back(UpstreamResourceTemplateCatalog{
+          .upstream_id = upstream.id,
+          .resource_templates = std::move(*resource_templates),
+      });
+    }
+
+    return merge_resource_template_catalogs(catalogs);
+  }
+
   core::Result<std::vector<protocol::Prompt>> list_prompts() {
     auto accepting = ensure_runtime_accepting("prompts/list");
     if (!accepting) {
@@ -505,6 +540,18 @@ struct GatewayRuntime::Impl final {
           request.id, protocol::resources_read_result_to_json(*result));
     }
 
+    if (request.method == protocol::ResourcesTemplatesListMethod) {
+      auto resource_templates = list_resource_templates();
+      if (!resource_templates) {
+        return error_response(request, resource_templates.error());
+      }
+      protocol::ResourceTemplatesListResult result;
+      result.resource_templates = std::move(*resource_templates);
+      return protocol::make_response(
+          request.id,
+          protocol::resource_templates_list_result_to_json(result));
+    }
+
     if (request.method == protocol::PromptsListMethod) {
       auto prompts = list_prompts();
       if (!prompts) {
@@ -583,6 +630,11 @@ GatewayRuntime::list_resources() {
 core::Result<protocol::ResourcesReadResult> GatewayRuntime::read_resource(
     std::string_view exposed_uri) {
   return impl_->read_resource(exposed_uri);
+}
+
+core::Result<std::vector<protocol::ResourceTemplate>>
+GatewayRuntime::list_resource_templates() {
+  return impl_->list_resource_templates();
 }
 
 core::Result<std::vector<protocol::Prompt>> GatewayRuntime::list_prompts() {

@@ -61,6 +61,8 @@ class GatewayRouter final {
       std::string_view exposed_name);
   static std::string expose_resource_uri(std::string_view upstream_id,
                                          std::string_view upstream_uri);
+  static std::string expose_resource_template_uri(
+      std::string_view upstream_id, std::string_view upstream_uri_template);
   static core::Result<ResolvedResourceUri> resolve_resource_uri(
       std::string_view exposed_uri);
   static std::string expose_prompt_name(std::string_view upstream_id,

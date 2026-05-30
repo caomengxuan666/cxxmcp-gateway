@@ -22,6 +22,11 @@ struct UpstreamResourceCatalog {
   std::vector<protocol::Resource> resources;
 };
 
+struct UpstreamResourceTemplateCatalog {
+  std::string upstream_id;
+  std::vector<protocol::ResourceTemplate> resource_templates;
+};
+
 struct UpstreamPromptCatalog {
   std::string upstream_id;
   std::vector<protocol::Prompt> prompts;
@@ -32,6 +37,10 @@ core::Result<std::vector<protocol::ToolDefinition>> merge_tool_catalogs(
 
 core::Result<std::vector<protocol::Resource>> merge_resource_catalogs(
     const std::vector<UpstreamResourceCatalog>& catalogs);
+
+core::Result<std::vector<protocol::ResourceTemplate>>
+merge_resource_template_catalogs(
+    const std::vector<UpstreamResourceTemplateCatalog>& catalogs);
 
 core::Result<std::vector<protocol::Prompt>> merge_prompt_catalogs(
     const std::vector<UpstreamPromptCatalog>& catalogs);
