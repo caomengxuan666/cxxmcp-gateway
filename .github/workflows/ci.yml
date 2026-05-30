@@ -27,7 +27,7 @@ jobs:
             build_shared_libs: OFF
 
     env:
-      CXXMCP_REF: fix/http-pending-request-session-scope
+      CXXMCP_REF: master
 
     steps:
       - name: Checkout gateway
