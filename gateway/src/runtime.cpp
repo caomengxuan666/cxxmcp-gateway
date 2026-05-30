@@ -73,6 +73,7 @@ protocol::ServerCapabilities gateway_server_capabilities(
   bool advertise_tools = false;
   bool advertise_resources = false;
   bool advertise_prompts = false;
+  bool advertise_completions = false;
 
   for (const auto& upstream : config.upstreams) {
     if (!upstream.enabled) {
@@ -90,6 +91,8 @@ protocol::ServerCapabilities gateway_server_capabilities(
         advertise_resources || state->second.capabilities->resources.enabled;
     advertise_prompts =
         advertise_prompts || state->second.capabilities->prompts.enabled;
+    advertise_completions = advertise_completions ||
+                            state->second.capabilities->completions.enabled;
   }
 
   if (!has_enabled_upstream) {
@@ -108,6 +111,9 @@ protocol::ServerCapabilities gateway_server_capabilities(
   }
   if (advertise_prompts) {
     builder.prompts(false);
+  }
+  if (advertise_completions) {
+    builder.completions();
   }
   return builder.build();
 }
@@ -572,6 +578,44 @@ struct GatewayRuntime::Impl final {
         [&](ClientPeer& peer) { return peer.get_prompt(request); });
   }
 
+  core::Result<protocol::CompleteResult> complete(
+      protocol::CompleteParams params) {
+    auto accepting = ensure_runtime_accepting("completion/complete");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    const UpstreamServer* upstream = nullptr;
+    if (params.ref.type == "ref/prompt") {
+      auto route = router.resolve_prompt_route(params.ref.name);
+      if (!route) {
+        return mcp::core::unexpected(route.error());
+      }
+      upstream = route->upstream;
+      params.ref.name = std::move(route->upstream_prompt_name);
+    } else if (params.ref.type == "ref/resource") {
+      auto route = router.resolve_resource_route(params.ref.uri.value_or(""));
+      if (!route) {
+        return mcp::core::unexpected(route.error());
+      }
+      upstream = route->upstream;
+      params.ref.name = route->upstream_uri;
+      params.ref.uri = std::move(route->upstream_uri);
+    } else {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway completion ref type is not supported", params.ref.type));
+    }
+
+    return with_initialized_upstream<protocol::CompleteResult>(
+        *upstream, [&](ClientPeer& peer) { return peer.complete(params); });
+  }
+
   std::optional<protocol::JsonRpcResponse> handle_request(
       const protocol::JsonRpcRequest& request) {
     if (request.method == protocol::ToolsListMethod) {
@@ -658,6 +702,19 @@ struct GatewayRuntime::Impl final {
           request.id, protocol::prompts_get_result_to_json(*result));
     }
 
+    if (request.method == protocol::CompletionCompleteMethod) {
+      auto completion = protocol::complete_params_from_json(request.params);
+      if (!completion) {
+        return error_response(request, completion.error());
+      }
+      auto result = complete(std::move(*completion));
+      if (!result) {
+        return error_response(request, result.error());
+      }
+      return protocol::make_response(
+          request.id, protocol::complete_result_to_json(*result));
+    }
+
     if (sdk_owned_request_method(request.method)) {
       return std::nullopt;
     }
@@ -726,6 +783,11 @@ core::Result<std::vector<protocol::Prompt>> GatewayRuntime::list_prompts() {
 core::Result<protocol::PromptsGetResult> GatewayRuntime::get_prompt(
     std::string_view exposed_name, protocol::Json arguments) {
   return impl_->get_prompt(exposed_name, std::move(arguments));
+}
+
+core::Result<protocol::CompleteResult> GatewayRuntime::complete(
+    protocol::CompleteParams params) {
+  return impl_->complete(std::move(params));
 }
 
 core::Result<core::Unit> GatewayRuntime::handle_notification(

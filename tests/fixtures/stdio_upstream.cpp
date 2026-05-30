@@ -14,6 +14,7 @@
 
 #include "cxxmcp/core/result.hpp"
 #include "cxxmcp/peer.hpp"
+#include "cxxmcp/protocol/completion.hpp"
 #include "cxxmcp/protocol/prompt.hpp"
 #include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/types.hpp"
@@ -184,6 +185,36 @@ int main(int argc, char** argv) {
           .description = "Fixture file by path",
           .mime_type = "text/plain",
           .meta = Json{{"fixture", "stdio"}, {"preserve", true}},
+      })
+      .completion([](const mcp::protocol::CompleteParams& params,
+                     const mcp::server::CompletionContext&) {
+        mcp::protocol::CompleteResult result;
+        if (params.ref.type == "ref/prompt" &&
+            params.ref.name == "summarize" &&
+            params.argument.name == "text") {
+          result.completion.values = {
+              params.argument.value + "-summary",
+              params.argument.value + "-brief",
+          };
+          result.completion.total = 2;
+          result.completion.has_more = false;
+          return result;
+        }
+        if (params.ref.type == "ref/resource" &&
+            params.ref.uri == "file:///fixture/{path}" &&
+            params.argument.name == "path") {
+          result.completion.values = {
+              params.argument.value + "readme.txt",
+              params.argument.value + "config.json",
+          };
+          result.completion.total = 2;
+          result.completion.has_more = false;
+          return result;
+        }
+        result.completion.values = {};
+        result.completion.total = 0;
+        result.completion.has_more = false;
+        return result;
       })
       .run();
 }

@@ -12,6 +12,7 @@
 #include "cxxmcp/gateway/config.hpp"
 #include "cxxmcp/gateway/router.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
+#include "cxxmcp/protocol/completion.hpp"
 #include "cxxmcp/protocol/prompt.hpp"
 #include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/serialization.hpp"
@@ -62,6 +63,8 @@ class GatewayRuntime final {
   core::Result<protocol::PromptsGetResult> get_prompt(
       std::string_view exposed_name,
       protocol::Json arguments = protocol::Json::object());
+  core::Result<protocol::CompleteResult> complete(
+      protocol::CompleteParams params);
   core::Result<core::Unit> handle_notification(
       const protocol::JsonRpcNotification& notification);
   std::optional<protocol::JsonRpcResponse> handle_request(

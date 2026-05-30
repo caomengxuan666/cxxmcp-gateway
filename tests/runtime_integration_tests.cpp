@@ -978,6 +978,117 @@ void test_hosted_capability_advertisement_uses_refresh_cache() {
           "hosted tools-only gateway should stop");
 }
 
+void test_completion_routes_to_stdio_upstream() {
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+
+  auto refreshed = runtime.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "completion test capability refresh should succeed");
+  auto capabilities = runtime.server_capabilities();
+  require(capabilities.completions.enabled,
+          "runtime should advertise completions after refreshed upstream "
+          "capabilities support completion");
+
+  mcp::protocol::CompleteParams prompt_completion;
+  prompt_completion.ref =
+      mcp::protocol::prompt_completion_reference("stdio.summarize");
+  prompt_completion.argument.name = "text";
+  prompt_completion.argument.value = "fixture";
+
+  auto prompt_result = runtime.complete(std::move(prompt_completion));
+  require(prompt_result.has_value(), "prompt completion should route");
+  require(prompt_result->completion.values.size() == 2,
+          "prompt completion should preserve upstream candidates");
+  require(prompt_result->completion.values[0] == "fixture-summary",
+          "prompt completion should rewrite prompt ref to upstream name");
+  require(prompt_result->completion.total == 2,
+          "prompt completion should preserve total");
+  require(prompt_result->completion.has_more == false,
+          "prompt completion should preserve hasMore");
+
+  mcp::protocol::CompleteParams resource_completion;
+  resource_completion.ref = mcp::protocol::resource_completion_reference(
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          "stdio", "file:///fixture/{path}"));
+  resource_completion.argument.name = "path";
+  resource_completion.argument.value = "docs/";
+
+  auto resource_result = runtime.complete(std::move(resource_completion));
+  require(resource_result.has_value(),
+          "resource template completion should route");
+  require(resource_result->completion.values.size() == 2,
+          "resource completion should preserve upstream candidates");
+  require(resource_result->completion.values[0] == "docs/readme.txt",
+          "resource completion should rewrite resource ref to upstream URI "
+          "template");
+
+  mcp::protocol::CompleteParams invalid_completion;
+  invalid_completion.ref =
+      mcp::protocol::prompt_completion_reference("bad");
+  invalid_completion.argument.name = "text";
+  invalid_completion.argument.value = "fixture";
+  auto invalid = runtime.complete(std::move(invalid_completion));
+  require(!invalid.has_value(), "invalid gateway completion ref should fail");
+  require(invalid.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "invalid gateway completion ref should map to invalid params");
+}
+
+void test_hosted_completion_routes_after_capability_refresh() {
+  constexpr auto kPort = 39967;
+
+  mcp::gateway::GatewayRuntime gateway(make_stdio_config());
+  auto refreshed = gateway.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "hosted completion capability refresh should succeed");
+
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(),
+          "hosted completion gateway endpoint should start");
+
+  auto client = mcp::ClientPeer::builder()
+                    .streamable_http("http://127.0.0.1:" +
+                                     std::to_string(kPort) + "/mcp")
+                    .build();
+  require(client.has_value(), "hosted completion client should build");
+
+  auto running_client = mcp::serve(std::move(*client));
+  require(running_client.has_value(),
+          "hosted completion client service should start");
+
+  auto initialized = running_client->peer().initialize(
+      "cxxmcp-gateway-completion-client", "1.0.0");
+  require(initialized.has_value(),
+          "hosted completion client should initialize");
+  auto capabilities = running_client->peer().server_capabilities();
+  require(capabilities.has_value(),
+          "hosted completion gateway should advertise capabilities");
+  require(capabilities->completions.enabled,
+          "hosted completion gateway should advertise completions after "
+          "refresh");
+  auto notified = running_client->peer().notify_initialized();
+  require(notified.has_value(),
+          "hosted completion initialized notification should work");
+
+  mcp::protocol::CompleteParams completion;
+  completion.ref =
+      mcp::protocol::prompt_completion_reference("stdio.summarize");
+  completion.argument.name = "text";
+  completion.argument.value = "hosted";
+  auto result = running_client->peer().complete(completion);
+  require(result.has_value(), "hosted completion should route");
+  require(result->completion.values.size() == 2,
+          "hosted completion should preserve candidates");
+  require(result->completion.values[0] == "hosted-summary",
+          "hosted completion should rewrite prompt ref to upstream name");
+
+  auto stopped_client = running_client->stop();
+  require(stopped_client.has_value(), "hosted completion client should stop");
+  auto stopped_gateway = gateway.stop();
+  require(stopped_gateway.has_value(), "hosted completion gateway should stop");
+}
+
 void test_repeated_stdio_calls_to_one_upstream() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "repeat";
@@ -2394,8 +2505,7 @@ void test_raw_request_routing_surface() {
   require(!repeated_initialize_response.has_value(),
           "repeated initialize should remain SDK-owned/nullopt");
 
-  const std::vector<std::string> unsupported_methods{
-      "tasks/list", "completion/complete"};
+  const std::vector<std::string> unsupported_methods{"tasks/list"};
   for (std::size_t i = 0; i < unsupported_methods.size(); ++i) {
     mcp::protocol::JsonRpcRequest unsupported;
     unsupported.method = unsupported_methods[i];
@@ -2635,6 +2745,8 @@ int main() {
     test_stdio_upstream();
     test_capability_advertisement_uses_initialized_upstream_cache();
     test_hosted_capability_advertisement_uses_refresh_cache();
+    test_completion_routes_to_stdio_upstream();
+    test_hosted_completion_routes_after_capability_refresh();
     test_repeated_stdio_calls_to_one_upstream();
     test_http_upstream();
     test_http_unavailable();

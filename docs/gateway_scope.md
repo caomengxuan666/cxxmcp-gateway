@@ -307,13 +307,14 @@ Current MVP:
   gateway-owned resource URI templates.
 - `prompts/list`: aggregated from enabled upstreams.
 - `prompts/get`: routed by exposed prompt name.
+- `completion/complete`: routed for gateway prompt names and gateway resource
+  template URIs when the target upstream supports completion.
 
 Not yet supported:
 
 - resource subscriptions and change notifications;
 - prompt list-change notifications;
 - tasks;
-- completion;
 - mutation workflows;
 - upstream capability-change notifications;
 - progress and cancellation forwarding.
@@ -333,10 +334,12 @@ The current runtime advertises the tools capability only when at least one
 upstream is enabled and the runtime can route `tools/list` and `tools/call`
 requests. A gateway instance with no enabled upstreams does not advertise tools.
 Resources and prompts follow the same runtime-owned rule for their implemented
-list/read, templates/list, or list/get data-plane methods. Prompt/resource
-list-change notifications, resource subscriptions, tasks, completion, progress,
-and cancellation remain unadvertised until their routing behavior is
-implemented.
+list/read, templates/list, or list/get data-plane methods. Completion is
+advertised only after initialized upstream capability records prove that at
+least one enabled upstream supports `completion/complete`; it is never forced by
+config alone. Prompt/resource list-change notifications, resource
+subscriptions, tasks, progress, and cancellation remain unadvertised until their
+routing behavior is implemented.
 
 Embedded hosts can inspect the same runtime-owned advertisement decision through
 `GatewayRuntime::server_capabilities()` before starting a hosted endpoint.
@@ -344,9 +347,9 @@ The method itself is side-effect-free: it must not start upstream processes or
 network sessions. Before any enabled upstream has been initialized, the runtime
 advertises the implemented MVP request families from the validated config. Once
 all enabled upstreams have initialized capability records in runtime state, the
-same method narrows `tools`, `resources`, and `prompts` advertisement to the
-families actually advertised by those upstreams. Unsupported families such as
-tasks and completion remain unadvertised.
+same method narrows `tools`, `resources`, and `prompts` advertisement and adds
+`completion` advertisement from the families actually advertised by those
+upstreams. Unsupported families such as tasks remain unadvertised.
 
 Hosts that need narrowed advertisement before starting a hosted endpoint can
 call `GatewayRuntime::refresh_upstream_capabilities()`. That API is explicitly
@@ -412,6 +415,14 @@ exposed prompt name and forwards arguments unchanged. Missing or disabled
 gateway upstreams map to `InvalidParams` because the SDK protocol surface has no
 standard prompt-not-found error code. `prompts/list_changed` forwarding is not
 part of this contract yet.
+
+Completion references reuse the existing namespaces. Prompt completions use
+gateway prompt names such as `<upstream>.<prompt>` and are rewritten to the
+upstream prompt name before forwarding. Resource completions use gateway
+resource template URIs such as
+`cxxmcp-gateway-resource://<upstream>/<template>` and are rewritten to the
+upstream URI template before forwarding. Completion has no list-change
+notification behavior.
 
 Future subscriptions and long-running task ids may need their own namespace or
 metadata rules. They must be defined separately before those capability

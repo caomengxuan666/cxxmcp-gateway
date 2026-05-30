@@ -264,7 +264,7 @@ Supported MCP method matrix for Phase 1:
 | `prompts/get` | Routed by exposed prompt name |
 | `notifications/prompts/list_changed` | Not advertised and not forwarded in MVP |
 | tasks | Not advertised unless SDK and gateway routing support exist |
-| completion | Not advertised |
+| `completion/complete` | Routed for gateway prompt names and gateway resource template URIs when upstream supports completion |
 | progress/cancellation | Not forwarded in MVP |
 | other unsupported requests | JSON-RPC `MethodNotFound`, except SDK-owned lifecycle/liveness methods |
 | other unsupported notifications | Ignored successfully; not forwarded upstream |
@@ -341,8 +341,8 @@ Candidate capabilities:
 - resource subscriptions and change notifications;
 - prompt list-change notifications;
 - tasks, if supported by the SDK surface;
-- completion or other MCP capabilities when SDK support is mature and runtime
-  advertisement can be driven by initialized upstream capabilities.
+- other MCP capabilities when SDK support is mature and runtime advertisement
+  can be driven by initialized upstream capabilities.
 
 Rules:
 
@@ -413,6 +413,20 @@ Current prompt routing design:
   upstream is enabled;
 - prompt list-change notifications remain out of scope, so
   `prompts/listChanged` is not advertised.
+
+Current completion routing design:
+
+- `completion/complete` routes prompt references that use exposed prompt names
+  of the form `<upstream>.<prompt>`;
+- `completion/complete` routes resource references that use gateway resource
+  template URIs;
+- prompt references are rewritten to upstream prompt names before forwarding;
+- resource references are rewritten to upstream URI templates before
+  forwarding;
+- completion advertisement requires initialized upstream capability records
+  proving completion support; config alone never forces completion into
+  downstream capabilities;
+- completion has no list-change notification behavior.
 
 Exit criteria:
 
@@ -550,17 +564,20 @@ The current MVP baseline has verified coverage for:
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including unsupported request/notification
    behavior.
-11. Optional performance measurement tooling for stdio/HTTP `tools/list` and
+11. Completion data-plane integration: prompt completions and resource-template
+    completions route through existing gateway namespaces, with hosted
+    advertisement gated by refreshed upstream capabilities.
+12. Optional performance measurement tooling for stdio/HTTP `tools/list` and
     `tools/call`, excluded from the default build and release-blocking CI.
-12. Capability-aware advertisement refinement: `server_capabilities()` remains
+13. Capability-aware advertisement refinement: `server_capabilities()` remains
     side-effect-free, uses config-based MVP advertisement before upstream
-    discovery, and narrows tools/resources/prompts advertisement once all
-    enabled upstream capability records are cached.
-13. Explicit capability refresh API: hosts can call
+    discovery, and narrows tools/resources/prompts plus completion
+    advertisement once all enabled upstream capability records are cached.
+14. Explicit capability refresh API: hosts can call
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
     initialize upstream capability caches without fetching catalogs or routing
     a data-plane request.
-14. Initial local Release performance baseline recorded in
+15. Initial local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
 
