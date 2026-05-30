@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -16,6 +17,8 @@ namespace mcp::gateway {
 namespace {
 
 constexpr std::size_t kMaxUpstreamIdLength = 128;
+constexpr std::string_view kGatewayResourceUriPrefix =
+    "cxxmcp-gateway-resource://";
 
 bool has_forbidden_upstream_id_char(std::string_view value) {
   return std::any_of(value.begin(), value.end(), [](char ch) {
@@ -23,6 +26,74 @@ bool has_forbidden_upstream_id_char(std::string_view value) {
     return byte < 0x21 || byte > 0x7e || ch == '.' || ch == '/' ||
            ch == '\\' || std::isspace(byte) != 0;
   });
+}
+
+bool is_unreserved_uri_char(unsigned char ch) {
+  return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+         (ch >= '0' && ch <= '9') || ch == '-' || ch == '.' || ch == '_' ||
+         ch == '~';
+}
+
+char hex_digit(unsigned char value) {
+  return static_cast<char>(value < 10 ? ('0' + value) : ('A' + value - 10));
+}
+
+std::string percent_encode(std::string_view value) {
+  std::string encoded;
+  encoded.reserve(value.size());
+  for (const auto ch : value) {
+    const auto byte = static_cast<unsigned char>(ch);
+    if (is_unreserved_uri_char(byte)) {
+      encoded.push_back(static_cast<char>(byte));
+      continue;
+    }
+    encoded.push_back('%');
+    encoded.push_back(hex_digit(static_cast<unsigned char>(byte >> 4)));
+    encoded.push_back(hex_digit(static_cast<unsigned char>(byte & 0x0f)));
+  }
+  return encoded;
+}
+
+std::optional<unsigned char> from_hex(char ch) {
+  if (ch >= '0' && ch <= '9') {
+    return static_cast<unsigned char>(ch - '0');
+  }
+  if (ch >= 'A' && ch <= 'F') {
+    return static_cast<unsigned char>(ch - 'A' + 10);
+  }
+  if (ch >= 'a' && ch <= 'f') {
+    return static_cast<unsigned char>(ch - 'a' + 10);
+  }
+  return std::nullopt;
+}
+
+core::Result<std::string> percent_decode(std::string_view value,
+                                         std::string_view context) {
+  std::string decoded;
+  decoded.reserve(value.size());
+  for (std::size_t i = 0; i < value.size(); ++i) {
+    if (value[i] != '%') {
+      decoded.push_back(value[i]);
+      continue;
+    }
+    if (i + 2 >= value.size()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway resource URI has invalid percent encoding",
+          std::string(context)));
+    }
+    const auto high = from_hex(value[i + 1]);
+    const auto low = from_hex(value[i + 2]);
+    if (!high.has_value() || !low.has_value()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway resource URI has invalid percent encoding",
+          std::string(context)));
+    }
+    decoded.push_back(static_cast<char>((*high << 4) | *low));
+    i += 2;
+  }
+  return decoded;
 }
 
 }  // namespace
@@ -139,6 +210,57 @@ core::Result<ResolvedToolName> GatewayRouter::resolve_tool_name(
   return ResolvedToolName{
       .upstream_id = std::string(upstream_id),
       .upstream_tool_name = std::string(exposed_name.substr(dot + 1)),
+  };
+}
+
+std::string GatewayRouter::expose_resource_uri(
+    std::string_view upstream_id, std::string_view upstream_uri) {
+  return std::string(kGatewayResourceUriPrefix) + percent_encode(upstream_id) +
+         "/" + percent_encode(upstream_uri);
+}
+
+core::Result<ResolvedResourceUri> GatewayRouter::resolve_resource_uri(
+    std::string_view exposed_uri) {
+  if (!exposed_uri.starts_with(kGatewayResourceUriPrefix)) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway resource URI must use 'cxxmcp-gateway-resource://' scheme",
+        std::string(exposed_uri)));
+  }
+
+  const auto body = exposed_uri.substr(kGatewayResourceUriPrefix.size());
+  const auto slash = body.find('/');
+  if (slash == std::string_view::npos || slash == 0 ||
+      slash + 1 >= body.size()) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway resource URI must use '<encoded-upstream>/<encoded-uri>'",
+        std::string(exposed_uri)));
+  }
+
+  auto upstream_id = percent_decode(body.substr(0, slash), exposed_uri);
+  if (!upstream_id) {
+    return mcp::core::unexpected(upstream_id.error());
+  }
+  auto valid_id = validate_upstream_id(*upstream_id);
+  if (!valid_id) {
+    return mcp::core::unexpected(valid_id.error());
+  }
+
+  auto upstream_uri = percent_decode(body.substr(slash + 1), exposed_uri);
+  if (!upstream_uri) {
+    return mcp::core::unexpected(upstream_uri.error());
+  }
+  if (upstream_uri->empty()) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway resource URI must preserve a non-empty upstream URI",
+        std::string(exposed_uri)));
+  }
+
+  return ResolvedResourceUri{
+      .upstream_id = std::move(*upstream_id),
+      .upstream_uri = std::move(*upstream_uri),
   };
 }
 

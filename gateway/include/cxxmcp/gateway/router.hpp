@@ -16,6 +16,11 @@ struct ResolvedToolName {
   std::string upstream_tool_name;
 };
 
+struct ResolvedResourceUri {
+  std::string upstream_id;
+  std::string upstream_uri;
+};
+
 struct ToolRoute {
   const UpstreamServer* upstream = nullptr;
   std::string upstream_tool_name;
@@ -35,6 +40,10 @@ class GatewayRouter final {
                                       std::string_view upstream_tool_name);
   static core::Result<ResolvedToolName> resolve_tool_name(
       std::string_view exposed_name);
+  static std::string expose_resource_uri(std::string_view upstream_id,
+                                         std::string_view upstream_uri);
+  static core::Result<ResolvedResourceUri> resolve_resource_uri(
+      std::string_view exposed_uri);
 
  private:
   const UpstreamServer* find_upstream(std::string_view upstream_id) const;

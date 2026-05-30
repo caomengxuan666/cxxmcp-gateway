@@ -342,8 +342,8 @@ Rules:
 
 - add one capability family at a time;
 - start with list/read or list/get flows before mutation flows;
-- use the same upstream namespace model unless there is a protocol reason not
-  to;
+- define namespace rules separately for each capability family instead of
+  reusing tool names by default;
 - each capability needs integration tests before being treated as supported.
 - each capability must define capability advertisement before implementation;
 - each capability must define namespace rules separately from tool names;
@@ -363,6 +363,21 @@ Capability expansion checklist:
 - progress and cancellation, if any;
 - error mapping and error data preservation;
 - integration tests for both stdio and Streamable HTTP upstreams.
+
+Current resource routing design:
+
+- concrete resource list/read will use gateway-owned resource URIs of the form
+  `cxxmcp-gateway-resource://<encoded-upstream>/<encoded-uri>`;
+- the encoded upstream id is decoded and validated with the gateway upstream id
+  grammar;
+- the encoded URI must decode to a non-empty upstream resource URI;
+- resource catalog merging preserves upstream resource metadata and adds
+  `_meta.gateway.upstreamId` plus `_meta.gateway.upstreamResourceUri`;
+- resource templates, subscriptions, and resource change notifications remain
+  out of scope until their ownership and routing rules are specified;
+- runtime must not advertise resources until `resources/list` and
+  `resources/read` are both implemented for stdio and Streamable HTTP upstreams
+  and covered by integration tests.
 
 Exit criteria:
 

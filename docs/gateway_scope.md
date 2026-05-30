@@ -347,10 +347,30 @@ The current grammar is:
 - at most 128 characters;
 - unique within one `GatewayConfig`.
 
-Tool names after the first `.` are preserved as upstream tool names. Future
-capabilities must not blindly reuse the tool namespace. Resource URIs, prompt
-names, subscriptions, and long-running task ids may need different namespace or
-metadata rules.
+Tool names after the first `.` are preserved as upstream tool names.
+
+Concrete resources use a separate gateway URI namespace instead of the tool
+name grammar. The planned resource URI format is:
+
+```text
+cxxmcp-gateway-resource://<percent-encoded-upstream-id>/<percent-encoded-upstream-resource-uri>
+```
+
+The encoded upstream id is decoded and validated with the same upstream id
+grammar as tools. The encoded upstream resource URI must decode to a non-empty
+URI and is preserved in `_meta.gateway.upstreamResourceUri` when resource
+catalogs are merged. Resource `name`, `title`, description, annotations, MIME
+type, size, and other metadata are preserved; routing decisions use the gateway
+resource URI, not the display name.
+
+Resource templates, subscriptions, `resources/list_changed`, and
+`resources/updated` forwarding are not part of this namespace contract yet.
+They require separate ownership and notification rules before resource
+capabilities can be advertised.
+
+Future prompt names, subscriptions, and long-running task ids may need their
+own namespace or metadata rules. They must be defined separately before those
+capability families are advertised.
 
 ## Session and Notification Semantics
 

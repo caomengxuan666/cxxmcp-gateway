@@ -59,4 +59,51 @@ core::Result<std::vector<protocol::ToolDefinition>> merge_tool_catalogs(
   return exposed;
 }
 
+core::Result<std::vector<protocol::Resource>> merge_resource_catalogs(
+    const std::vector<UpstreamResourceCatalog>& catalogs) {
+  std::vector<protocol::Resource> exposed;
+  std::unordered_set<std::string> exposed_uris;
+
+  for (const auto& catalog : catalogs) {
+    auto valid_id = validate_upstream_id(catalog.upstream_id);
+    if (!valid_id) {
+      return mcp::core::unexpected(valid_id.error());
+    }
+
+    for (auto resource : catalog.resources) {
+      const auto upstream_uri = resource.uri;
+      if (upstream_uri.empty()) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "upstream resource URI must not be empty", catalog.upstream_id));
+      }
+
+      resource.uri =
+          GatewayRouter::expose_resource_uri(catalog.upstream_id, upstream_uri);
+      if (!exposed_uris.insert(resource.uri).second) {
+        return mcp::core::unexpected(make_gateway_error(
+            protocol::ErrorCode::InvalidParams,
+            "duplicate exposed gateway resource URI", resource.uri));
+      }
+
+      protocol::Json meta =
+          resource.meta.has_value() && resource.meta->is_object()
+              ? *resource.meta
+              : protocol::Json::object();
+      meta["gateway"] = protocol::Json{
+          {"upstreamId", catalog.upstream_id},
+          {"upstreamResourceUri", upstream_uri},
+      };
+      resource.meta = std::move(meta);
+      exposed.push_back(std::move(resource));
+    }
+  }
+
+  std::sort(exposed.begin(), exposed.end(), [](const auto& lhs,
+                                               const auto& rhs) {
+    return lhs.uri < rhs.uri;
+  });
+  return exposed;
+}
+
 }  // namespace mcp::gateway

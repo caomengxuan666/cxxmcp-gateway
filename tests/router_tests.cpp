@@ -9,6 +9,7 @@
 #include "cxxmcp/gateway/catalog.hpp"
 #include "cxxmcp/gateway/error.hpp"
 #include "cxxmcp/gateway/router.hpp"
+#include "cxxmcp/protocol/resource.hpp"
 #include "cxxmcp/protocol/types.hpp"
 #include "cxxmcp/protocol/tool.hpp"
 
@@ -45,6 +46,32 @@ int main() {
 
   const auto invalid = mcp::gateway::GatewayRouter::resolve_tool_name("broken");
   require(!invalid.has_value(), "invalid gateway tool name should fail");
+
+  const auto exposed_resource = mcp::gateway::GatewayRouter::expose_resource_uri(
+      "fs:local", "file:///tmp/a b.txt?x=1#frag");
+  require(exposed_resource ==
+              "cxxmcp-gateway-resource://fs%3Alocal/"
+              "file%3A%2F%2F%2Ftmp%2Fa%20b.txt%3Fx%3D1%23frag",
+          "exposed resource URI should percent-encode route parts");
+  const auto resolved_resource =
+      mcp::gateway::GatewayRouter::resolve_resource_uri(exposed_resource);
+  require(resolved_resource.has_value(),
+          "valid gateway resource URI should resolve");
+  require(resolved_resource->upstream_id == "fs:local",
+          "resource URI upstream id mismatch");
+  require(resolved_resource->upstream_uri == "file:///tmp/a b.txt?x=1#frag",
+          "resource URI upstream URI mismatch");
+
+  const auto invalid_resource_scheme =
+      mcp::gateway::GatewayRouter::resolve_resource_uri("file:///tmp/a.txt");
+  require(!invalid_resource_scheme.has_value(),
+          "non-gateway resource URI should fail resolution");
+
+  const auto invalid_resource_encoding =
+      mcp::gateway::GatewayRouter::resolve_resource_uri(
+          "cxxmcp-gateway-resource://fs/%XX");
+  require(!invalid_resource_encoding.has_value(),
+          "bad resource URI percent encoding should fail resolution");
 
   const auto empty_id = mcp::gateway::validate_upstream_id("");
   require(!empty_id.has_value(), "empty upstream id should fail");
@@ -147,6 +174,52 @@ int main() {
           "catalog merge should reject empty upstream tool names");
   require(empty_tool_name.error().category == "gateway",
           "empty tool name error should use gateway category");
+
+  mcp::protocol::Resource readme;
+  readme.uri = "file:///tmp/readme.md";
+  readme.name = "Readme";
+  readme.meta = mcp::protocol::Json{{"existing", true}};
+  mcp::protocol::Resource config_resource;
+  config_resource.uri = "file:///tmp/config.json";
+  config_resource.name = "Config";
+
+  const auto merged_resources = mcp::gateway::merge_resource_catalogs(
+      {mcp::gateway::UpstreamResourceCatalog{
+          .upstream_id = "fs",
+          .resources = {readme, config_resource},
+      }});
+  require(merged_resources.has_value(), "resource catalog merge should succeed");
+  require(merged_resources->size() == 2, "resource catalog merge size mismatch");
+  require((*merged_resources)[0].uri.find("config.json") != std::string::npos,
+          "resource catalog merge should sort exposed URIs");
+  require((*merged_resources)[1].meta.has_value(),
+          "resource catalog merge should attach metadata");
+  require((*merged_resources)[1].meta->at("existing").get<bool>(),
+          "resource catalog merge should preserve existing metadata");
+  require((*merged_resources)[1].meta->at("gateway").at("upstreamId") == "fs",
+          "resource catalog merge should include upstream id metadata");
+  require((*merged_resources)[1]
+              .meta->at("gateway")
+              .at("upstreamResourceUri") == "file:///tmp/readme.md",
+          "resource catalog merge should include upstream resource URI metadata");
+
+  const auto duplicate_resources = mcp::gateway::merge_resource_catalogs(
+      {mcp::gateway::UpstreamResourceCatalog{
+          .upstream_id = "fs",
+          .resources = {readme, readme},
+      }});
+  require(!duplicate_resources.has_value(),
+          "duplicate exposed resource URIs should fail catalog merge");
+
+  mcp::protocol::Resource empty_uri_resource;
+  empty_uri_resource.name = "empty";
+  const auto empty_resource_uri = mcp::gateway::merge_resource_catalogs(
+      {mcp::gateway::UpstreamResourceCatalog{
+          .upstream_id = "fs",
+          .resources = {empty_uri_resource},
+      }});
+  require(!empty_resource_uri.has_value(),
+          "catalog merge should reject empty upstream resource URIs");
 
   auto upstream_timeout = mcp::gateway::annotate_gateway_upstream_error(
       mcp::core::Error{1, "Connection timed out", "socket timeout",
