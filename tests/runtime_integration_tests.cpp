@@ -1319,6 +1319,21 @@ void test_raw_request_routing_surface() {
               static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
           "invalid exposed tool name should map to invalid params");
 
+  mcp::protocol::JsonRpcRequest invalid_tool_arguments;
+  invalid_tool_arguments.method = mcp::protocol::ToolsCallMethod;
+  invalid_tool_arguments.id = std::int64_t{4};
+  invalid_tool_arguments.params =
+      Json{{"name", "stdio.echo"}, {"arguments", Json::array()}};
+  auto invalid_arguments_response =
+      runtime.handle_request(invalid_tool_arguments);
+  require(invalid_arguments_response.has_value(),
+          "invalid tool arguments should respond");
+  require(invalid_arguments_response->error.has_value(),
+          "invalid tool arguments should error");
+  require(invalid_arguments_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "invalid tool arguments should map to invalid request");
+
   auto unsupported_notification = runtime.handle_notification(
       mcp::protocol::make_notification(
           std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
