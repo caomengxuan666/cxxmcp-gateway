@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -11,6 +12,19 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include "cxxmcp/gateway/runtime.hpp"
 #include "cxxmcp/peer.hpp"
@@ -29,6 +43,114 @@ void require(bool condition, std::string_view message) {
   if (!condition) {
     throw std::runtime_error(std::string(message));
   }
+}
+
+#ifdef _WIN32
+class SocketRuntime final {
+ public:
+  SocketRuntime() {
+    WSADATA data{};
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+      throw std::runtime_error("WSAStartup failed");
+    }
+  }
+
+  ~SocketRuntime() { WSACleanup(); }
+};
+
+using SocketHandle = SOCKET;
+constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
+
+void close_socket(SocketHandle socket) { closesocket(socket); }
+
+bool socket_failed(int result) { return result == SOCKET_ERROR; }
+
+#else
+class SocketRuntime final {
+ public:
+  SocketRuntime() = default;
+};
+
+using SocketHandle = int;
+constexpr SocketHandle kInvalidSocket = -1;
+
+void close_socket(SocketHandle socket) { close(socket); }
+
+bool socket_failed(int result) { return result < 0; }
+#endif
+
+std::string post_raw_http(std::uint16_t port, std::string_view path,
+                          std::string_view body) {
+  SocketRuntime sockets;
+  SocketHandle socket = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (socket == kInvalidSocket) {
+    throw std::runtime_error("failed to create socket");
+  }
+
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(port);
+  if (inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) != 1) {
+    close_socket(socket);
+    throw std::runtime_error("failed to parse loopback address");
+  }
+
+  if (socket_failed(::connect(socket, reinterpret_cast<sockaddr*>(&address),
+                              sizeof(address)))) {
+    close_socket(socket);
+    throw std::runtime_error("failed to connect to hosted gateway");
+  }
+
+  const std::string request =
+      "POST " + std::string(path) + " HTTP/1.1\r\n" +
+      "Host: 127.0.0.1:" + std::to_string(port) + "\r\n" +
+      "Accept: application/json, text/event-stream\r\n" +
+      "Content-Type: application/json\r\n" +
+      "Content-Length: " + std::to_string(body.size()) + "\r\n" +
+      "Connection: close\r\n\r\n" + std::string(body);
+
+  std::size_t sent = 0;
+  while (sent < request.size()) {
+#ifdef _WIN32
+    const int chunk = ::send(socket, request.data() + sent,
+                             static_cast<int>(request.size() - sent), 0);
+#else
+    const auto chunk =
+        ::send(socket, request.data() + sent, request.size() - sent, 0);
+#endif
+    if (socket_failed(static_cast<int>(chunk))) {
+      close_socket(socket);
+      throw std::runtime_error("failed to send HTTP request");
+    }
+    sent += static_cast<std::size_t>(chunk);
+  }
+
+#ifdef _WIN32
+  shutdown(socket, SD_SEND);
+#else
+  shutdown(socket, SHUT_WR);
+#endif
+
+  std::string response;
+  char buffer[4096];
+  for (;;) {
+#ifdef _WIN32
+    const int received = ::recv(socket, buffer, sizeof(buffer), 0);
+#else
+    const auto received = ::recv(socket, buffer, sizeof(buffer), 0);
+#endif
+    if (received == 0) {
+      break;
+    }
+    if (socket_failed(static_cast<int>(received))) {
+      close_socket(socket);
+      throw std::runtime_error("failed to read HTTP response");
+    }
+    response.append(buffer, static_cast<std::size_t>(received));
+  }
+
+  close_socket(socket);
+  return response;
 }
 
 bool has_tool(const std::vector<ToolDefinition>& tools,
@@ -1053,6 +1175,24 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
                  "idle hosted gateway should mark upstream stopped");
 }
 
+void test_hosted_gateway_rejects_invalid_json_rpc_request() {
+  constexpr auto kPort = 39964;
+
+  mcp::gateway::GatewayRuntime gateway(make_disabled_config());
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(), "invalid JSON-RPC gateway should start");
+
+  const auto response = post_raw_http(kPort, "/mcp", "{not-json}");
+  require(response.find(" 400 ") != std::string::npos,
+          "invalid JSON-RPC request should return HTTP 400");
+  require(response.find("-32700") != std::string::npos,
+          "invalid JSON-RPC request should map to JSON-RPC parse error");
+
+  auto stopped = gateway.stop();
+  require(stopped.has_value(), "invalid JSON-RPC gateway should stop");
+}
+
 void test_runtime_move_assignment_stops_existing_endpoint() {
   constexpr auto kOldPort = 39961;
   constexpr auto kMovedPort = 39962;
@@ -1503,6 +1643,7 @@ int main() {
     test_http_unavailable();
     test_start_http_invalid_config_fails_before_binding_port();
     test_hosted_gateway_http_endpoint_stops_while_idle();
+    test_hosted_gateway_rejects_invalid_json_rpc_request();
     test_runtime_move_assignment_stops_existing_endpoint();
     test_http_timeout();
     test_concurrent_http_calls_update_active_state();
