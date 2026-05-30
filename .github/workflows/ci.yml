@@ -22,6 +22,9 @@ jobs:
           - os: ubuntu-latest
             shared: shared
             build_shared_libs: ON
+          - os: macos-latest
+            shared: static
+            build_shared_libs: OFF
           - os: windows-latest
             shared: static
             build_shared_libs: OFF
@@ -60,6 +63,13 @@ jobs:
           if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
             choco install ninja --no-progress
           }
+
+      - name: Install Ninja on macOS
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v ninja >/dev/null 2>&1; then
+            brew install ninja
+          fi
 
       - name: Configure SDK
         run: >

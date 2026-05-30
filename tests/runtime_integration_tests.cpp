@@ -400,7 +400,7 @@ void test_http_timeout() {
   require(!called.has_value(), "slow http upstream should time out");
   require_gateway_upstream_timeout(called.error(), "slow");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds{600});
+  std::this_thread::sleep_for(std::chrono::seconds{2});
   const auto stopped = running->stop();
   require(stopped.has_value(), "http timeout fixture should stop");
 }
