@@ -348,6 +348,12 @@ same method narrows `tools`, `resources`, and `prompts` advertisement to the
 families actually advertised by those upstreams. Unsupported families such as
 tasks and completion remain unadvertised.
 
+Hosts that need narrowed advertisement before starting a hosted endpoint can
+call `GatewayRuntime::refresh_upstream_capabilities()`. That API is explicitly
+side-effecting: it initializes enabled upstreams, records their advertised
+capabilities in runtime state, and does not fetch catalogs or route data-plane
+requests.
+
 ## Namespace Rules
 
 The initial tool namespace is `<upstream>.<tool>`.

@@ -518,6 +518,34 @@ struct GatewayRuntime::Impl final {
     return merge_prompt_catalogs(catalogs);
   }
 
+  core::Result<core::Unit> refresh_upstream_capabilities() {
+    auto accepting = ensure_runtime_accepting("refresh_upstream_capabilities");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+
+    auto valid = router.validate_config();
+    if (!valid) {
+      return mcp::core::unexpected(valid.error());
+    }
+
+    for (const auto& upstream : router.config().upstreams) {
+      if (!upstream.enabled) {
+        continue;
+      }
+
+      auto refreshed = with_initialized_upstream<core::Unit>(
+          upstream, [](ClientPeer&) {
+            return core::Result<core::Unit>{core::Unit{}};
+          });
+      if (!refreshed) {
+        return mcp::core::unexpected(refreshed.error());
+      }
+    }
+
+    return core::Unit{};
+  }
+
   core::Result<protocol::PromptsGetResult> get_prompt(
       std::string_view exposed_name, protocol::Json arguments) {
     auto accepting = ensure_runtime_accepting("prompts/get");
@@ -712,6 +740,10 @@ std::optional<protocol::JsonRpcResponse> GatewayRuntime::handle_request(
 
 std::vector<UpstreamRuntimeState> GatewayRuntime::upstream_states() const {
   return impl_->snapshot_upstream_states();
+}
+
+core::Result<core::Unit> GatewayRuntime::refresh_upstream_capabilities() {
+  return impl_->refresh_upstream_capabilities();
 }
 
 protocol::ServerCapabilities GatewayRuntime::server_capabilities() const {

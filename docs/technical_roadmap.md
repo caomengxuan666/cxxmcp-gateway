@@ -556,7 +556,11 @@ The current MVP baseline has verified coverage for:
     side-effect-free, uses config-based MVP advertisement before upstream
     discovery, and narrows tools/resources/prompts advertisement once all
     enabled upstream capability records are cached.
-13. Initial local Release performance baseline recorded in
+13. Explicit capability refresh API: hosts can call
+    `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
+    initialize upstream capability caches without fetching catalogs or routing
+    a data-plane request.
+14. Initial local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
 

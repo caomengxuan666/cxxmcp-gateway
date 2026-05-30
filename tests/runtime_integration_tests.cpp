@@ -884,21 +884,24 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
   require(!before.completions.enabled,
           "runtime should not advertise completions before discovery");
 
-  auto tools = runtime.list_tools();
-  require(tools.has_value(), "tools-only upstream tools/list should succeed");
-  require(has_tool(*tools, "tools_only.echo"),
-          "tools-only upstream tool should be exposed");
+  auto refreshed = runtime.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "tools-only upstream capability refresh should succeed");
 
   const auto state =
       require_upstream_state(runtime.upstream_states(), "tools_only");
   require(state.capabilities.has_value(),
-          "tools-only upstream initialize should record capabilities");
+          "tools-only capability refresh should record capabilities");
   require(state.capabilities->tools.enabled,
           "tools-only upstream should advertise tools upstream");
   require(!state.capabilities->resources.enabled,
           "tools-only upstream should not advertise resources upstream");
   require(!state.capabilities->prompts.enabled,
           "tools-only upstream should not advertise prompts upstream");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "capability refresh should leave upstream healthy");
+  require(state.active_calls == 0,
+          "capability refresh should not leave active upstream calls");
 
   const auto after = runtime.server_capabilities();
   require(after.tools.enabled,
@@ -914,6 +917,65 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
           "runtime should not advertise completions after discovery");
   require(!after.tasks.has_value(),
           "runtime should not advertise tasks after discovery");
+
+  auto tools = runtime.list_tools();
+  require(tools.has_value(), "tools-only upstream tools/list should succeed");
+  require(has_tool(*tools, "tools_only.echo"),
+          "tools-only upstream tool should still be exposed");
+}
+
+void test_hosted_capability_advertisement_uses_refresh_cache() {
+  constexpr auto kPort = 39966;
+
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "tools_only";
+  config.upstreams.front().process_stdio.args = {"--tools-only"};
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+
+  auto refreshed = gateway.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "hosted tools-only capability refresh should succeed");
+
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(),
+          "hosted tools-only gateway endpoint should start");
+
+  auto client = mcp::ClientPeer::builder()
+                    .streamable_http("http://127.0.0.1:" +
+                                     std::to_string(kPort) + "/mcp")
+                    .build();
+  require(client.has_value(), "hosted tools-only client should build");
+
+  auto running_client = mcp::serve(std::move(*client));
+  require(running_client.has_value(),
+          "hosted tools-only client service should start");
+
+  auto initialized = running_client->peer().initialize(
+      "cxxmcp-gateway-tools-only-client", "1.0.0");
+  require(initialized.has_value(),
+          "hosted tools-only client should initialize");
+
+  auto capabilities = running_client->peer().server_capabilities();
+  require(capabilities.has_value(),
+          "hosted tools-only gateway should advertise explicit capabilities");
+  require(capabilities->tools.enabled,
+          "hosted tools-only gateway should advertise tools");
+  require(!capabilities->resources.enabled,
+          "hosted tools-only gateway should not advertise resources");
+  require(!capabilities->prompts.enabled,
+          "hosted tools-only gateway should not advertise prompts");
+  require(!capabilities->completions.enabled,
+          "hosted tools-only gateway should not advertise completions");
+  require(!capabilities->tasks.has_value(),
+          "hosted tools-only gateway should not advertise tasks");
+
+  auto stopped_client = running_client->stop();
+  require(stopped_client.has_value(),
+          "hosted tools-only client should stop");
+  auto stopped_gateway = gateway.stop();
+  require(stopped_gateway.has_value(),
+          "hosted tools-only gateway should stop");
 }
 
 void test_repeated_stdio_calls_to_one_upstream() {
@@ -2572,6 +2634,7 @@ int main() {
     test_stdio_malformed_response_before_initialize();
     test_stdio_upstream();
     test_capability_advertisement_uses_initialized_upstream_cache();
+    test_hosted_capability_advertisement_uses_refresh_cache();
     test_repeated_stdio_calls_to_one_upstream();
     test_http_upstream();
     test_http_unavailable();
