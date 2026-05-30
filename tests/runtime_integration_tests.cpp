@@ -266,6 +266,10 @@ void test_disabled_upstream() {
   require(called.error().code ==
               static_cast<int>(mcp::protocol::ErrorCode::ToolNotFound),
           "disabled upstream should map to tool-not-found");
+  require(called.error().message == "gateway upstream is disabled",
+          "disabled upstream should report stable routing error message");
+  require(called.error().detail == "disabled",
+          "disabled upstream error should preserve upstream id context");
 }
 
 void test_invalid_config_advertises_no_tools() {
@@ -426,6 +430,13 @@ void test_stdio_upstream() {
 
   auto unknown = runtime.call_tool("missing.echo", Json::object());
   require(!unknown.has_value(), "unknown upstream should fail");
+  require(unknown.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::ToolNotFound),
+          "unknown upstream should map to tool-not-found");
+  require(unknown.error().message == "gateway upstream not found",
+          "unknown upstream should report stable routing error message");
+  require(unknown.error().detail == "missing",
+          "unknown upstream error should preserve upstream id context");
 
   auto missing_tool = runtime.call_tool("stdio.missing", Json::object());
   require(!missing_tool.has_value(), "unknown upstream tool should fail");
@@ -1618,6 +1629,21 @@ void test_raw_request_routing_surface() {
   require(invalid_arguments_response->error->code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
           "invalid tool arguments should map to invalid request");
+
+  mcp::protocol::JsonRpcRequest unknown_upstream_tool_call;
+  unknown_upstream_tool_call.method = mcp::protocol::ToolsCallMethod;
+  unknown_upstream_tool_call.id = std::int64_t{5};
+  unknown_upstream_tool_call.params =
+      Json{{"name", "missing.echo"}, {"arguments", Json::object()}};
+  auto unknown_upstream_response =
+      runtime.handle_request(unknown_upstream_tool_call);
+  require(unknown_upstream_response.has_value(),
+          "unknown upstream tool call should respond");
+  require(unknown_upstream_response->error.has_value(),
+          "unknown upstream tool call should error");
+  require(unknown_upstream_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::ToolNotFound),
+          "unknown upstream tool call should map to tool not found");
 
   auto unsupported_notification = runtime.handle_notification(
       mcp::protocol::make_notification(
