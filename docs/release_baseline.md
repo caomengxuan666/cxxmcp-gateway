@@ -9,7 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-c25a215fc5f933212c2fe9f2d28729667db25dbe
+8db312e8be75b7c822a832b41b00577cef6262b4
 ```
 
 SDK source revision:
@@ -53,10 +53,10 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list,50,53217,136441
-stdio,tools/call,50,54548,91541
-http,tools/list,50,31295,61953
-http,tools/call,50,31921,48682
+stdio,tools/list,50,42581,72232
+stdio,tools/call,50,45176,76859
+http,tools/list,50,29969,47448
+http,tools/call,50,30198,47994
 ```
 
 Notes:
@@ -65,7 +65,8 @@ Notes:
   cross-platform performance contract.
 - Debug-build timings are not comparable to this baseline.
 - The measured gateway code commit is the code state immediately before this
-  baseline document refresh.
+  baseline document refresh; the refresh commit only updates this evidence
+  file.
 - The initial Release perf build against the adjacent SDK install failed because
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.
