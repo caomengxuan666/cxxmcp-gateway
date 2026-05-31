@@ -14,6 +14,12 @@ endif()
 if(NOT DEFINED CXXMCP_GATEWAY_INSTALL_LIBDIR)
     set(CXXMCP_GATEWAY_INSTALL_LIBDIR lib)
 endif()
+set(package_smoke_config_build_args "")
+if(DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG AND
+   CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG)
+    list(APPEND package_smoke_config_build_args
+        --config "${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG}")
+endif()
 
 set(core_component_install_prefix
     "${CXXMCP_GATEWAY_BINARY_DIR}/package_smoke_full_build_core_component_install_${CXXMCP_GATEWAY_GENERATOR_ID}")
@@ -24,6 +30,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${CXXMCP_GATEWAY_BINARY_DIR}"
         --prefix "${core_component_install_prefix}"
         --component core
+        ${package_smoke_config_build_args}
     RESULT_VARIABLE install_result)
 if(NOT install_result EQUAL 0)
     message(FATAL_ERROR "full-build core component install failed")

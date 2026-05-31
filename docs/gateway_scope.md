@@ -28,7 +28,7 @@ The repository owns:
 
 - `cxxmcp_gateway_core`;
 - `cxxmcp_gateway_runtime`;
-- future `cxxmcp_gateway_config_io`;
+- optional `cxxmcp_gateway_config_io`;
 - the optional `cxxmcp-gateway` reference runner;
 - tests, examples, and documentation needed to validate the libraries.
 
@@ -277,7 +277,7 @@ Owns command-line process behavior:
 The CLI should not contain routing logic, protocol logic, or long-lived
 management state.
 
-### Future Config IO
+### Config IO
 
 File-based configuration lives in the separate `cxxmcp_gateway_config_io`
 layer. The initial format is JSON and loads into `GatewayConfig`; YAML, TOML,

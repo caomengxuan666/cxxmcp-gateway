@@ -27,6 +27,7 @@
 #include <unistd.h>
 #endif
 
+#include "cxxmcp/gateway/router.hpp"
 #include "cxxmcp/gateway/runtime.hpp"
 #include "cxxmcp/peer.hpp"
 #include "cxxmcp/protocol/tool.hpp"

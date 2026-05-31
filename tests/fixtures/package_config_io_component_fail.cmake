@@ -14,6 +14,18 @@ if(NOT DEFINED CXXMCP_GATEWAY_GENERATOR_ID)
     string(MAKE_C_IDENTIFIER "${CXXMCP_GATEWAY_GENERATOR}"
         CXXMCP_GATEWAY_GENERATOR_ID)
 endif()
+set(package_smoke_config_args "")
+if(DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE AND
+   CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE)
+    list(APPEND package_smoke_config_args
+        -DCMAKE_BUILD_TYPE=${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE})
+endif()
+set(package_smoke_config_build_args "")
+if(DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG AND
+   CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG)
+    list(APPEND package_smoke_config_build_args
+        --config "${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG}")
+endif()
 
 set(config_io_disabled_build_dir
     "${CXXMCP_GATEWAY_BINARY_DIR}/package_smoke_config_io_disabled_gateway_${CXXMCP_GATEWAY_GENERATOR_ID}")
@@ -29,6 +41,7 @@ execute_process(
         -G "${CXXMCP_GATEWAY_GENERATOR}"
         -S "${CXXMCP_GATEWAY_SOURCE_DIR}"
         -B "${config_io_disabled_build_dir}"
+        ${package_smoke_config_args}
         "-Dcxxmcp_DIR=${cxxmcp_DIR}"
         -DCXXMCP_GATEWAY_BUILD_CONFIG_IO=OFF
         -DCXXMCP_GATEWAY_BUILD_RUNTIME=OFF
@@ -42,6 +55,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${config_io_disabled_build_dir}"
+        ${package_smoke_config_build_args}
     RESULT_VARIABLE build_result)
 if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "config_io-disabled gateway build failed")

@@ -12,7 +12,6 @@
 
 #include "cxxmcp/core/result.hpp"
 #include "cxxmcp/gateway/config.hpp"
-#include "cxxmcp/gateway/router.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
 #include "cxxmcp/protocol/completion.hpp"
 #include "cxxmcp/protocol/prompt.hpp"
@@ -55,8 +54,6 @@ class GatewayRuntime final {
   GatewayRuntime& operator=(const GatewayRuntime&) = delete;
   GatewayRuntime(GatewayRuntime&&) noexcept;
   GatewayRuntime& operator=(GatewayRuntime&&) noexcept;
-
-  const GatewayRouter& router() const noexcept;
 
   core::Result<std::vector<protocol::ToolDefinition>> list_tools();
   core::Result<protocol::ToolResult> call_tool(

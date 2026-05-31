@@ -65,6 +65,12 @@ IO layer default to `ON` only for top-level builds and default to `OFF` when
 this repository is embedded as a subproject.
 Subproject default behavior is covered by the test suite: embedding projects
 get core/runtime by default without CLI, config IO, or gateway test targets.
+The `<cxxmcp/gateway.hpp>` umbrella header is core-only; runtime and config IO
+consumers should include `<cxxmcp/gateway/runtime.hpp>` or
+`<cxxmcp/gateway/config_io.hpp>` and request the matching package component.
+Install components are additive: installing the optional `cli` executable also
+requires installing the runtime component, and config IO when the CLI was built
+with file-config support.
 
 Library targets honor `BUILD_SHARED_LIBS`. Static builds keep position
 independent code enabled so the libraries can be linked into host shared

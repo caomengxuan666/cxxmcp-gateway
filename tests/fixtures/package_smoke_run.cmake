@@ -19,6 +19,9 @@ endif()
 if(NOT DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION)
     set(CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION "")
 endif()
+if(NOT DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG)
+    set(CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG "")
+endif()
 
 if(CMAKE_HOST_WIN32)
     set(executable_suffix ".exe")
@@ -50,10 +53,22 @@ else()
 endif()
 
 function(run_package_smoke_executable target_name)
-    set(executable
+    set(executable_candidates
         "${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_DIR}/${target_name}${executable_suffix}")
+    if(CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG)
+        list(PREPEND executable_candidates
+            "${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_DIR}/${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG}/${target_name}${executable_suffix}")
+    endif()
+    set(executable "")
+    foreach(candidate IN LISTS executable_candidates)
+        if(EXISTS "${candidate}")
+            set(executable "${candidate}")
+            break()
+        endif()
+    endforeach()
     if(NOT EXISTS "${executable}")
-        message(FATAL_ERROR "package smoke executable is missing: ${executable}")
+        message(FATAL_ERROR
+            "package smoke executable is missing: ${executable_candidates}")
     endif()
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E env "${runtime_env}" "${executable}"

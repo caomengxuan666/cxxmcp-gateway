@@ -29,6 +29,12 @@ if(DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE AND
     list(APPEND package_smoke_config_args
         -DCMAKE_BUILD_TYPE=${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE})
 endif()
+set(package_smoke_config_build_args "")
+if(DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG AND
+   CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG)
+    list(APPEND package_smoke_config_build_args
+        --config "${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG}")
+endif()
 
 set(component_install_prefix
     "${CXXMCP_GATEWAY_BINARY_DIR}/package_smoke_component_install_${CXXMCP_GATEWAY_GENERATOR_ID}")
@@ -44,6 +50,7 @@ function(install_gateway_component component)
         COMMAND "${CMAKE_COMMAND}" --install "${CXXMCP_GATEWAY_BINARY_DIR}"
             --prefix "${component_install_prefix}"
             --component "${component}"
+            ${package_smoke_config_build_args}
         RESULT_VARIABLE install_result)
     if(NOT install_result EQUAL 0)
         message(FATAL_ERROR "${component} component install failed")
@@ -79,6 +86,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${component_consumer_build_dir}"
+        ${package_smoke_config_build_args}
     RESULT_VARIABLE build_result)
 if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "component install package smoke build failed")

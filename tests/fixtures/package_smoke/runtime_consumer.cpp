@@ -7,5 +7,5 @@
 int main() {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::GatewayRuntime runtime(std::move(config));
-  return runtime.router().config().name == "cxxmcp-gateway" ? 0 : 1;
+  return runtime.upstream_states().empty() ? 0 : 1;
 }

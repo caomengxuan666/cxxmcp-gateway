@@ -15,6 +15,7 @@
 
 #include "cxxmcp/gateway/catalog.hpp"
 #include "cxxmcp/gateway/error.hpp"
+#include "cxxmcp/gateway/router.hpp"
 #include "cxxmcp/peer.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
 #include "cxxmcp/service.hpp"
@@ -779,10 +780,6 @@ GatewayRuntime& GatewayRuntime::operator=(GatewayRuntime&& other) noexcept {
   (void)stop();
   impl_ = std::move(other.impl_);
   return *this;
-}
-
-const GatewayRouter& GatewayRuntime::router() const noexcept {
-  return impl_->router;
 }
 
 core::Result<std::vector<protocol::ToolDefinition>>
