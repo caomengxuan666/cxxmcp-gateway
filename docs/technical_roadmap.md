@@ -583,9 +583,10 @@ The current MVP baseline has verified coverage for:
    close during active process-stdio and Streamable HTTP upstream calls,
    observable initialized state during active upstream calls, post-stop
    rejection for side-effecting runtime operations, in-flight stopping
-   rejection for data-plane operations and capability refresh, raw JSON-RPC
-   post-stop rejection for routed methods while SDK-owned lifecycle and
-   liveness methods remain delegated, hosted endpoint option validation,
+   rejection for direct and raw JSON-RPC routed data-plane operations and
+   capability refresh, raw JSON-RPC post-stop rejection for routed methods
+   while SDK-owned lifecycle and liveness methods remain delegated, hosted
+   endpoint option validation,
    hosted multi-client routing for process-stdio and Streamable HTTP
    upstreams, wait-before-start rejection, overlapping wait/stop handling,
    observer lifecycle reentry,

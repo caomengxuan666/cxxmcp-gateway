@@ -583,6 +583,106 @@ void require_raw_runtime_stopped_error(
           "raw runtime stopped response data should match operation");
 }
 
+void require_raw_runtime_stopping_error(
+    const mcp::protocol::JsonRpcResponse& response,
+    std::string_view operation) {
+  require(response.error.has_value(),
+          "raw runtime stopping response should be an error");
+  require(response.error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "raw runtime stopping response should use InvalidRequest");
+  require(response.error->message.find("stopping") != std::string::npos,
+          "raw runtime stopping response should mention stopping");
+  require(response.error->data.has_value(),
+          "raw runtime stopping response should preserve operation context");
+  require(response.error->data->is_string(),
+          "raw runtime stopping response data should be a string");
+  require(response.error->data->get<std::string>() == operation,
+          "raw runtime stopping response data should match operation");
+}
+
+void require_stopping_raw_requests_are_rejected(
+    mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id) {
+  const std::vector<std::string> sdk_owned_methods{
+      mcp::protocol::InitializeMethod,
+      mcp::protocol::PingMethod,
+      mcp::protocol::ServerDiscoverMethod,
+  };
+  for (std::size_t i = 0; i < sdk_owned_methods.size(); ++i) {
+    mcp::protocol::JsonRpcRequest sdk_owned;
+    sdk_owned.method = sdk_owned_methods[i];
+    sdk_owned.id = static_cast<std::int64_t>(200 + i);
+    auto response = runtime.handle_request(sdk_owned);
+    require(!response.has_value(),
+            "stopping runtime should keep SDK-owned methods delegated");
+  }
+
+  auto expect_stopping = [&](mcp::protocol::JsonRpcRequest request,
+                             std::string_view operation) {
+    auto response = runtime.handle_request(request);
+    require(response.has_value(),
+            "stopping runtime raw routed request should respond");
+    require_raw_runtime_stopping_error(*response, operation);
+  };
+
+  mcp::protocol::JsonRpcRequest tools_list;
+  tools_list.method = mcp::protocol::ToolsListMethod;
+  tools_list.id = std::int64_t{210};
+  expect_stopping(std::move(tools_list), "tools/list");
+
+  mcp::protocol::JsonRpcRequest tools_call;
+  tools_call.method = mcp::protocol::ToolsCallMethod;
+  tools_call.id = std::int64_t{211};
+  tools_call.params =
+      Json{{"name", std::string(upstream_id) + ".echo"},
+           {"arguments", Json{{"value", "during-stop"}}}};
+  expect_stopping(std::move(tools_call), "tools/call");
+
+  mcp::protocol::JsonRpcRequest resources_list;
+  resources_list.method = mcp::protocol::ResourcesListMethod;
+  resources_list.id = std::int64_t{212};
+  expect_stopping(std::move(resources_list), "resources/list");
+
+  mcp::protocol::JsonRpcRequest resources_read;
+  resources_read.method = mcp::protocol::ResourcesReadMethod;
+  resources_read.id = std::int64_t{213};
+  resources_read.params =
+      Json{{"uri", mcp::gateway::GatewayRouter::expose_resource_uri(
+                       upstream_id, "file:///during-stop.txt")}};
+  expect_stopping(std::move(resources_read), "resources/read");
+
+  mcp::protocol::JsonRpcRequest resource_templates_list;
+  resource_templates_list.method =
+      mcp::protocol::ResourcesTemplatesListMethod;
+  resource_templates_list.id = std::int64_t{214};
+  expect_stopping(std::move(resource_templates_list),
+                  "resources/templates/list");
+
+  mcp::protocol::JsonRpcRequest prompts_list;
+  prompts_list.method = mcp::protocol::PromptsListMethod;
+  prompts_list.id = std::int64_t{215};
+  expect_stopping(std::move(prompts_list), "prompts/list");
+
+  mcp::protocol::JsonRpcRequest prompts_get;
+  prompts_get.method = mcp::protocol::PromptsGetMethod;
+  prompts_get.id = std::int64_t{216};
+  prompts_get.params =
+      Json{{"name", std::string(upstream_id) + ".summarize"},
+           {"arguments", Json{{"text", "during-stop"}}}};
+  expect_stopping(std::move(prompts_get), "prompts/get");
+
+  mcp::protocol::CompleteParams completion;
+  completion.ref = mcp::protocol::prompt_completion_reference(
+      std::string(upstream_id) + ".summarize");
+  completion.argument.name = "text";
+  completion.argument.value = "during-stop";
+  mcp::protocol::JsonRpcRequest complete;
+  complete.method = mcp::protocol::CompletionCompleteMethod;
+  complete.id = std::int64_t{217};
+  complete.params = mcp::protocol::complete_params_to_json(completion);
+  expect_stopping(std::move(complete), "completion/complete");
+}
+
 void require_stopping_notifications_are_noops(
     mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id) {
   const std::vector<std::pair<std::string, Json>> notifications{
@@ -4201,6 +4301,8 @@ void test_runtime_stop_waits_for_active_stdio_call() {
           "runtime stop should expose stopping state while stdio call drains");
 
   require_stopping_notifications_are_noops(runtime, "stdio_stop");
+
+  require_stopping_raw_requests_are_rejected(runtime, "stdio_stop");
 
   auto stopping_list = runtime.list_tools();
   require(!stopping_list.has_value(),
