@@ -25,6 +25,7 @@ void print_usage(std::ostream& out) {
 #endif
   out << " [--host <host>]\n"
       << "      [--port <port>] [--path <path>]\n"
+      << "      [--session-mode <per-call|persistent>] [--prewarm]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";
 }
@@ -54,6 +55,19 @@ bool split_assignment(std::string_view text, std::string& key,
   return true;
 }
 
+bool parse_session_mode(std::string_view text,
+                        mcp::gateway::UpstreamSessionMode& mode) {
+  if (text == "per-call" || text == "per_call") {
+    mode = mcp::gateway::UpstreamSessionMode::per_call;
+    return true;
+  }
+  if (text == "persistent") {
+    mode = mcp::gateway::UpstreamSessionMode::persistent;
+    return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -79,6 +93,9 @@ int main(int argc, char** argv) {
 
   mcp::gateway::HttpEndpoint endpoint;
   mcp::gateway::GatewayConfig config;
+  mcp::gateway::GatewayRuntimeConfig runtime_config;
+  std::optional<mcp::gateway::UpstreamSessionMode> session_mode_override;
+  bool prewarm_flag = false;
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   std::optional<std::string> config_file;
 #endif
@@ -102,6 +119,20 @@ int main(int argc, char** argv) {
     }
     if (arg == "--path" && i + 1 < args.size()) {
       endpoint.path = std::string(args[++i]);
+      continue;
+    }
+    if (arg == "--session-mode" && i + 1 < args.size()) {
+      mcp::gateway::UpstreamSessionMode mode =
+          mcp::gateway::UpstreamSessionMode::per_call;
+      if (!parse_session_mode(args[++i], mode)) {
+        std::cerr << "invalid --session-mode value\n";
+        return 2;
+      }
+      session_mode_override = mode;
+      continue;
+    }
+    if (arg == "--prewarm") {
+      prewarm_flag = true;
       continue;
     }
     if (arg == "--port" && i + 1 < args.size()) {
@@ -146,7 +177,8 @@ int main(int argc, char** argv) {
 
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   if (config_file.has_value()) {
-    auto loaded = mcp::gateway::load_gateway_config_file(*config_file);
+    auto loaded =
+        mcp::gateway::load_gateway_config_document_file(*config_file);
     if (!loaded) {
       std::cerr << "failed to load config: " << loaded.error().message;
       if (!loaded.error().detail.empty()) {
@@ -155,8 +187,9 @@ int main(int argc, char** argv) {
       std::cerr << "\n";
       return 2;
     }
+    runtime_config = loaded->runtime;
     auto merged = mcp::gateway::merge_gateway_config_upstreams(
-        std::move(*loaded), std::move(config));
+        std::move(loaded->config), std::move(config));
     if (!merged) {
       std::cerr << "failed to merge config: " << merged.error().message;
       if (!merged.error().detail.empty()) {
@@ -169,12 +202,34 @@ int main(int argc, char** argv) {
   }
 #endif
 
+  if (session_mode_override.has_value()) {
+    runtime_config.upstream_session_mode = *session_mode_override;
+  }
+  if (prewarm_flag) {
+    runtime_config.prewarm_capabilities = true;
+  }
+
   if (config.upstreams.empty()) {
     std::cerr << "at least one upstream is required\n";
     return 2;
   }
 
-  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  mcp::gateway::GatewayRuntimeOptions runtime_options;
+  runtime_options.upstream_session_mode = runtime_config.upstream_session_mode;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(runtime_options));
+  if (runtime_config.prewarm_capabilities) {
+    auto refreshed = runtime.refresh_upstream_capabilities();
+    if (!refreshed) {
+      std::cerr << "failed to prewarm upstream capabilities: "
+                << refreshed.error().message;
+      if (!refreshed.error().detail.empty()) {
+        std::cerr << ": " << refreshed.error().detail;
+      }
+      std::cerr << "\n";
+      return 1;
+    }
+  }
   auto started = runtime.start_http(std::move(endpoint));
   if (!started) {
     std::cerr << "failed to start gateway: " << started.error().message;

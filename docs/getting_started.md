@@ -131,12 +131,33 @@ latency or high-QPS multiplexing layer.
 The `cxxmcp-gateway` executable is a thin reference runner:
 
 ```powershell
-cxxmcp-gateway serve --port 39931 --upstream-http tools=http://127.0.0.1:3001/mcp
+cxxmcp-gateway serve --port 39931 --session-mode persistent --prewarm --upstream-http tools=http://127.0.0.1:3001/mcp
 ```
 
 Use it for local development, smoke tests, demos, and simple sidecars. Product
 hosts should prefer the runtime API above so they can own configuration,
 credentials, policy, observability, and lifecycle.
+
+When config IO is built, JSON config files can carry the same runtime choices:
+
+```json
+{
+  "runtime": {
+    "upstreamSessionMode": "persistent",
+    "prewarmCapabilities": true
+  },
+  "upstreams": [
+    {
+      "id": "tools",
+      "transport": "http",
+      "uri": "http://127.0.0.1:3001/mcp"
+    }
+  ]
+}
+```
+
+Command-line `--session-mode` overrides the file value, and `--prewarm` enables
+startup capability refresh even when the file leaves it disabled.
 
 ## Buildable Example
 

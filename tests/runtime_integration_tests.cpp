@@ -3271,6 +3271,8 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
 void test_runtime_stop_waits_for_active_stdio_call() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "stdio_stop";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{2000};
   const auto marker_path =
       std::filesystem::temp_directory_path() /
       ("cxxmcp_gateway_stdio_marker_" +
@@ -3289,7 +3291,7 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   std::thread worker([&] {
     try {
       auto called =
-          runtime.call_tool("stdio_stop.slow", Json{{"sleepMs", 1200}});
+          runtime.call_tool("stdio_stop.slow", Json{{"sleepMs", 600}});
       require(called.has_value(), "slow stdio call should succeed");
       require_text_result(*called, "slow-done");
     } catch (...) {

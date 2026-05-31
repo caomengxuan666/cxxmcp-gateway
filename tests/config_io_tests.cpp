@@ -27,10 +27,24 @@ void require_config_error(const Json& json, std::string_view expected_detail,
           "config type error should include field path");
 }
 
+void require_config_document_error(const Json& json,
+                                   std::string_view expected_detail,
+                                   std::string_view message) {
+  const auto parsed = mcp::gateway::gateway_config_document_from_json(json);
+  require(!parsed.has_value(), message);
+  require(parsed.error().category == "gateway.config",
+          "config document parser should use gateway.config error category");
+  require(parsed.error().detail == expected_detail,
+          "config document type error should include field path");
+}
+
 void test_parse_json_config() {
   const Json json = {
       {"name", "gateway-test"},
       {"version", "1.2.3"},
+      {"runtime",
+       Json{{"upstreamSessionMode", "persistent"},
+            {"prewarmCapabilities", true}}},
       {"upstreams",
        Json::array({
            Json{{"id", "stdio"},
@@ -84,6 +98,55 @@ void test_parse_json_config() {
   require(parsed->upstreams[1].streamable_http.headers.at("Authorization") ==
               "Bearer token",
           "http headers should parse");
+}
+
+void test_parse_json_config_document() {
+  const Json json = {
+      {"runtime",
+       Json{{"upstreamSessionMode", "persistent"},
+            {"prewarmCapabilities", true}}},
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})},
+  };
+
+  auto parsed = mcp::gateway::gateway_config_document_from_json(json);
+  require(parsed.has_value(), "valid JSON gateway document should parse");
+  require(parsed->config.upstreams.size() == 1,
+          "document config upstreams should parse");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "document runtime session mode should parse");
+  require(parsed->runtime.prewarm_capabilities,
+          "document prewarm flag should parse");
+
+  const Json per_call = {
+      {"runtime", Json{{"upstreamSessionMode", "per-call"}}},
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})},
+  };
+  parsed = mcp::gateway::gateway_config_document_from_json(per_call);
+  require(parsed.has_value(), "per-call spelling should parse");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::per_call,
+          "per-call spelling should select per-call mode");
+
+  const Json defaults = {
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})},
+  };
+  parsed = mcp::gateway::gateway_config_document_from_json(defaults);
+  require(parsed.has_value(), "runtime defaults should parse");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::per_call,
+          "default runtime session mode should be per-call");
+  require(!parsed->runtime.prewarm_capabilities,
+          "default runtime prewarm should be false");
 }
 
 void test_reject_invalid_config() {
@@ -260,6 +323,41 @@ void test_reject_structured_field_type_mismatches() {
                               {"uri", "http://127.0.0.1:3000/mcp"},
                               {"timeoutMs", "30000"}}})}},
       "upstreams[0].timeoutMs", "non-integer HTTP timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json::array()},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime", "non-object runtime config should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"upstreamSessionMode", "pooled"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.upstreamSessionMode",
+      "unknown runtime session mode should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"upstreamSessionMode", 42}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.upstreamSessionMode",
+      "non-string runtime session mode should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"prewarmCapabilities", "yes"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.prewarmCapabilities",
+      "non-boolean runtime prewarm should fail");
 }
 
 void test_reject_endpoint_fields() {
@@ -311,6 +409,15 @@ void test_load_config_file() {
   require(loaded->upstreams.front().id == "fixture",
           "config fixture upstream id should load");
 
+  auto document = mcp::gateway::load_gateway_config_document_file(
+      CXXMCP_GATEWAY_CONFIG_IO_FIXTURE);
+  require(document.has_value(), "config fixture document should load");
+  require(document->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "config fixture runtime session mode should load");
+  require(document->runtime.prewarm_capabilities,
+          "config fixture runtime prewarm should load");
+
   const auto missing_path =
       std::string(CXXMCP_GATEWAY_CONFIG_IO_FIXTURE) + ".missing";
   auto missing = mcp::gateway::load_gateway_config_file(missing_path);
@@ -339,6 +446,7 @@ void test_load_config_file() {
 int main() {
   try {
     test_parse_json_config();
+    test_parse_json_config_document();
     test_reject_invalid_config();
     test_reject_optional_string_type_mismatches();
     test_reject_structured_field_type_mismatches();

@@ -68,6 +68,12 @@ completion routes.
 - Hosted HTTP endpoints capture a capability snapshot at `start_http()`.
   Call `refresh_upstream_capabilities()` first when startup advertisement needs
   initialized upstream evidence.
+- The reference CLI maps `--session-mode persistent` to
+  `GatewayRuntimeOptions::upstream_session_mode` and maps `--prewarm` or JSON
+  `runtime.prewarmCapabilities` to a startup
+  `refresh_upstream_capabilities()` call before binding the hosted endpoint.
+  In per-call mode this refresh opens and closes upstream sessions; in
+  persistent mode it leaves initialized upstream sessions retained.
 
 The MVP does not advertise listChanged, resource subscriptions, tasks,
 progress, cancellation forwarding, or logging control.

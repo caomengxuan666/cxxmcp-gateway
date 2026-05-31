@@ -113,6 +113,12 @@ cxxmcp-gateway serve --port 39931 --upstream-http local=http://127.0.0.1:3000/mc
 ```
 
 Use `--upstream-stdio <id=command>` for process-stdio upstreams.
+Use `--session-mode persistent` to keep one initialized upstream session per
+upstream, and `--prewarm` to refresh upstream capabilities before the hosted
+endpoint starts. This is the reference runner form of the library
+`GatewayRuntimeOptions::upstream_session_mode` and
+`GatewayRuntime::refresh_upstream_capabilities()` path; it reduces repeated-call
+setup cost but is still one serialized session per upstream, not a pool.
 When `cxxmcp_gateway_config_io` is built, the reference runner also accepts
 `--config <file>` for JSON gateway config and appends any command-line
 upstreams to the loaded config. File config and command-line upstreams are
@@ -130,6 +136,10 @@ performed by `cxxmcp_gateway_config_io`.
 {
   "name": "local-gateway",
   "version": "1.0.0",
+  "runtime": {
+    "upstreamSessionMode": "persistent",
+    "prewarmCapabilities": true
+  },
   "upstreams": [
     {
       "id": "local",

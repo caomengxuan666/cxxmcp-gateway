@@ -46,6 +46,16 @@ struct GatewayConfig {
   std::vector<UpstreamServer> upstreams;
 };
 
+enum class UpstreamSessionMode {
+  per_call,
+  persistent,
+};
+
+struct GatewayRuntimeConfig {
+  UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
+  bool prewarm_capabilities = false;
+};
+
 core::Result<core::Unit> validate_upstream_id(std::string_view upstream_id);
 core::Result<core::Unit> validate_gateway_config(
     const GatewayConfig& config);

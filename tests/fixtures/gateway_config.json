@@ -1,6 +1,10 @@
 {
   "name": "fixture-gateway",
   "version": "1.0.0",
+  "runtime": {
+    "upstreamSessionMode": "persistent",
+    "prewarmCapabilities": true
+  },
   "upstreams": [
     {
       "id": "fixture",

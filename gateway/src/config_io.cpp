@@ -69,6 +69,48 @@ core::Result<core::Unit> reject_endpoint_fields(
   return core::Unit{};
 }
 
+core::Result<GatewayRuntimeConfig> runtime_config_from_json(
+    const protocol::Json& json) {
+  GatewayRuntimeConfig runtime;
+  if (!json.contains("runtime")) {
+    return runtime;
+  }
+  const auto& runtime_json = json.at("runtime");
+  if (!runtime_json.is_object()) {
+    return mcp::core::unexpected(make_gateway_config_error(
+        "gateway config field must be an object", "$.runtime"));
+  }
+  if (runtime_json.contains("upstreamSessionMode")) {
+    if (!runtime_json.at("upstreamSessionMode").is_string()) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a string",
+          "$.runtime.upstreamSessionMode"));
+    }
+    const auto mode =
+        runtime_json.at("upstreamSessionMode").get<std::string>();
+    if (mode == "per_call" || mode == "per-call") {
+      runtime.upstream_session_mode = UpstreamSessionMode::per_call;
+    } else if (mode == "persistent") {
+      runtime.upstream_session_mode = UpstreamSessionMode::persistent;
+    } else {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway runtime upstreamSessionMode must be 'per_call' or "
+          "'persistent'",
+          "$.runtime.upstreamSessionMode"));
+    }
+  }
+  if (runtime_json.contains("prewarmCapabilities")) {
+    if (!runtime_json.at("prewarmCapabilities").is_boolean()) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a boolean",
+          "$.runtime.prewarmCapabilities"));
+    }
+    runtime.prewarm_capabilities =
+        runtime_json.at("prewarmCapabilities").get<bool>();
+  }
+  return runtime;
+}
+
 core::Result<std::vector<std::string>> optional_string_array(
     const protocol::Json& json, std::string_view field,
     std::string_view path) {
@@ -267,8 +309,20 @@ core::Result<GatewayConfig> gateway_config_from_json(
   return config;
 }
 
-core::Result<GatewayConfig> load_gateway_config_file(
-    std::string_view path) {
+core::Result<GatewayConfigDocument> gateway_config_document_from_json(
+    const protocol::Json& json) {
+  auto config = gateway_config_from_json(json);
+  if (!config) {
+    return mcp::core::unexpected(config.error());
+  }
+  auto runtime = runtime_config_from_json(json);
+  if (!runtime) {
+    return mcp::core::unexpected(runtime.error());
+  }
+  return GatewayConfigDocument{std::move(*config), *runtime};
+}
+
+core::Result<protocol::Json> load_gateway_config_json(std::string_view path) {
   std::ifstream input(std::string(path), std::ios::binary);
   if (!input) {
     return mcp::core::unexpected(make_gateway_config_error(
@@ -281,7 +335,25 @@ core::Result<GatewayConfig> load_gateway_config_file(
     return mcp::core::unexpected(make_gateway_config_error(
         "failed to parse gateway config JSON", std::string(path)));
   }
-  return gateway_config_from_json(json);
+  return json;
+}
+
+core::Result<GatewayConfig> load_gateway_config_file(
+    std::string_view path) {
+  auto json = load_gateway_config_json(path);
+  if (!json) {
+    return mcp::core::unexpected(json.error());
+  }
+  return gateway_config_from_json(*json);
+}
+
+core::Result<GatewayConfigDocument> load_gateway_config_document_file(
+    std::string_view path) {
+  auto json = load_gateway_config_json(path);
+  if (!json) {
+    return mcp::core::unexpected(json.error());
+  }
+  return gateway_config_document_from_json(*json);
 }
 
 }  // namespace mcp::gateway

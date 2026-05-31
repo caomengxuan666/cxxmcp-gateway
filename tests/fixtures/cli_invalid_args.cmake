@@ -23,6 +23,13 @@ endfunction()
 expect_cli_failure(invalid_port "invalid --port value"
     serve --port not-a-port --upstream-stdio fixture=fixture-server)
 
+expect_cli_failure(invalid_session_mode "invalid --session-mode value"
+    serve --session-mode pooled --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(missing_session_mode
+    "unknown or incomplete option: --session-mode"
+    serve --session-mode)
+
 expect_cli_failure(malformed_http_upstream
     "--upstream-http expects <id=url>"
     serve --upstream-http missing-assignment)
