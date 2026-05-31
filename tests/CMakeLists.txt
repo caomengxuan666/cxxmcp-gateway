@@ -101,6 +101,15 @@ if(TARGET cxxmcp_gateway_cli)
         cxxmcp_gateway_prepend_target_dir_to_test(
             gateway_cli_config_and_flags_validate_together cxxmcp_gateway_cli)
     endif()
+
+    add_test(NAME gateway_cli_without_config_io_rejects_config
+        COMMAND "${CMAKE_COMMAND}"
+            -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+            -Dcxxmcp_DIR=${cxxmcp_DIR}
+            -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+            -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_without_config_io.cmake")
 endif()
 
 set(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME OFF)
