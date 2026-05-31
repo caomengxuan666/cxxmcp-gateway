@@ -546,8 +546,9 @@ The current MVP baseline has verified coverage for:
 2. Core/runtime split: core owns config validation, namespace rules, catalog
    merging, and route decisions; runtime owns SDK peer/service and upstream
    process/network execution.
-3. Upstream config validation: empty ids, invalid id grammar, duplicate ids,
-   missing enabled transport parameters, and invalid HTTP timeouts.
+3. Upstream config validation: empty ids, invalid id grammar, duplicate ids
+   from direct config construction and JSON config loading, missing enabled
+   transport parameters, and invalid HTTP timeouts.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
@@ -571,9 +572,10 @@ The current MVP baseline has verified coverage for:
    hosted endpoint option validation, wait-before-start rejection,
    cancellation/progress notification no-ops, and stdio child cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
-   resources, and prompts MVP, including unsupported request/notification
-   behavior, unsupported notification no-op coverage, and serialized JSON shape
-   for non-advertised sub-capabilities.
+   resources, and prompts MVP, including SDK-owned lifecycle/discovery request
+   pass-through, unsupported request/notification behavior, unsupported
+   notification no-op coverage, and serialized JSON shape for non-advertised
+   sub-capabilities.
 11. Completion data-plane integration: prompt completions and resource-template
     completions route through existing gateway namespaces for process stdio
     and Streamable HTTP upstreams, raw `completion/complete` requests route

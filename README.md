@@ -14,7 +14,12 @@ The new design starts from a narrow data plane:
 - upstream MCP servers over process stdio or Streamable HTTP;
 - one hosted Streamable HTTP gateway endpoint;
 - `tools/list` aggregation with `<upstream>.<tool>` names;
-- `tools/call` routing back to the selected upstream.
+- `tools/call` routing back to the selected upstream;
+- `resources/list`, `resources/read`, and `resources/templates/list` routing
+  through gateway-owned resource URIs;
+- `prompts/list` and `prompts/get` routing with `<upstream>.<prompt>` names;
+- `completion/complete` routing for prompt names and resource template URIs
+  when initialized upstream capabilities prove support.
 
 Control-plane and management features will be added only after the gateway core
 is validated.
