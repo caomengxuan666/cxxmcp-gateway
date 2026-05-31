@@ -75,6 +75,13 @@ if(TARGET cxxmcp_gateway_cli)
     set_tests_properties(gateway_cli_version PROPERTIES
         PASS_REGULAR_EXPRESSION "${PROJECT_VERSION}")
 
+    add_test(NAME gateway_cli_invalid_args
+        COMMAND "${CMAKE_COMMAND}"
+            -DCXXMCP_GATEWAY_CLI=$<TARGET_FILE:cxxmcp_gateway_cli>
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_invalid_args.cmake")
+    cxxmcp_gateway_prepend_target_dir_to_test(
+        gateway_cli_invalid_args cxxmcp_gateway_cli)
+
     if(TARGET cxxmcp_gateway_config_io)
         add_test(NAME gateway_cli_config_missing
             COMMAND cxxmcp_gateway_cli serve
