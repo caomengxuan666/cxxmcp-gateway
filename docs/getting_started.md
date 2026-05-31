@@ -137,3 +137,19 @@ cxxmcp-gateway serve --port 39931 --upstream-http tools=http://127.0.0.1:3001/mc
 Use it for local development, smoke tests, demos, and simple sidecars. Product
 hosts should prefer the runtime API above so they can own configuration,
 credentials, policy, observability, and lifecycle.
+
+## Buildable Example
+
+The repository also includes a small embedding example that uses the runtime
+API directly:
+
+```powershell
+cmake -S . -B build-examples -DCXXMCP_GATEWAY_BUILD_EXAMPLES=ON -DCMAKE_PREFIX_PATH=C:\path\to\cxxmcp\install
+cmake --build build-examples --target cxxmcp_gateway_embedded_runtime_example
+build-examples\cxxmcp-gateway-embedded-runtime-example.exe --persistent --prewarm --http tools=http://127.0.0.1:3001/mcp
+```
+
+The example is intentionally outside the default build and is not installed as
+a package component. It exists to show host-owned configuration, observer
+callbacks, optional capability prewarm, and optional persistent upstream
+sessions in one compile-checked program.

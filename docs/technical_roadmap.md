@@ -643,6 +643,11 @@ The current MVP baseline has verified coverage for:
 20. Compatibility policy: supported consumer shape, SDK revision boundaries,
     source/API versus ABI stability, CI platform matrix, and feature support
     limits are documented in [`compatibility.md`](compatibility.md).
+21. Buildable embedded-runtime example: `examples/embedded_runtime_host.cpp`
+    compiles behind `CXXMCP_GATEWAY_BUILD_EXAMPLES=ON` and demonstrates
+    host-owned config construction, observer callbacks, capability prewarm,
+    hosted startup, and opt-in persistent upstream sessions without changing
+    default package components.
 
 ## Remaining Near-Term Backlog
 

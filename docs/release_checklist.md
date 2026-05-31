@@ -36,6 +36,7 @@ API requirements.
 - Component install smoke tests install, configure, build, and run downstream
   consumers for the enabled `core`, `runtime`, `config_io`, and `cli`
   components.
+- Optional embedding examples build when `CXXMCP_GATEWAY_BUILD_EXAMPLES=ON`.
 
 ## SDK And Performance Evidence
 

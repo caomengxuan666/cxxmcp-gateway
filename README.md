@@ -98,6 +98,10 @@ Optional performance tooling is available with
 prints CSV latency summaries for stdio/HTTP cold and cached `tools/list`,
 per-call `tools/call`, and opt-in persistent-session `tools/call`.
 
+Optional embedding examples are available with
+`-DCXXMCP_GATEWAY_BUILD_EXAMPLES=ON`. They are excluded from the default build
+and are not installed as package components.
+
 ## CLI
 
 Use the CLI as a thin reference runner, not as the primary architecture.
