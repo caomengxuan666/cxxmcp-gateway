@@ -1,4 +1,4 @@
-#include "cxxmcp/gateway/config_io.hpp"
+#include <cxxmcp/gateway/config_io.hpp>
 
 int main() {
   const mcp::protocol::Json json = {
