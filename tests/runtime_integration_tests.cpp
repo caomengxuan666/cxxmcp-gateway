@@ -1960,11 +1960,36 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   require(observed_active, "stdio shutdown test should observe active call");
   require(observed_marker, "stdio shutdown test should observe child process marker");
 
+  std::exception_ptr stop_error;
   const auto stop_started = std::chrono::steady_clock::now();
-  auto stopped = runtime.stop();
+  std::thread stopper([&] {
+    try {
+      auto stopped = runtime.stop();
+      require(stopped.has_value(),
+              "runtime stop should succeed while stdio call is active");
+    } catch (...) {
+      stop_error = std::current_exception();
+    }
+  });
+
+  bool observed_stopping = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "stdio_stop");
+    if (state.status == UpstreamRuntimeStatus::stopping) {
+      observed_stopping = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  stopper.join();
+  if (stop_error) {
+    std::rethrow_exception(stop_error);
+  }
   const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
-  require(stopped.has_value(),
-          "runtime stop should succeed while stdio call is active");
+  require(observed_stopping,
+          "runtime stop should expose stopping state while stdio call drains");
   require(stop_elapsed >= std::chrono::milliseconds{200},
           "runtime stop should wait for active stdio calls to drain");
 
