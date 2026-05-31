@@ -567,7 +567,8 @@ The current MVP baseline has verified coverage for:
    upstreams, multiple upstreams, exposed prompt-name routing, fail-fast prompt
    catalogs, unknown or disabled upstreams, and upstream-returned MCP errors.
 7. Gateway error mapping for routing, transport, timeout, protocol, and
-   upstream MCP failures.
+   upstream MCP failures, including direct coverage for gateway-owned error
+   construction and upstream error annotation.
 8. Runtime lifecycle decision: explicit per-call upstream sessions, with
    initialized upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls

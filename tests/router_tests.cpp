@@ -419,6 +419,64 @@ int main() {
       mcp::core::Error{2, "upstream failed", "", ""}, "fs");
   require(upstream_plain.category == "gateway.upstream",
           "uncategorized upstream error should use gateway upstream category");
+  require(upstream_plain.detail == "upstream 'fs'",
+          "uncategorized upstream error with empty detail should preserve "
+          "upstream context");
+
+  auto detail_timeout = mcp::gateway::annotate_gateway_upstream_error(
+      mcp::core::Error{3, "transport failed", "request timeout",
+                       "transport"},
+      "fs");
+  require(detail_timeout.category == "gateway.upstream.timeout",
+          "transport timeout detail should normalize to gateway timeout");
+  require(detail_timeout.detail == "upstream 'fs': request timeout",
+          "transport timeout detail should preserve upstream context");
+
+  auto gateway_owned = mcp::gateway::annotate_gateway_upstream_error(
+      mcp::core::Error{4, "gateway decided", "already annotated",
+                       "gateway.upstream.tool"},
+      "fs");
+  require(gateway_owned.category == "gateway.upstream.tool",
+          "gateway-owned upstream categories should not be double-prefixed");
+  require(gateway_owned.detail == "upstream 'fs': already annotated",
+          "gateway-owned upstream detail should still receive upstream "
+          "context");
+
+  auto upstream_mcp_error = mcp::gateway::annotate_gateway_upstream_error(
+      mcp::core::Error{
+          static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "fixture denied", R"({"reason":"fixture"})", "tool"},
+      "fs");
+  require(upstream_mcp_error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "upstream MCP error annotation should preserve upstream code");
+  require(upstream_mcp_error.message == "fixture denied",
+          "upstream MCP error annotation should preserve upstream message");
+  require(upstream_mcp_error.category == "gateway.upstream.tool",
+          "upstream MCP error category should be scoped under gateway");
+  require(upstream_mcp_error.detail ==
+              R"(upstream 'fs': {"reason":"fixture"})",
+          "upstream MCP error annotation should preserve upstream detail");
+
+  const auto gateway_error = mcp::gateway::make_gateway_error(
+      mcp::protocol::ErrorCode::InvalidParams, "bad route", "fs.bad");
+  require(gateway_error.category == "gateway",
+          "gateway errors should use gateway category");
+  require(gateway_error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "gateway errors should preserve protocol code");
+  require(gateway_error.detail == "fs.bad",
+          "gateway errors should preserve detail");
+
+  const auto config_error =
+      mcp::gateway::make_gateway_config_error("bad config", "upstreams");
+  require(config_error.category == "gateway.config",
+          "gateway config errors should use gateway config category");
+  require(config_error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "gateway config errors should map to invalid params");
+  require(config_error.detail == "upstreams",
+          "gateway config errors should preserve detail");
 
   return 0;
 }
