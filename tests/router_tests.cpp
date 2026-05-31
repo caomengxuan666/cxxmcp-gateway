@@ -196,6 +196,41 @@ int main() {
   require(!invalid_http_timeout.has_value(),
           "non-positive HTTP upstream timeout should fail validation");
 
+  auto file_config = config;
+  file_config.name = "file-gateway";
+  file_config.version = "9.9.9";
+  mcp::gateway::GatewayConfig flag_config;
+  mcp::gateway::UpstreamServer flag_upstream;
+  flag_upstream.id = "flag";
+  flag_upstream.transport =
+      mcp::gateway::UpstreamTransportKind::streamable_http;
+  flag_upstream.streamable_http.uri = "http://127.0.0.1:3000/mcp";
+  flag_config.upstreams.push_back(std::move(flag_upstream));
+
+  auto merged_config = mcp::gateway::merge_gateway_config_upstreams(
+      std::move(file_config), std::move(flag_config));
+  require(merged_config.has_value(),
+          "file and command-line upstream config should merge");
+  require(merged_config->name == "file-gateway",
+          "merged config should preserve file gateway name");
+  require(merged_config->version == "9.9.9",
+          "merged config should preserve file gateway version");
+  require(merged_config->upstreams.size() == 2,
+          "merged config should retain file and appended upstreams");
+  require(merged_config->upstreams[0].id == "fs",
+          "merged config should keep file upstream order first");
+  require(merged_config->upstreams[1].id == "flag",
+          "merged config should append command-line upstreams");
+
+  mcp::gateway::GatewayConfig duplicate_append;
+  duplicate_append.upstreams.push_back(upstream);
+  auto duplicate_merge = mcp::gateway::merge_gateway_config_upstreams(
+      config, std::move(duplicate_append));
+  require(!duplicate_merge.has_value(),
+          "merged config should reject duplicate appended upstream ids");
+  require(duplicate_merge.error().message == "duplicate upstream id",
+          "merged config duplicate rejection should report stable message");
+
   mcp::gateway::GatewayRouter router(config);
   const auto route = router.resolve_tool_route("fs.read_file");
   require(route.has_value(), "known enabled upstream route should resolve");

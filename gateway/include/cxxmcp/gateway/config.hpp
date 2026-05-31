@@ -55,5 +55,7 @@ struct HttpEndpoint {
 core::Result<core::Unit> validate_upstream_id(std::string_view upstream_id);
 core::Result<core::Unit> validate_gateway_config(
     const GatewayConfig& config);
+core::Result<GatewayConfig> merge_gateway_config_upstreams(
+    GatewayConfig base, GatewayConfig appended);
 
 }  // namespace mcp::gateway

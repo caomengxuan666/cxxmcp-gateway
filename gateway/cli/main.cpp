@@ -3,7 +3,6 @@
 #include <charconv>
 #include <cstdint>
 #include <iostream>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -152,10 +151,17 @@ int main(int argc, char** argv) {
       std::cerr << "\n";
       return 2;
     }
-    loaded->upstreams.insert(loaded->upstreams.end(),
-                             std::make_move_iterator(config.upstreams.begin()),
-                             std::make_move_iterator(config.upstreams.end()));
-    config = std::move(*loaded);
+    auto merged = mcp::gateway::merge_gateway_config_upstreams(
+        std::move(*loaded), std::move(config));
+    if (!merged) {
+      std::cerr << "failed to merge config: " << merged.error().message;
+      if (!merged.error().detail.empty()) {
+        std::cerr << ": " << merged.error().detail;
+      }
+      std::cerr << "\n";
+      return 2;
+    }
+    config = std::move(*merged);
   }
 #endif
 

@@ -551,10 +551,10 @@ The current MVP baseline has verified coverage for:
    merging, and route decisions; runtime owns SDK peer/service and upstream
    process/network execution.
 3. Upstream config validation: empty ids, invalid id grammar, duplicate ids
-   from direct config construction and JSON config loading, missing enabled
-   transport parameters, invalid HTTP timeouts, structured field type
-   mismatches, unsupported root-level endpoint fields, config file open
-   failures, and malformed config JSON.
+   from direct config construction, JSON config loading, and merged file plus
+   command-line upstream config, missing enabled transport parameters, invalid
+   HTTP timeouts, structured field type mismatches, unsupported root-level
+   endpoint fields, config file open failures, and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed

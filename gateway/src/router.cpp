@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -191,6 +192,18 @@ core::Result<core::Unit> validate_gateway_config(
   }
 
   return core::Unit{};
+}
+
+core::Result<GatewayConfig> merge_gateway_config_upstreams(
+    GatewayConfig base, GatewayConfig appended) {
+  base.upstreams.insert(base.upstreams.end(),
+                        std::make_move_iterator(appended.upstreams.begin()),
+                        std::make_move_iterator(appended.upstreams.end()));
+  auto valid = validate_gateway_config(base);
+  if (!valid) {
+    return mcp::core::unexpected(valid.error());
+  }
+  return base;
 }
 
 GatewayRouter::GatewayRouter(GatewayConfig config)
