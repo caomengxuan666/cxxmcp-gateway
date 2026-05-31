@@ -571,7 +571,8 @@ The current MVP baseline has verified coverage for:
    active-call shutdown with observable `stopping` state, downstream session
    close during an active upstream call, observable initialized state during
    active upstream calls, post-stop rejection for side-effecting runtime
-   operations,
+   operations, in-flight stopping rejection for data-plane operations and
+   capability refresh,
    hosted endpoint option validation, wait-before-start rejection,
    cancellation/progress notification no-ops, and stdio child cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,

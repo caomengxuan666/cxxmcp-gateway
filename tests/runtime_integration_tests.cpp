@@ -474,6 +474,17 @@ void require_gateway_upstream_protocol(const mcp::core::Error& error,
   }
 }
 
+void require_runtime_stopping_error(const mcp::core::Error& error,
+                                    std::string_view operation) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "runtime stopping rejection should use InvalidRequest");
+  require(error.message.find("stopping") != std::string::npos,
+          "runtime stopping rejection should mention stopping");
+  require(error.detail == operation,
+          "runtime stopping rejection should preserve operation context");
+}
+
 mcp::gateway::GatewayConfig make_stdio_config() {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
@@ -2029,7 +2040,7 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   std::thread worker([&] {
     try {
       auto called =
-          runtime.call_tool("stdio_stop.slow", Json{{"sleepMs", 600}});
+          runtime.call_tool("stdio_stop.slow", Json{{"sleepMs", 1200}});
       require(called.has_value(), "slow stdio call should succeed");
       require_text_result(*called, "slow-done");
     } catch (...) {
@@ -2079,13 +2090,72 @@ void test_runtime_stop_waits_for_active_stdio_call() {
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
   }
 
+  require(observed_stopping,
+          "runtime stop should expose stopping state while stdio call drains");
+
+  auto stopping_list = runtime.list_tools();
+  require(!stopping_list.has_value(),
+          "runtime should reject tools/list while stopping");
+  require_runtime_stopping_error(stopping_list.error(), "tools/list");
+
+  auto stopping_call =
+      runtime.call_tool("stdio_stop.echo", Json{{"value", "during-stop"}});
+  require(!stopping_call.has_value(),
+          "runtime should reject tools/call while stopping");
+  require_runtime_stopping_error(stopping_call.error(), "tools/call");
+
+  auto stopping_resources = runtime.list_resources();
+  require(!stopping_resources.has_value(),
+          "runtime should reject resources/list while stopping");
+  require_runtime_stopping_error(stopping_resources.error(), "resources/list");
+
+  auto stopping_resource_templates = runtime.list_resource_templates();
+  require(!stopping_resource_templates.has_value(),
+          "runtime should reject resources/templates/list while stopping");
+  require_runtime_stopping_error(stopping_resource_templates.error(),
+                                 "resources/templates/list");
+
+  const auto stopping_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "stdio_stop", "file:///during-stop.txt");
+  auto stopping_read = runtime.read_resource(stopping_resource_uri);
+  require(!stopping_read.has_value(),
+          "runtime should reject resources/read while stopping");
+  require_runtime_stopping_error(stopping_read.error(), "resources/read");
+
+  auto stopping_prompts = runtime.list_prompts();
+  require(!stopping_prompts.has_value(),
+          "runtime should reject prompts/list while stopping");
+  require_runtime_stopping_error(stopping_prompts.error(), "prompts/list");
+
+  auto stopping_prompt = runtime.get_prompt("stdio_stop.summarize",
+                                            Json{{"text", "during-stop"}});
+  require(!stopping_prompt.has_value(),
+          "runtime should reject prompts/get while stopping");
+  require_runtime_stopping_error(stopping_prompt.error(), "prompts/get");
+
+  mcp::protocol::CompleteParams stopping_completion;
+  stopping_completion.ref =
+      mcp::protocol::prompt_completion_reference("stdio_stop.summarize");
+  stopping_completion.argument.name = "text";
+  stopping_completion.argument.value = "during-stop";
+  auto stopping_complete = runtime.complete(std::move(stopping_completion));
+  require(!stopping_complete.has_value(),
+          "runtime should reject completion/complete while stopping");
+  require_runtime_stopping_error(stopping_complete.error(),
+                                 "completion/complete");
+
+  auto stopping_refresh = runtime.refresh_upstream_capabilities();
+  require(!stopping_refresh.has_value(),
+          "runtime should reject capability refresh while stopping");
+  require_runtime_stopping_error(stopping_refresh.error(),
+                                 "refresh_upstream_capabilities");
+
   stopper.join();
   if (stop_error) {
     std::rethrow_exception(stop_error);
   }
   const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
-  require(observed_stopping,
-          "runtime stop should expose stopping state while stdio call drains");
   require(stop_elapsed >= std::chrono::milliseconds{200},
           "runtime stop should wait for active stdio calls to drain");
 
