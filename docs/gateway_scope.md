@@ -383,11 +383,10 @@ change the `initialize` responses served by that already-running endpoint.
 
 ## Namespace Rules
 
-The initial tool namespace is `<upstream>.<tool>`.
+The tool namespace is `<upstream>.<tool>`.
 
-Upstream ids should be stable, case-sensitive ASCII identifiers. Phase 1 must
-define and validate the exact grammar before the gateway is considered stable.
-The current grammar is:
+Upstream ids are stable, case-sensitive ASCII identifiers. The current
+validated grammar is:
 
 - non-empty;
 - printable ASCII only;
@@ -493,11 +492,6 @@ configured -> connecting -> initialized -> healthy
                          stopping -> stopped
 ```
 
-The current per-request upstream session behavior is an MVP implementation
-constraint, not the final model. Phase 1 must document this limitation, and
-Phase 2 must decide whether upstream sessions are per-call, pooled, or
-configurable.
-
 The default Phase 2 decision is explicit per-call upstream sessions. Each
 upstream list or call operation creates, initializes, uses, and stops its own
 upstream SDK service. This keeps ownership simple while the data-plane behavior
@@ -551,8 +545,8 @@ marker is removed after `GatewayRuntime::stop()` returns.
 
 ## Gateway Error Mapping
 
-The stable error model is part of the gateway contract. Phase 1 must define a
-protocol-level mapping for at least these cases:
+The stable error model is part of the gateway contract. The current
+protocol-level mapping covers these cases:
 
 | Case | Expected class |
 | ---- | -------------- |
@@ -576,7 +570,7 @@ diagnostic detail text with the upstream id, and maps SDK categories under
 
 ## `tools/list` Failure Policy
 
-The gateway must choose and document one default:
+The gateway documents one default aggregate catalog failure policy:
 
 - fail-fast: one enabled upstream failure fails the whole `tools/list`; or
 - partial list: successful upstream tools are returned with diagnostics for
