@@ -19,6 +19,11 @@ add_test(NAME gateway_source_dependency_guard
     COMMAND "${CMAKE_COMMAND}"
         -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/source_dependency_guard.cmake")
+add_test(NAME gateway_source_hygiene_guard_negative
+    COMMAND "${CMAKE_COMMAND}"
+        -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/source_hygiene_guard_negative.cmake")
 
 if(TARGET cxxmcp_gateway_config_io)
     add_executable(cxxmcp_gateway_config_io_tests
