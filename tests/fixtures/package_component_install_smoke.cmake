@@ -23,6 +23,12 @@ endif()
 if(NOT DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CLI)
     set(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CLI OFF)
 endif()
+set(package_smoke_config_args "")
+if(DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE AND
+   CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE)
+    list(APPEND package_smoke_config_args
+        -DCMAKE_BUILD_TYPE=${CXXMCP_GATEWAY_PACKAGE_SMOKE_BUILD_TYPE})
+endif()
 
 set(component_install_prefix
     "${CXXMCP_GATEWAY_BINARY_DIR}/package_smoke_component_install_${CXXMCP_GATEWAY_GENERATOR_ID}")
@@ -60,6 +66,7 @@ execute_process(
         -G "${CXXMCP_GATEWAY_GENERATOR}"
         -S "${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}"
         -B "${component_consumer_build_dir}"
+        ${package_smoke_config_args}
         "-Dcxxmcp-gateway_DIR=${component_install_prefix}/${CXXMCP_GATEWAY_INSTALL_LIBDIR}/cmake/cxxmcp-gateway"
         "-Dcxxmcp_DIR=${cxxmcp_DIR}"
         -DCXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME=${CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME}

@@ -59,9 +59,10 @@ ctest --test-dir build --output-on-failure
 ```
 
 The CMake package exports `cxxmcp-gateway::core` plus, when enabled,
-`cxxmcp-gateway::runtime` and `cxxmcp-gateway::config_io`. The CLI, tests, and
-optional config IO layer default to `ON` only for top-level builds and default
-to `OFF` when this repository is embedded as a subproject.
+`cxxmcp-gateway::runtime`, `cxxmcp-gateway::config_io`, and the optional
+`cxxmcp-gateway::cli` executable component. The CLI, tests, and optional config
+IO layer default to `ON` only for top-level builds and default to `OFF` when
+this repository is embedded as a subproject.
 Subproject default behavior is covered by the test suite: embedding projects
 get core/runtime by default without CLI, config IO, or gateway test targets.
 
