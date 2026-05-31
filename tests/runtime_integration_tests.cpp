@@ -2055,6 +2055,199 @@ void test_persistent_capability_refresh_prewarms_stdio_session() {
           "persistent prewarm stop should clean up upstream process");
 }
 
+void test_persistent_stdio_calls_to_one_upstream_are_serialized() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_busy";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first =
+          runtime.call_tool("persistent_busy.slow", Json{{"sleepMs", 250}});
+      require(first.has_value(),
+              "first persistent same-upstream slow call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second =
+          runtime.call_tool("persistent_busy.slow", Json{{"sleepMs", 250}});
+      require(second.has_value(),
+              "second persistent same-upstream slow call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_two_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_busy");
+    if (state.active_calls >= 2) {
+      observed_two_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_two_active,
+          "persistent same-upstream calls should report both active calls");
+  require(elapsed >= std::chrono::milliseconds{450},
+          "persistent same-upstream calls should be serialized by the "
+          "per-upstream session mutex");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_busy");
+  require(state.active_calls == 0,
+          "persistent serialized calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent serialized calls should leave upstream healthy");
+}
+
+void test_persistent_runtime_stop_waits_for_active_stdio_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_stop";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_stop_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto result =
+          runtime.call_tool("persistent_stop.slow", Json{{"sleepMs", 450}});
+      require(result.has_value(),
+              "active persistent stdio call should finish during stop");
+      require_text_result(*result, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_stop");
+    if (state.active_calls >= 1 && std::filesystem::exists(marker_path)) {
+      observed_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "persistent stop test should observe active stdio call");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "persistent runtime stop should wait for active stdio call");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent runtime stop should clean up active stdio process");
+}
+
+void test_persistent_stdio_failure_invalidates_session_for_reconnect() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_reconnect";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{50};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_reconnect_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto timed_out =
+      runtime.call_tool("persistent_reconnect.slow", Json{{"sleepMs", 500}});
+  require(!timed_out.has_value(),
+          "persistent stdio slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(), "persistent_reconnect");
+
+  for (int attempt = 0; attempt < 200 && std::filesystem::exists(marker_path);
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(!std::filesystem::exists(marker_path),
+          "persistent timeout should discard and stop the failed session");
+
+  auto recovered = runtime.call_tool("persistent_reconnect.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent stdio call should reconnect after failed session");
+  require_text_result(*recovered, "recovered");
+  require(std::filesystem::exists(marker_path),
+          "persistent reconnect should keep the replacement session alive");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_reconnect");
+  require(state.active_calls == 0,
+          "persistent reconnect should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent reconnect should restore upstream health");
+}
+
 void test_http_upstream() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -4457,55 +4650,106 @@ void test_raw_request_lifecycle_after_stop() {
 
 int main() {
   try {
-    test_disabled_upstream();
-    test_invalid_config_advertises_no_tools();
-    test_stdio_process_start_failure();
-    test_tools_list_fail_fast_after_partial_success();
-    test_resources_list_fail_fast_after_partial_success();
-    test_resource_templates_list_fail_fast_after_partial_success();
-    test_prompts_list_fail_fast_after_partial_success();
-    test_stdio_process_exit_before_initialize();
-    test_stdio_malformed_response_before_initialize();
-    test_first_call_upstream_mcp_error_records_capabilities();
-    test_stdio_upstream();
-    test_upstream_client_capabilities_are_minimal();
-    test_runtime_observer_reports_status_without_logger_dependency();
-    test_capability_advertisement_uses_initialized_upstream_cache();
-    test_capability_advertisement_unions_multiple_upstream_caches();
-    test_hosted_capability_advertisement_uses_refresh_cache();
-    test_hosted_capability_advertisement_snapshots_at_start();
-    test_completion_routes_to_stdio_upstream();
-    test_hosted_completion_routes_after_capability_refresh();
-    test_repeated_stdio_calls_to_one_upstream();
-    test_persistent_stdio_session_reuses_upstream_process();
-    test_persistent_capability_refresh_prewarms_stdio_session();
-    test_http_upstream();
-    test_http_unavailable();
-    test_http_malformed_response_before_initialize();
-    test_start_http_invalid_config_fails_before_binding_port();
-    test_hosted_gateway_rejects_invalid_endpoint_options();
-    test_hosted_gateway_http_endpoint_stops_while_idle();
-    test_hosted_gateway_rejects_invalid_json_rpc_request();
-    test_runtime_move_assignment_stops_existing_endpoint();
-    test_http_timeout();
-    test_stdio_timeout();
-    test_concurrent_http_calls_update_active_state();
-    test_concurrent_stdio_calls_to_one_upstream();
-    test_multi_upstream_tools_list_starts_upstreams_concurrently();
-    test_tools_list_uses_cached_catalog_until_cleared();
-    test_cancellation_and_progress_notifications_are_local_noops();
-    test_runtime_stop_waits_for_active_stdio_call();
-    test_runtime_stop_waits_for_active_http_call();
-    test_concurrent_calls_to_multiple_upstreams();
-    test_hosted_gateway_http_endpoint();
-    test_hosted_gateway_rejects_request_before_initialized_notification();
-    test_hosted_gateway_rejects_request_before_initialize();
-    test_hosted_gateway_multiple_downstream_clients();
-    test_hosted_cancellation_notifications_do_not_cancel_upstream_call();
-    test_downstream_close_during_active_upstream_call_clears_state();
-    test_hosted_gateway_without_enabled_upstreams_advertises_no_tools();
-    test_raw_request_routing_surface();
-    test_raw_request_lifecycle_after_stop();
+    auto run = [](std::string_view name, auto&& fn) {
+      std::cerr << "[ RUN      ] " << name << "\n";
+      fn();
+      std::cerr << "[       OK ] " << name << "\n";
+    };
+    run("disabled upstream", test_disabled_upstream);
+    run("invalid config advertises no tools",
+        test_invalid_config_advertises_no_tools);
+    run("stdio process start failure", test_stdio_process_start_failure);
+    run("tools list fail fast after partial success",
+        test_tools_list_fail_fast_after_partial_success);
+    run("resources list fail fast after partial success",
+        test_resources_list_fail_fast_after_partial_success);
+    run("resource templates list fail fast after partial success",
+        test_resource_templates_list_fail_fast_after_partial_success);
+    run("prompts list fail fast after partial success",
+        test_prompts_list_fail_fast_after_partial_success);
+    run("stdio process exit before initialize",
+        test_stdio_process_exit_before_initialize);
+    run("stdio malformed response before initialize",
+        test_stdio_malformed_response_before_initialize);
+    run("first call upstream mcp error records capabilities",
+        test_first_call_upstream_mcp_error_records_capabilities);
+    run("stdio upstream", test_stdio_upstream);
+    run("upstream client capabilities are minimal",
+        test_upstream_client_capabilities_are_minimal);
+    run("runtime observer reports status without logger dependency",
+        test_runtime_observer_reports_status_without_logger_dependency);
+    run("capability advertisement uses initialized upstream cache",
+        test_capability_advertisement_uses_initialized_upstream_cache);
+    run("capability advertisement unions multiple upstream caches",
+        test_capability_advertisement_unions_multiple_upstream_caches);
+    run("hosted capability advertisement uses refresh cache",
+        test_hosted_capability_advertisement_uses_refresh_cache);
+    run("hosted capability advertisement snapshots at start",
+        test_hosted_capability_advertisement_snapshots_at_start);
+    run("completion routes to stdio upstream",
+        test_completion_routes_to_stdio_upstream);
+    run("hosted completion routes after capability refresh",
+        test_hosted_completion_routes_after_capability_refresh);
+    run("repeated stdio calls to one upstream",
+        test_repeated_stdio_calls_to_one_upstream);
+    run("persistent stdio session reuses upstream process",
+        test_persistent_stdio_session_reuses_upstream_process);
+    run("persistent capability refresh prewarms stdio session",
+        test_persistent_capability_refresh_prewarms_stdio_session);
+    run("persistent stdio calls to one upstream are serialized",
+        test_persistent_stdio_calls_to_one_upstream_are_serialized);
+    run("persistent runtime stop waits for active stdio call",
+        test_persistent_runtime_stop_waits_for_active_stdio_call);
+    run("persistent stdio failure invalidates session for reconnect",
+        test_persistent_stdio_failure_invalidates_session_for_reconnect);
+    run("http upstream", test_http_upstream);
+    run("http unavailable", test_http_unavailable);
+    run("http malformed response before initialize",
+        test_http_malformed_response_before_initialize);
+    run("start http invalid config fails before binding port",
+        test_start_http_invalid_config_fails_before_binding_port);
+    run("hosted gateway rejects invalid endpoint options",
+        test_hosted_gateway_rejects_invalid_endpoint_options);
+    run("hosted gateway http endpoint stops while idle",
+        test_hosted_gateway_http_endpoint_stops_while_idle);
+    run("hosted gateway rejects invalid json rpc request",
+        test_hosted_gateway_rejects_invalid_json_rpc_request);
+    run("runtime move assignment stops existing endpoint",
+        test_runtime_move_assignment_stops_existing_endpoint);
+    run("http timeout", test_http_timeout);
+    run("stdio timeout", test_stdio_timeout);
+    run("concurrent http calls update active state",
+        test_concurrent_http_calls_update_active_state);
+    run("concurrent stdio calls to one upstream",
+        test_concurrent_stdio_calls_to_one_upstream);
+    run("multi upstream tools list starts upstreams concurrently",
+        test_multi_upstream_tools_list_starts_upstreams_concurrently);
+    run("tools list uses cached catalog until cleared",
+        test_tools_list_uses_cached_catalog_until_cleared);
+    run("cancellation and progress notifications are local noops",
+        test_cancellation_and_progress_notifications_are_local_noops);
+    run("runtime stop waits for active stdio call",
+        test_runtime_stop_waits_for_active_stdio_call);
+    run("runtime stop waits for active http call",
+        test_runtime_stop_waits_for_active_http_call);
+    run("concurrent calls to multiple upstreams",
+        test_concurrent_calls_to_multiple_upstreams);
+    run("hosted gateway http endpoint", test_hosted_gateway_http_endpoint);
+    run("hosted gateway rejects request before initialized notification",
+        test_hosted_gateway_rejects_request_before_initialized_notification);
+    run("hosted gateway rejects request before initialize",
+        test_hosted_gateway_rejects_request_before_initialize);
+    run("hosted gateway multiple downstream clients",
+        test_hosted_gateway_multiple_downstream_clients);
+    run("hosted cancellation notifications do not cancel upstream call",
+        test_hosted_cancellation_notifications_do_not_cancel_upstream_call);
+    run("downstream close during active upstream call clears state",
+        test_downstream_close_during_active_upstream_call_clears_state);
+    run("hosted gateway without enabled upstreams advertises no tools",
+        test_hosted_gateway_without_enabled_upstreams_advertises_no_tools);
+    run("raw request routing surface", test_raw_request_routing_surface);
+    run("raw request lifecycle after stop",
+        test_raw_request_lifecycle_after_stop);
     return 0;
   } catch (const std::exception& ex) {
     std::cerr << "gateway runtime integration failed: " << ex.what() << "\n";

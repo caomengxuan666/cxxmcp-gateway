@@ -587,8 +587,9 @@ The current MVP baseline has verified coverage for:
    while SDK-owned lifecycle and liveness methods remain delegated,
    hosted endpoint option validation, wait-before-start rejection,
    cancellation/progress notification no-ops, stdio child cleanup after
-   successful per-call sessions and on stop, and persistent stdio session reuse
-   with cleanup on stop.
+   successful per-call sessions and on stop, and persistent stdio session
+   reuse, same-upstream serialization, active-call stop, failure invalidation,
+   reconnect, and cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
