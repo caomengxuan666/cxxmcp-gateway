@@ -17,6 +17,16 @@ void require(bool condition, std::string_view message) {
   }
 }
 
+void require_config_error(const Json& json, std::string_view expected_detail,
+                          std::string_view message) {
+  const auto parsed = mcp::gateway::gateway_config_from_json(json);
+  require(!parsed.has_value(), message);
+  require(parsed.error().category == "gateway.config",
+          "config parser should use gateway.config error category");
+  require(parsed.error().detail == expected_detail,
+          "config type error should include field path");
+}
+
 void test_parse_json_config() {
   const Json json = {
       {"name", "gateway-test"},
@@ -173,6 +183,73 @@ void test_reject_optional_string_type_mismatches() {
           "cwd type error should include field path");
 }
 
+void test_reject_structured_field_type_mismatches() {
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"enabled", "yes"},
+                              {"command", "fixture"}}})}},
+      "upstreams[0].enabled", "non-boolean enabled should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"},
+                              {"args", "--flag"}}})}},
+      "upstreams[0].args", "non-array stdio args should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"},
+                              {"args", Json::array({"--flag", 42})}}})}},
+      "upstreams[0].args", "non-string stdio args entry should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"},
+                              {"env", Json::array()}}})}},
+      "upstreams[0].env", "non-object stdio env should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"},
+                              {"env", Json{{"TOKEN", 42}}}}})}},
+      "upstreams[0].env.TOKEN", "non-string stdio env value should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "http"},
+                              {"transport", "http"},
+                              {"uri", "http://127.0.0.1:3000/mcp"},
+                              {"headers", Json::array()}}})}},
+      "upstreams[0].headers", "non-object HTTP headers should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "http"},
+                              {"transport", "http"},
+                              {"uri", "http://127.0.0.1:3000/mcp"},
+                              {"headers", Json{{"Authorization", 42}}}}})}},
+      "upstreams[0].headers.Authorization",
+      "non-string HTTP header value should fail");
+
+  require_config_error(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "http"},
+                              {"transport", "http"},
+                              {"uri", "http://127.0.0.1:3000/mcp"},
+                              {"timeoutMs", "30000"}}})}},
+      "upstreams[0].timeoutMs", "non-integer HTTP timeout should fail");
+}
+
 void test_parse_disabled_upstreams_without_connection_fields() {
   const Json json = {
       {"upstreams",
@@ -214,6 +291,7 @@ int main() {
     test_parse_json_config();
     test_reject_invalid_config();
     test_reject_optional_string_type_mismatches();
+    test_reject_structured_field_type_mismatches();
     test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
     return 0;
