@@ -364,6 +364,11 @@ side-effecting: it initializes enabled upstreams, records their advertised
 capabilities in runtime state, and does not fetch catalogs or route data-plane
 requests.
 
+Hosted HTTP endpoints use the capability snapshot captured by
+`GatewayRuntime::start_http()`. Capability discovery after the hosted endpoint
+has started updates `GatewayRuntime::server_capabilities()`, but does not
+change the `initialize` responses served by that already-running endpoint.
+
 ## Namespace Rules
 
 The initial tool namespace is `<upstream>.<tool>`.
@@ -502,6 +507,14 @@ already active upstream calls to finish, and then marks upstreams `stopped`. It
 does not yet cancel or interrupt an active upstream call. In the current
 lifecycle model, `stopped` is terminal for a runtime instance; hosts should
 construct a new `GatewayRuntime` to restart the data plane.
+
+The raw JSON-RPC entry point follows the same lifecycle boundary for
+gateway-routed methods. After `stop()`, routed requests such as `tools/list`,
+`resources/list`, `prompts/list`, and `completion/complete` return a
+gateway-owned `InvalidRequest` stopped error. SDK-owned lifecycle and liveness
+requests, including `initialize`, `ping`, and `server/discover`, continue to
+return no gateway response so the embedding SDK session layer retains
+ownership.
 
 For process-stdio upstreams, the per-call upstream SDK service is stopped at the
 end of each upstream operation. Shutdown tests cover active stdio calls by

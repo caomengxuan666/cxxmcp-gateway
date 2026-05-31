@@ -485,6 +485,24 @@ void require_runtime_stopping_error(const mcp::core::Error& error,
           "runtime stopping rejection should preserve operation context");
 }
 
+void require_raw_runtime_stopped_error(
+    const mcp::protocol::JsonRpcResponse& response,
+    std::string_view operation) {
+  require(response.error.has_value(),
+          "raw runtime stopped response should be an error");
+  require(response.error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "raw runtime stopped response should use InvalidRequest");
+  require(response.error->message.find("stopped") != std::string::npos,
+          "raw runtime stopped response should mention stopped");
+  require(response.error->data.has_value(),
+          "raw runtime stopped response should preserve operation context");
+  require(response.error->data->is_string(),
+          "raw runtime stopped response data should be a string");
+  require(response.error->data->get<std::string>() == operation,
+          "raw runtime stopped response data should match operation");
+}
+
 void require_gateway_unsupported_capability_error(
     const mcp::core::Error& error, std::string_view upstream_id) {
   require(error.code ==
@@ -3536,6 +3554,66 @@ void test_raw_request_routing_surface() {
           "invalid gateway prompt name should map to invalid params");
 }
 
+void test_raw_request_lifecycle_after_stop() {
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "raw request lifecycle runtime should stop");
+
+  const std::vector<std::string> sdk_owned_methods{
+      mcp::protocol::InitializeMethod,
+      mcp::protocol::PingMethod,
+      mcp::protocol::ServerDiscoverMethod,
+  };
+  for (std::size_t i = 0; i < sdk_owned_methods.size(); ++i) {
+    mcp::protocol::JsonRpcRequest sdk_owned;
+    sdk_owned.method = sdk_owned_methods[i];
+    sdk_owned.id = static_cast<std::int64_t>(100 + i);
+    auto response = runtime.handle_request(sdk_owned);
+    require(!response.has_value(),
+            "stopped runtime should keep SDK-owned methods delegated");
+  }
+
+  mcp::protocol::JsonRpcRequest tools_list;
+  tools_list.method = mcp::protocol::ToolsListMethod;
+  tools_list.id = std::int64_t{110};
+  auto tools_list_response = runtime.handle_request(tools_list);
+  require(tools_list_response.has_value(),
+          "stopped runtime raw tools/list should respond");
+  require_raw_runtime_stopped_error(*tools_list_response, "tools/list");
+
+  mcp::protocol::JsonRpcRequest resources_list;
+  resources_list.method = mcp::protocol::ResourcesListMethod;
+  resources_list.id = std::int64_t{111};
+  auto resources_list_response = runtime.handle_request(resources_list);
+  require(resources_list_response.has_value(),
+          "stopped runtime raw resources/list should respond");
+  require_raw_runtime_stopped_error(*resources_list_response,
+                                    "resources/list");
+
+  mcp::protocol::JsonRpcRequest prompts_list;
+  prompts_list.method = mcp::protocol::PromptsListMethod;
+  prompts_list.id = std::int64_t{112};
+  auto prompts_list_response = runtime.handle_request(prompts_list);
+  require(prompts_list_response.has_value(),
+          "stopped runtime raw prompts/list should respond");
+  require_raw_runtime_stopped_error(*prompts_list_response, "prompts/list");
+
+  mcp::protocol::CompleteParams completion;
+  completion.ref = mcp::protocol::prompt_completion_reference(
+      "stdio.summarize");
+  completion.argument.name = "text";
+  completion.argument.value = "after-stop";
+  mcp::protocol::JsonRpcRequest complete;
+  complete.method = mcp::protocol::CompletionCompleteMethod;
+  complete.id = std::int64_t{113};
+  complete.params = mcp::protocol::complete_params_to_json(completion);
+  auto complete_response = runtime.handle_request(complete);
+  require(complete_response.has_value(),
+          "stopped runtime raw completion/complete should respond");
+  require_raw_runtime_stopped_error(*complete_response,
+                                    "completion/complete");
+}
+
 }  // namespace
 
 int main() {
@@ -3580,6 +3658,7 @@ int main() {
     test_downstream_close_during_active_upstream_call_clears_state();
     test_hosted_gateway_without_enabled_upstreams_advertises_no_tools();
     test_raw_request_routing_surface();
+    test_raw_request_lifecycle_after_stop();
     return 0;
   } catch (const std::exception& ex) {
     std::cerr << "gateway runtime integration failed: " << ex.what() << "\n";
