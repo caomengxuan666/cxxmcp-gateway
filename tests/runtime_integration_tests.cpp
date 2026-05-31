@@ -603,6 +603,40 @@ void test_disabled_upstream() {
           "disabled prompt upstream should report stable routing error");
   require(prompt.error().detail == "disabled",
           "disabled prompt error should preserve upstream id context");
+
+  mcp::protocol::CompleteParams disabled_prompt_completion;
+  disabled_prompt_completion.ref =
+      mcp::protocol::prompt_completion_reference("disabled.summarize");
+  disabled_prompt_completion.argument.name = "text";
+  disabled_prompt_completion.argument.value = "ignored";
+  auto prompt_completion =
+      runtime.complete(std::move(disabled_prompt_completion));
+  require(!prompt_completion.has_value(),
+          "disabled upstream prompt completion should fail");
+  require(prompt_completion.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "disabled prompt completion should map to invalid params");
+  require(prompt_completion.error().message == "gateway upstream is disabled",
+          "disabled prompt completion should report stable routing error");
+  require(prompt_completion.error().detail == "disabled",
+          "disabled prompt completion should preserve upstream id context");
+
+  mcp::protocol::CompleteParams disabled_resource_completion;
+  disabled_resource_completion.ref =
+      mcp::protocol::resource_completion_reference(disabled_uri);
+  disabled_resource_completion.argument.name = "path";
+  disabled_resource_completion.argument.value = "ignored";
+  auto resource_completion =
+      runtime.complete(std::move(disabled_resource_completion));
+  require(!resource_completion.has_value(),
+          "disabled upstream resource completion should fail");
+  require(resource_completion.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::ResourceNotFound),
+          "disabled resource completion should map to resource-not-found");
+  require(resource_completion.error().message == "gateway upstream is disabled",
+          "disabled resource completion should report stable routing error");
+  require(resource_completion.error().detail == "disabled",
+          "disabled resource completion should preserve upstream id context");
 }
 
 void test_invalid_config_advertises_no_tools() {
@@ -1426,6 +1460,58 @@ void test_completion_routes_to_stdio_upstream() {
   require(invalid.error().code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
           "invalid gateway completion ref should map to invalid params");
+
+  mcp::protocol::CompleteParams unknown_prompt_completion;
+  unknown_prompt_completion.ref =
+      mcp::protocol::prompt_completion_reference("missing.summarize");
+  unknown_prompt_completion.argument.name = "text";
+  unknown_prompt_completion.argument.value = "fixture";
+  auto unknown_prompt = runtime.complete(std::move(unknown_prompt_completion));
+  require(!unknown_prompt.has_value(),
+          "unknown upstream prompt completion should fail");
+  require(unknown_prompt.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "unknown prompt completion should map to invalid params");
+  require(unknown_prompt.error().message == "gateway upstream not found",
+          "unknown prompt completion should report stable routing error");
+  require(unknown_prompt.error().detail == "missing",
+          "unknown prompt completion should preserve upstream id context");
+
+  mcp::protocol::CompleteParams unknown_resource_completion;
+  unknown_resource_completion.ref =
+      mcp::protocol::resource_completion_reference(
+          mcp::gateway::GatewayRouter::expose_resource_uri(
+              "missing", "file:///fixture/{path}"));
+  unknown_resource_completion.argument.name = "path";
+  unknown_resource_completion.argument.value = "fixture";
+  auto unknown_resource =
+      runtime.complete(std::move(unknown_resource_completion));
+  require(!unknown_resource.has_value(),
+          "unknown upstream resource completion should fail");
+  require(unknown_resource.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::ResourceNotFound),
+          "unknown resource completion should map to resource-not-found");
+  require(unknown_resource.error().message == "gateway upstream not found",
+          "unknown resource completion should report stable routing error");
+  require(unknown_resource.error().detail == "missing",
+          "unknown resource completion should preserve upstream id context");
+
+  mcp::protocol::CompleteParams unsupported_completion_ref;
+  unsupported_completion_ref.ref.type = "ref/unknown";
+  unsupported_completion_ref.argument.name = "value";
+  unsupported_completion_ref.argument.value = "fixture";
+  auto unsupported_ref =
+      runtime.complete(std::move(unsupported_completion_ref));
+  require(!unsupported_ref.has_value(),
+          "unsupported completion ref type should fail");
+  require(unsupported_ref.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidParams),
+          "unsupported completion ref type should map to invalid params");
+  require(unsupported_ref.error().message ==
+              "gateway completion ref type is not supported",
+          "unsupported completion ref type should report stable routing error");
+  require(unsupported_ref.error().detail == "ref/unknown",
+          "unsupported completion ref type should preserve ref context");
 }
 
 void test_hosted_completion_routes_after_capability_refresh() {

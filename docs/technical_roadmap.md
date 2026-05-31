@@ -590,8 +590,10 @@ The current MVP baseline has verified coverage for:
     completions route through existing gateway namespaces for process stdio
     and Streamable HTTP upstreams, raw `completion/complete` requests route
     through the JSON-RPC handler, execution rejects completion-negative
-    upstream capability caches, and hosted advertisement is gated by refreshed
-    upstream capabilities.
+    upstream capability caches, route-stage unknown/disabled upstream errors
+    follow the prompt/resource namespace contracts, unsupported completion ref
+    types are rejected, and hosted advertisement is gated by refreshed upstream
+    capabilities.
 12. Optional performance measurement tooling for stdio/HTTP `tools/list` and
     `tools/call`, excluded from the default build and release-blocking CI.
 13. Capability-aware advertisement refinement: `server_capabilities()` remains
