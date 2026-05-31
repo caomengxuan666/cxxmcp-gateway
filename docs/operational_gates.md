@@ -96,6 +96,8 @@ Measure at least:
 - per-call and persistent-session `tools/call` through one stdio upstream;
 - per-call and persistent-session `tools/call` through one Streamable HTTP
   upstream;
+- initialized direct SDK `tools/call` through the same Streamable HTTP fixture
+  to separate gateway overhead from SDK/transport/server path cost;
 - persistent-session pool pair `tools/call` through one Streamable HTTP
   upstream.
 

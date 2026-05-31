@@ -67,7 +67,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Pinned CI SDK revision | `.github/workflows/ci.yml` `CXXMCP_REF` |
 | Exact SDK and gateway revisions for perf | `docs/release_baseline.md` |
 | Release perf command and CSV output | `docs/release_baseline.md` |
-| Perf tool source | `tools/perf/gateway_perf.cpp` |
+| Gateway and direct SDK perf tool source | `tools/perf/gateway_perf.cpp` |
 
 ## Local Verification Notes
 

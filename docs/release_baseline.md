@@ -9,7 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-045d5bdf1b359d38f2d6aef4391b72f03681982f
+7f9891ce19bb3add1d15088faf83afc26088cd9d
 ```
 
 SDK source revision:
@@ -53,15 +53,16 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list:cold,50,37588,52132
-stdio,tools/list:cached,50,9,10
-stdio,tools/call:per_call,50,36826,41357
-stdio,tools/call:persistent,50,139,188
-http,tools/list:cold,50,45476,62521
-http,tools/list:cached,50,10,11
-http,tools/call:per_call,50,45732,63373
-http,tools/call:persistent,50,15393,16245
-http,tools/call:persistent_pool2_pair,50,219260,235660
+stdio,tools/list:cold,50,38458,51150
+stdio,tools/list:cached,50,10,15
+stdio,tools/call:per_call,50,38578,46960
+stdio,tools/call:persistent,50,151,509
+http,tools/list:cold,50,45830,62588
+http,tools/list:cached,50,3,4
+http,tools/call:per_call,50,33562,63412
+http,tools/call:persistent,50,1799,16473
+http,tools/call:direct_sdk_persistent,50,14154,16212
+http,tools/call:persistent_pool2_pair,50,220134,236388
 ```
 
 Notes:
@@ -83,3 +84,7 @@ Notes:
   through a persistent pool of size two. It is a regression baseline for the
   pool path, not a latency guarantee; the current Streamable HTTP fixture path
   still dominates end-to-end timing.
+- The `direct_sdk_persistent` row measures an initialized SDK `ClientPeer`
+  calling the same Streamable HTTP fixture without going through
+  `GatewayRuntime`. It is diagnostic evidence for separating gateway overhead
+  from SDK/transport/server path cost, not a release performance contract.
