@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,6 +38,12 @@ struct UpstreamRuntimeState {
   std::size_t active_calls = 0;
   std::optional<protocol::ServerCapabilities> capabilities;
   std::optional<core::Error> last_error;
+};
+
+struct HttpEndpoint {
+  std::string host = "127.0.0.1";
+  std::uint16_t port = 3000;
+  std::string path = "/mcp";
 };
 
 class GatewayRuntime final {

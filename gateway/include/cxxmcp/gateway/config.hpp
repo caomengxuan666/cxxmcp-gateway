@@ -3,7 +3,6 @@
 #pragma once
 
 #include <chrono>
-#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -44,12 +43,6 @@ struct GatewayConfig {
   std::string name = "cxxmcp-gateway";
   std::string version = "0.1.0";
   std::vector<UpstreamServer> upstreams;
-};
-
-struct HttpEndpoint {
-  std::string host = "127.0.0.1";
-  std::uint16_t port = 3000;
-  std::string path = "/mcp";
 };
 
 core::Result<core::Unit> validate_upstream_id(std::string_view upstream_id);
