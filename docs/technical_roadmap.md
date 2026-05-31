@@ -667,6 +667,8 @@ The current MVP baseline has verified coverage for:
     `GatewayRuntime::stop()` returns a lifecycle error after a defined wait for
     active upstream calls instead of relying only on an outer test runner or
     supervisor timeout. Active calls are still not cancelled by the gateway.
+    Integration coverage verifies this contract for both process stdio and
+    Streamable HTTP upstreams.
 
 ## Remaining Near-Term Backlog
 

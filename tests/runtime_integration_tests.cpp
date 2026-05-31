@@ -4517,6 +4517,113 @@ void test_runtime_stop_waits_for_active_http_call() {
   require(stopped_server.has_value(), "shutdown fixture should stop");
 }
 
+void test_runtime_stop_timeout_bounds_active_http_call_wait() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+  std::atomic_bool slow_entered = false;
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-shutdown-timeout-fixture")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("slow", [&](const Json& input) {
+                      slow_entered = true;
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 700)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(), "shutdown timeout fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(), "shutdown timeout fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "shutdown_timeout";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.active_call_drain_timeout = std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = runtime.call_tool("shutdown_timeout.slow",
+                                      Json{{"sleepMs", 700}});
+      require(called.has_value(),
+              "active drain timeout http slow call should succeed");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_handler = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "shutdown_timeout");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (slow_entered.load()) {
+      observed_handler = true;
+    }
+    if (observed_active && observed_handler) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "active drain timeout http test should observe active call");
+  require(observed_handler,
+          "active drain timeout http test should observe slow handler entry");
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  auto timed_out = runtime.stop();
+  const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+  require(!timed_out.has_value(),
+          "runtime stop should fail when active http drain times out");
+  require_active_call_drain_timeout(timed_out.error());
+  require(stop_elapsed < std::chrono::milliseconds{500},
+          "active http call drain timeout should bound runtime stop wait");
+
+  const auto stopping =
+      require_upstream_state(runtime.upstream_states(), "shutdown_timeout");
+  require(stopping.active_calls >= 1,
+          "active http drain timeout should leave active call observable");
+  require_status(stopping, UpstreamRuntimeStatus::stopping,
+                 "active http drain timeout should leave runtime stopping");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "runtime stop should complete after active http call drains");
+  const auto stopped_state =
+      require_upstream_state(runtime.upstream_states(), "shutdown_timeout");
+  require(stopped_state.active_calls == 0,
+          "active http drain timeout follow-up stop should clear active calls");
+  require_status(stopped_state, UpstreamRuntimeStatus::stopped,
+                 "active http drain timeout follow-up stop should mark "
+                 "stopped");
+
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "shutdown timeout fixture should stop");
+}
+
 void test_concurrent_calls_to_multiple_upstreams() {
   const auto [kFirstPort, kSecondPort] = find_two_distinct_loopback_ports();
   const std::string first_uri =
@@ -6018,6 +6125,8 @@ int main() {
         test_runtime_stop_timeout_bounds_active_stdio_call_wait);
     run("runtime stop waits for active http call",
         test_runtime_stop_waits_for_active_http_call);
+    run("runtime stop timeout bounds active http call wait",
+        test_runtime_stop_timeout_bounds_active_http_call_wait);
     run("concurrent calls to multiple upstreams",
         test_concurrent_calls_to_multiple_upstreams);
     run("hosted gateway http endpoint", test_hosted_gateway_http_endpoint);
