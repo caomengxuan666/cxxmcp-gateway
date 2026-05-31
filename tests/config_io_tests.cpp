@@ -115,6 +115,19 @@ void test_reject_invalid_config() {
   parsed = mcp::gateway::gateway_config_from_json(invalid_id);
   require(!parsed.has_value(), "invalid upstream id should fail validation");
 
+  const Json duplicate_id = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "dup"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}},
+                    Json{{"id", "dup"},
+                         {"transport", "http"},
+                         {"uri", "http://127.0.0.1:3000/mcp"}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(duplicate_id);
+  require(!parsed.has_value(), "duplicate upstream id should fail validation");
+  require(parsed.error().message == "duplicate upstream id",
+          "duplicate upstream id should report stable validation message");
+
   const Json zero_timeout = Json{
       {"upstreams",
        Json::array({Json{{"id", "http"},

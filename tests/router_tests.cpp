@@ -99,6 +99,19 @@ int main() {
   require(!invalid_resource_encoding.has_value(),
           "bad resource URI percent encoding should fail resolution");
 
+  const auto invalid_resource_upstream =
+      mcp::gateway::GatewayRouter::resolve_resource_uri(
+          "cxxmcp-gateway-resource://bad%2Fid/"
+          "file%3A%2F%2F%2Ftmp%2Fa.txt");
+  require(!invalid_resource_upstream.has_value(),
+          "resource URI with invalid decoded upstream id should fail");
+
+  const auto empty_routed_resource_uri =
+      mcp::gateway::GatewayRouter::resolve_resource_uri(
+          "cxxmcp-gateway-resource://fs/");
+  require(!empty_routed_resource_uri.has_value(),
+          "resource URI with empty decoded upstream URI should fail");
+
   const auto empty_id = mcp::gateway::validate_upstream_id("");
   require(!empty_id.has_value(), "empty upstream id should fail");
   require(empty_id.error().category == "gateway",
