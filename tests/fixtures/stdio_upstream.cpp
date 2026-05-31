@@ -48,6 +48,24 @@ class MarkerFile final {
   std::filesystem::path path_;
 };
 
+bool has_arg(int argc, char** argv, const std::string& name) {
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i] == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string option_value(int argc, char** argv, const std::string& name) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (argv[i] == name) {
+      return argv[i + 1];
+    }
+  }
+  return {};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -56,11 +74,17 @@ int main(int argc, char** argv) {
 
   MarkerFile marker(std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_FILE"));
 
-  if (argc > 1 && std::string(argv[1]) == "--exit-immediately") {
+  const auto startup_delay = option_value(argc, argv, "--startup-delay-ms");
+  if (!startup_delay.empty()) {
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds{std::stoi(startup_delay)});
+  }
+
+  if (has_arg(argc, argv, "--exit-immediately")) {
     return 0;
   }
 
-  if (argc > 1 && std::string(argv[1]) == "--malformed-response") {
+  if (has_arg(argc, argv, "--malformed-response")) {
     std::cout << "{not-json}\n";
     std::cout.flush();
     std::string ignored;
@@ -68,7 +92,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (argc > 1 && std::string(argv[1]) == "--tools-only") {
+  if (has_arg(argc, argv, "--tools-only")) {
     return mcp::ServerPeer::builder()
         .name("cxxmcp-gateway-tools-only-fixture")
         .version("1.0.0")

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -498,6 +499,11 @@ struct GatewayRuntime::Impl final {
     }
 
     std::vector<UpstreamToolCatalog> catalogs;
+    struct PendingCatalog {
+      std::string upstream_id;
+      std::future<core::Result<std::vector<protocol::ToolDefinition>>> future;
+    };
+    std::vector<PendingCatalog> pending;
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
@@ -507,15 +513,33 @@ struct GatewayRuntime::Impl final {
         continue;
       }
 
-      auto tools = with_initialized_upstream<
-          std::vector<protocol::ToolDefinition>>(
-          upstream, [](ClientPeer& peer) { return peer.list_all_tools(); });
+      pending.push_back(PendingCatalog{
+          .upstream_id = upstream.id,
+          .future = std::async(
+              std::launch::async, [this, upstream]() {
+                return with_initialized_upstream<
+                    std::vector<protocol::ToolDefinition>>(
+                    upstream,
+                    [](ClientPeer& peer) { return peer.list_all_tools(); });
+              }),
+      });
+    }
+
+    std::optional<core::Error> first_error;
+    for (auto& task : pending) {
+      auto tools = task.future.get();
       if (!tools) {
-        return mcp::core::unexpected(tools.error());
+        if (!first_error.has_value()) {
+          first_error = tools.error();
+        }
+        continue;
       }
       catalogs.push_back(
-          UpstreamToolCatalog{.upstream_id = upstream.id,
+          UpstreamToolCatalog{.upstream_id = task.upstream_id,
                               .tools = std::move(*tools)});
+    }
+    if (first_error.has_value()) {
+      return mcp::core::unexpected(*first_error);
     }
 
     return merge_tool_catalogs(catalogs);
@@ -563,6 +587,11 @@ struct GatewayRuntime::Impl final {
     }
 
     std::vector<UpstreamResourceCatalog> catalogs;
+    struct PendingCatalog {
+      std::string upstream_id;
+      std::future<core::Result<std::vector<protocol::Resource>>> future;
+    };
+    std::vector<PendingCatalog> pending;
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
@@ -572,17 +601,34 @@ struct GatewayRuntime::Impl final {
         continue;
       }
 
-      auto resources =
-          with_initialized_upstream<std::vector<protocol::Resource>>(
-              upstream,
-              [](ClientPeer& peer) { return peer.list_all_resources(); });
+      pending.push_back(PendingCatalog{
+          .upstream_id = upstream.id,
+          .future = std::async(
+              std::launch::async, [this, upstream]() {
+                return with_initialized_upstream<
+                    std::vector<protocol::Resource>>(
+                    upstream,
+                    [](ClientPeer& peer) { return peer.list_all_resources(); });
+              }),
+      });
+    }
+
+    std::optional<core::Error> first_error;
+    for (auto& task : pending) {
+      auto resources = task.future.get();
       if (!resources) {
-        return mcp::core::unexpected(resources.error());
+        if (!first_error.has_value()) {
+          first_error = resources.error();
+        }
+        continue;
       }
       catalogs.push_back(UpstreamResourceCatalog{
-          .upstream_id = upstream.id,
+          .upstream_id = task.upstream_id,
           .resources = std::move(*resources),
       });
+    }
+    if (first_error.has_value()) {
+      return mcp::core::unexpected(*first_error);
     }
 
     return merge_resource_catalogs(catalogs);
@@ -638,6 +684,11 @@ struct GatewayRuntime::Impl final {
     }
 
     std::vector<UpstreamResourceTemplateCatalog> catalogs;
+    struct PendingCatalog {
+      std::string upstream_id;
+      std::future<core::Result<std::vector<protocol::ResourceTemplate>>> future;
+    };
+    std::vector<PendingCatalog> pending;
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
@@ -647,17 +698,35 @@ struct GatewayRuntime::Impl final {
         continue;
       }
 
-      auto resource_templates = with_initialized_upstream<
-          std::vector<protocol::ResourceTemplate>>(
-          upstream,
-          [](ClientPeer& peer) { return peer.list_all_resource_templates(); });
+      pending.push_back(PendingCatalog{
+          .upstream_id = upstream.id,
+          .future = std::async(
+              std::launch::async, [this, upstream]() {
+                return with_initialized_upstream<
+                    std::vector<protocol::ResourceTemplate>>(
+                    upstream, [](ClientPeer& peer) {
+                      return peer.list_all_resource_templates();
+                    });
+              }),
+      });
+    }
+
+    std::optional<core::Error> first_error;
+    for (auto& task : pending) {
+      auto resource_templates = task.future.get();
       if (!resource_templates) {
-        return mcp::core::unexpected(resource_templates.error());
+        if (!first_error.has_value()) {
+          first_error = resource_templates.error();
+        }
+        continue;
       }
       catalogs.push_back(UpstreamResourceTemplateCatalog{
-          .upstream_id = upstream.id,
+          .upstream_id = task.upstream_id,
           .resource_templates = std::move(*resource_templates),
       });
+    }
+    if (first_error.has_value()) {
+      return mcp::core::unexpected(*first_error);
     }
 
     return merge_resource_template_catalogs(catalogs);
@@ -675,6 +744,11 @@ struct GatewayRuntime::Impl final {
     }
 
     std::vector<UpstreamPromptCatalog> catalogs;
+    struct PendingCatalog {
+      std::string upstream_id;
+      std::future<core::Result<std::vector<protocol::Prompt>>> future;
+    };
+    std::vector<PendingCatalog> pending;
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
@@ -684,16 +758,34 @@ struct GatewayRuntime::Impl final {
         continue;
       }
 
-      auto prompts = with_initialized_upstream<
-          std::vector<protocol::Prompt>>(
-          upstream, [](ClientPeer& peer) { return peer.list_all_prompts(); });
+      pending.push_back(PendingCatalog{
+          .upstream_id = upstream.id,
+          .future = std::async(
+              std::launch::async, [this, upstream]() {
+                return with_initialized_upstream<
+                    std::vector<protocol::Prompt>>(
+                    upstream,
+                    [](ClientPeer& peer) { return peer.list_all_prompts(); });
+              }),
+      });
+    }
+
+    std::optional<core::Error> first_error;
+    for (auto& task : pending) {
+      auto prompts = task.future.get();
       if (!prompts) {
-        return mcp::core::unexpected(prompts.error());
+        if (!first_error.has_value()) {
+          first_error = prompts.error();
+        }
+        continue;
       }
       catalogs.push_back(UpstreamPromptCatalog{
-          .upstream_id = upstream.id,
+          .upstream_id = task.upstream_id,
           .prompts = std::move(*prompts),
       });
+    }
+    if (first_error.has_value()) {
+      return mcp::core::unexpected(*first_error);
     }
 
     return merge_prompt_catalogs(catalogs);

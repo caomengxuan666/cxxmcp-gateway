@@ -575,7 +575,8 @@ The current MVP baseline has verified coverage for:
 8. Runtime lifecycle decision: explicit per-call upstream sessions, with
    initialized upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
-   to one upstream, concurrent calls to multiple upstreams, idle shutdown,
+   to one upstream, concurrent calls to multiple upstreams, concurrent
+   multi-upstream catalog list fan-out, idle shutdown,
    active-call shutdown with observable `stopping` state, downstream session
    close during an active upstream call, observable initialized state during
    active upstream calls, post-stop rejection for side-effecting runtime

@@ -497,6 +497,12 @@ upstream SDK service. This keeps ownership simple while the data-plane behavior
 is validated. Pooling or reuse can be added later behind the runtime boundary
 when its latency and shutdown tradeoffs are tested.
 
+Aggregate catalog listing fans out eligible upstream list operations
+concurrently and then applies the same whole-request failure policy: if any
+enabled upstream returns a gateway-normalized error, the aggregate list fails.
+This reduces multi-upstream catalog latency without changing the per-call
+session model for an individual upstream operation.
+
 The runtime exposes an upstream state snapshot for hosts and future admin APIs.
 The current per-call implementation reports configured upstreams, marks an
 upstream `connecting`/`initialized` during a call, records initialized upstream

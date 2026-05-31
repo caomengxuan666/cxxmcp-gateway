@@ -2434,6 +2434,59 @@ void test_concurrent_stdio_calls_to_one_upstream() {
                  "same-upstream stdio calls should leave upstream healthy");
 }
 
+void test_multi_upstream_tools_list_starts_upstreams_concurrently() {
+  mcp::gateway::GatewayConfig config;
+  for (const auto* id : {"first_list", "second_list"}) {
+    mcp::gateway::UpstreamServer upstream;
+    upstream.id = id;
+    upstream.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+    upstream.process_stdio.command = CXXMCP_GATEWAY_STDIO_FIXTURE;
+    upstream.process_stdio.args = {"--startup-delay-ms", "700"};
+    config.upstreams.push_back(std::move(upstream));
+  }
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto tools = runtime.list_tools();
+      require(tools.has_value(), "parallel multi-upstream tools/list succeeds");
+      require(has_tool(*tools, "first_list.echo"),
+              "parallel tools/list includes first upstream");
+      require(has_tool(*tools, "second_list.echo"),
+              "parallel tools/list includes second upstream");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_both_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto states = runtime.upstream_states();
+    const auto first = require_upstream_state(states, "first_list");
+    const auto second = require_upstream_state(states, "second_list");
+    if (first.active_calls >= 1 && second.active_calls >= 1) {
+      observed_both_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+  require(observed_both_active,
+          "one tools/list should start eligible upstream list operations "
+          "concurrently");
+
+  const auto final_states = runtime.upstream_states();
+  require(require_upstream_state(final_states, "first_list").active_calls == 0,
+          "first parallel listed upstream should clear active calls");
+  require(require_upstream_state(final_states, "second_list").active_calls == 0,
+          "second parallel listed upstream should clear active calls");
+}
+
 void test_cancellation_and_progress_notifications_are_local_noops() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "notify";
@@ -4207,6 +4260,7 @@ int main() {
     test_http_timeout();
     test_concurrent_http_calls_update_active_state();
     test_concurrent_stdio_calls_to_one_upstream();
+    test_multi_upstream_tools_list_starts_upstreams_concurrently();
     test_cancellation_and_progress_notifications_are_local_noops();
     test_runtime_stop_waits_for_active_stdio_call();
     test_runtime_stop_waits_for_active_http_call();
