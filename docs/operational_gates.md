@@ -22,11 +22,11 @@ The current release-blocking jobs are:
 | `gateway-windows-latest-shared` | Windows shared-library build and tests |
 
 The workflow builds an HTTP-enabled C++23 `cxxmcp` SDK from
-`caomengxuan666/cxxmcp` at `CXXMCP_REF`, installs it, configures the gateway
-against that install tree, builds the gateway, and runs `ctest`. The CTest
-suite includes a source hygiene guard for conflict markers and trailing
-whitespace across tracked source, test, documentation, CMake, and workflow
-text files.
+`caomengxuan666/cxxmcp` at the pinned `CXXMCP_REF`, installs it, configures
+the gateway against that install tree, builds the gateway, and runs `ctest`.
+The CTest suite includes a source hygiene guard for conflict markers and
+trailing whitespace across tracked source, test, documentation, CMake, and
+workflow text files.
 
 ## Local Gate
 
@@ -65,10 +65,11 @@ install-tree consumption. Component install behavior for `core`, `runtime`,
 
 ## SDK Compatibility
 
-The gateway tracks the HTTP-enabled `cxxmcp` SDK branch configured by
-`CXXMCP_REF` in CI. A release candidate must record the exact `cxxmcp` commit
-used for validation. Until a versioned SDK compatibility policy is introduced,
-changes should not claim compatibility beyond the CI-tested SDK revision.
+The gateway tracks the HTTP-enabled `cxxmcp` SDK revision configured by the
+pinned `CXXMCP_REF` in CI. A release candidate must record that exact
+`cxxmcp` commit in release evidence. Until a versioned SDK compatibility policy
+is introduced, changes should not claim compatibility beyond the CI-tested SDK
+revision.
 
 ## Performance Measurement
 

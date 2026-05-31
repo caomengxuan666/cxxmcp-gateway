@@ -26,7 +26,7 @@ or performance tools.
 
 ## SDK Compatibility
 
-The gateway is validated against the `cxxmcp` SDK revision configured by
+The gateway is validated against the pinned `cxxmcp` SDK revision configured by
 `CXXMCP_REF` in CI and against the exact SDK revision recorded in release
 evidence.
 
