@@ -364,7 +364,7 @@ Rules:
 - each capability must define notification behavior;
 - subscription ownership and cancellation must be explicit before resources or
   long-running tasks are advertised;
-- upstream error data must be preserved across the gateway boundary.
+- upstream error detail text must be preserved across the gateway boundary.
 
 Capability expansion checklist:
 
@@ -375,7 +375,7 @@ Capability expansion checklist:
 - changed/listChanged notification behavior;
 - subscription ownership, if any;
 - progress and cancellation, if any;
-- error mapping and error data preservation;
+- error mapping and error detail-text preservation;
 - integration tests for both stdio and Streamable HTTP upstreams.
 
 Current resource routing baseline:
