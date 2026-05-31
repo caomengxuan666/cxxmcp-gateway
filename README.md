@@ -30,6 +30,8 @@ See [Getting Started](docs/getting_started.md) for a minimal C++ host
 integration path.
 See [Runtime API Contract](docs/api_contract.md) for lifecycle, threading,
 session, cache, capability, and error-shape semantics.
+See [Compatibility Policy](docs/compatibility.md) for the current SDK,
+platform, API, ABI, and feature-support boundaries.
 See [Gateway Technical Roadmap](docs/technical_roadmap.md) for the phased
 implementation path.
 See [Operational Gates](docs/operational_gates.md) for release-blocking checks,

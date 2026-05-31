@@ -640,6 +640,9 @@ The current MVP baseline has verified coverage for:
     lifecycle, concurrency, session, cache, capability, observer, routing, and
     error-shape contracts are summarized in
     [`api_contract.md`](api_contract.md).
+20. Compatibility policy: supported consumer shape, SDK revision boundaries,
+    source/API versus ABI stability, CI platform matrix, and feature support
+    limits are documented in [`compatibility.md`](compatibility.md).
 
 ## Remaining Near-Term Backlog
 

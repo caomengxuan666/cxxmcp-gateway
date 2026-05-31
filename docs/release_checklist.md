@@ -15,6 +15,9 @@ API requirements.
 - `docs/api_contract.md` matches the public runtime behavior for lifecycle,
   concurrency, session modes, catalog caching, capability advertisement,
   observers, routing names, and error categories.
+- `docs/compatibility.md` matches the release candidate's SDK revision policy,
+  API/ABI stability level, supported CI platform matrix, and feature-support
+  boundaries.
 - Future-only capabilities remain unadvertised unless their namespace,
   routing, notification, and integration-test contracts are implemented.
 
