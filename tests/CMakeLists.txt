@@ -107,6 +107,7 @@ if(TARGET cxxmcp_gateway_cli)
             -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
             -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
             -Dcxxmcp_DIR=${cxxmcp_DIR}
+            -DCXXMCP_GATEWAY_BUILD_TYPE=${CMAKE_BUILD_TYPE}
             -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
             -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
             -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_without_config_io.cmake")

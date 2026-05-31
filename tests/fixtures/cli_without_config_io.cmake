@@ -15,6 +15,11 @@ endif()
 set(cli_build_dir
     "${CXXMCP_GATEWAY_BINARY_DIR}/cli_without_config_io_${CXXMCP_GATEWAY_GENERATOR_ID}")
 set(cli_output_dir "${cli_build_dir}/bin")
+set(cli_config_args "")
+if(DEFINED CXXMCP_GATEWAY_BUILD_TYPE AND NOT CXXMCP_GATEWAY_BUILD_TYPE STREQUAL "")
+    list(APPEND cli_config_args
+        "-DCMAKE_BUILD_TYPE=${CXXMCP_GATEWAY_BUILD_TYPE}")
+endif()
 
 file(REMOVE_RECURSE "${cli_build_dir}")
 
@@ -23,6 +28,7 @@ execute_process(
         -G "${CXXMCP_GATEWAY_GENERATOR}"
         -S "${CXXMCP_GATEWAY_SOURCE_DIR}"
         -B "${cli_build_dir}"
+        ${cli_config_args}
         "-Dcxxmcp_DIR=${cxxmcp_DIR}"
         "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${cli_output_dir}"
         -DCXXMCP_GATEWAY_BUILD_CONFIG_IO=OFF
