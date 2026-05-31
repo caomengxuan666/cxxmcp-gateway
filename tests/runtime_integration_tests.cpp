@@ -3089,6 +3089,66 @@ void test_tools_list_uses_cached_catalog_until_cleared() {
           "tools/list after clearing cache should start upstream again");
 }
 
+void test_clear_cached_catalogs_keeps_persistent_session() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_cached";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_cached_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto first = runtime.list_tools();
+  require(first.has_value(),
+          "persistent cached tools/list should populate cache");
+  require(has_tool(*first, "persistent_cached.echo"),
+          "persistent cached tools/list should include upstream tool");
+  require(std::filesystem::exists(marker_path),
+          "persistent cached tools/list should keep session alive");
+
+  auto cleared = runtime.clear_cached_catalogs();
+  require(cleared.has_value(),
+          "clear_cached_catalogs should succeed in persistent mode");
+  require(std::filesystem::exists(marker_path),
+          "clear_cached_catalogs should not stop persistent upstream session");
+
+  auto second = runtime.list_tools();
+  require(second.has_value(),
+          "persistent tools/list after cache clear should succeed");
+  require(has_tool(*second, "persistent_cached.echo"),
+          "persistent tools/list after cache clear should include upstream "
+          "tool");
+  require(std::filesystem::exists(marker_path),
+          "persistent tools/list after cache clear should keep session alive");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "persistent cached runtime should stop");
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent cached runtime stop should clean up session");
+}
+
 void test_cancellation_and_progress_notifications_are_local_noops() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "notify";
@@ -4975,6 +5035,8 @@ int main() {
         test_multi_upstream_tools_list_starts_upstreams_concurrently);
     run("tools list uses cached catalog until cleared",
         test_tools_list_uses_cached_catalog_until_cleared);
+    run("clear cached catalogs keeps persistent session",
+        test_clear_cached_catalogs_keeps_persistent_session);
     run("cancellation and progress notifications are local noops",
         test_cancellation_and_progress_notifications_are_local_noops);
     run("runtime stop waits for active stdio call",

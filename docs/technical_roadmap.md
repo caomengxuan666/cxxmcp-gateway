@@ -623,7 +623,8 @@ The current MVP baseline has verified coverage for:
 15. Runtime catalog cache: successful aggregate tools/resources/templates/
     prompts catalog lists are cached until explicit invalidation, capability
     refresh, or runtime recreation, while cache misses retain concurrent
-    multi-upstream fan-out and whole-request failure semantics.
+    multi-upstream fan-out and whole-request failure semantics; explicit
+    catalog invalidation does not close opt-in persistent upstream sessions.
 16. Current local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
