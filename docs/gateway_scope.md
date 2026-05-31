@@ -503,6 +503,9 @@ upstream list or call operation creates, initializes, uses, and stops its own
 upstream SDK service. This keeps ownership simple while the data-plane behavior
 is validated. Pooling or reuse can be added later behind the runtime boundary
 when its latency and shutdown tradeoffs are tested.
+Both Streamable HTTP and process-stdio upstreams support a configured
+per-operation timeout; timeout failures are normalized as gateway upstream
+timeout errors.
 
 Aggregate catalog listing fans out eligible upstream list operations
 concurrently and then applies the same whole-request failure policy: if any

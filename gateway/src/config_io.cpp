@@ -174,6 +174,16 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
       return mcp::core::unexpected(env.error());
     }
     upstream.process_stdio.env = std::move(*env);
+    if (json.contains("timeoutMs")) {
+      if (!json.at("timeoutMs").is_number_integer() ||
+          json.at("timeoutMs").get<std::int64_t>() <= 0) {
+        return mcp::core::unexpected(make_gateway_config_error(
+            "gateway config field must be a positive integer",
+            path + ".timeoutMs"));
+      }
+      upstream.process_stdio.timeout =
+          std::chrono::milliseconds{json.at("timeoutMs").get<std::int64_t>()};
+    }
   } else if (*transport == "http" || *transport == "streamable_http") {
     upstream.transport = UpstreamTransportKind::streamable_http;
     auto uri = upstream.enabled ? require_string(json, "uri", path)

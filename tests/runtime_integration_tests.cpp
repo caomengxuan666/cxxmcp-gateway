@@ -2301,6 +2301,26 @@ void test_http_timeout() {
   require(stopped.has_value(), "http timeout fixture should stop");
 }
 
+void test_stdio_timeout() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "slow_stdio";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{50};
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto called =
+      runtime.call_tool("slow_stdio.slow", Json{{"sleepMs", 500}});
+  require(!called.has_value(), "slow stdio upstream should time out");
+  require_gateway_upstream_timeout(called.error(), "slow_stdio");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "slow_stdio");
+  require(state.active_calls == 0,
+          "timed out stdio call should clear active call count");
+  require_status(state, UpstreamRuntimeStatus::degraded,
+                 "timed out stdio call should mark upstream degraded");
+}
+
 void test_concurrent_http_calls_update_active_state() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -4357,6 +4377,7 @@ int main() {
     test_hosted_gateway_rejects_invalid_json_rpc_request();
     test_runtime_move_assignment_stops_existing_endpoint();
     test_http_timeout();
+    test_stdio_timeout();
     test_concurrent_http_calls_update_active_state();
     test_concurrent_stdio_calls_to_one_upstream();
     test_multi_upstream_tools_list_starts_upstreams_concurrently();

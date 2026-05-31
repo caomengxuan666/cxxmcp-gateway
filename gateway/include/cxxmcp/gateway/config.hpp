@@ -22,6 +22,7 @@ struct ProcessStdioUpstream {
   std::vector<std::string> args;
   std::string cwd;
   std::unordered_map<std::string, std::string> env;
+  std::chrono::milliseconds timeout{30000};
 };
 
 struct HttpUpstream {

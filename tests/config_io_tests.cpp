@@ -38,6 +38,7 @@ void test_parse_json_config() {
                 {"command", "fixture"},
                 {"args", Json::array({"--flag", "${GATEWAY_ROOT}"})},
                 {"cwd", "${GATEWAY_CWD}"},
+                {"timeoutMs", 2345},
                 {"env",
                  Json{{"A", "B"},
                       {"TOKEN", "${GATEWAY_TOKEN}"}}}},
@@ -70,6 +71,8 @@ void test_parse_json_config() {
   require(parsed->upstreams[0].process_stdio.env.at("TOKEN") ==
               "${GATEWAY_TOKEN}",
           "stdio env should preserve literal environment placeholders");
+  require(parsed->upstreams[0].process_stdio.timeout.count() == 2345,
+          "stdio timeout should parse");
   require(parsed->upstreams[1].id == "http", "http id should parse");
   require(parsed->upstreams[1].display_name == "HTTP upstream",
           "display name should parse");
@@ -146,6 +149,15 @@ void test_reject_invalid_config() {
                          {"timeoutMs", 0}}})}};
   parsed = mcp::gateway::gateway_config_from_json(zero_timeout);
   require(!parsed.has_value(), "zero HTTP timeout should fail validation");
+
+  const Json zero_stdio_timeout = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"},
+                         {"timeoutMs", 0}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(zero_stdio_timeout);
+  require(!parsed.has_value(), "zero stdio timeout should fail validation");
 }
 
 void test_reject_optional_string_type_mismatches() {

@@ -557,7 +557,8 @@ The current MVP baseline has verified coverage for:
    from direct config construction, JSON config loading, and merged file plus
    command-line upstream config, missing enabled transport parameters, invalid
    HTTP timeouts, structured field type mismatches, unsupported root-level
-   endpoint fields, config file open failures, and malformed config JSON.
+   endpoint fields, invalid HTTP and process-stdio timeouts, config file open
+   failures, and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed

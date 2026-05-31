@@ -20,6 +20,7 @@
 #include "cxxmcp/peer.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
 #include "cxxmcp/service.hpp"
+#include "cxxmcp/transport/process_stdio_transport.hpp"
 
 namespace mcp::gateway {
 namespace {
@@ -130,12 +131,16 @@ core::Result<ClientPeer> build_client_peer(const UpstreamServer& upstream) {
   builder.capabilities(protocol::client_capabilities().build());
   switch (upstream.transport) {
     case UpstreamTransportKind::process_stdio: {
-      client::Client::StdioEndpoint endpoint;
-      endpoint.command = upstream.process_stdio.command;
-      endpoint.args = upstream.process_stdio.args;
-      endpoint.cwd = upstream.process_stdio.cwd;
-      endpoint.env = upstream.process_stdio.env;
-      return builder.process_stdio(std::move(endpoint)).build();
+      transport::ProcessStdioClientTransportOptions options;
+      options.command = upstream.process_stdio.command;
+      options.args = upstream.process_stdio.args;
+      options.cwd = upstream.process_stdio.cwd;
+      options.env = upstream.process_stdio.env;
+      options.request_timeout = upstream.process_stdio.timeout;
+      return builder
+          .transport(std::make_unique<transport::ProcessStdioClientTransport>(
+              std::move(options)))
+          .build();
     }
     case UpstreamTransportKind::streamable_http: {
       client::Client::StreamableHttpEndpoint endpoint;

@@ -196,6 +196,14 @@ int main() {
   require(!invalid_http_timeout.has_value(),
           "non-positive HTTP upstream timeout should fail validation");
 
+  auto invalid_stdio_timeout_config = config;
+  invalid_stdio_timeout_config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{0};
+  const auto invalid_stdio_timeout =
+      mcp::gateway::validate_gateway_config(invalid_stdio_timeout_config);
+  require(!invalid_stdio_timeout.has_value(),
+          "non-positive stdio upstream timeout should fail validation");
+
   auto file_config = config;
   file_config.name = "file-gateway";
   file_config.version = "9.9.9";
@@ -487,8 +495,15 @@ int main() {
   require(detail_timeout.detail == "upstream 'fs': request timeout",
           "transport timeout detail should preserve upstream context");
 
+  auto protocol_timeout = mcp::gateway::annotate_gateway_upstream_error(
+      mcp::core::Error{4, "process stdio request timed out", "2",
+                       "protocol"},
+      "fs");
+  require(protocol_timeout.category == "gateway.upstream.timeout",
+          "protocol-shaped timeout should normalize to gateway timeout");
+
   auto gateway_owned = mcp::gateway::annotate_gateway_upstream_error(
-      mcp::core::Error{4, "gateway decided", "already annotated",
+      mcp::core::Error{5, "gateway decided", "already annotated",
                        "gateway.upstream.tool"},
       "fs");
   require(gateway_owned.category == "gateway.upstream.tool",

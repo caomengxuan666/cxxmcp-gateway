@@ -124,7 +124,8 @@ performed by `cxxmcp_gateway_config_io`.
       "id": "fs",
       "transport": "stdio",
       "command": "filesystem-server",
-      "args": ["--root", "."]
+      "args": ["--root", "."],
+      "timeoutMs": 30000
     }
   ]
 }
