@@ -25,6 +25,7 @@ int main() {
       mcp::gateway::UpstreamSessionMode::persistent;
   options.persistent_session_pool_size = 2;
   options.persistent_session_acquire_timeout = std::chrono::milliseconds{100};
+  options.active_call_drain_timeout = std::chrono::milliseconds{5000};
   options.observer =
       [&](const mcp::gateway::GatewayRuntimeEvent&) { ++observed_events; };
 

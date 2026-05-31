@@ -127,6 +127,11 @@ progress, cancellation forwarding, or logging control.
   busy slots.
 - Active calls are not cancelled by `stop()`. Transport timeouts are the
   current bound for slow upstream operations.
+- `GatewayRuntimeOptions::active_call_drain_timeout` is disabled by default.
+  When set to a positive duration, `stop()` returns a gateway-owned lifecycle
+  error if active upstream calls have not drained by that deadline. The runtime
+  remains in `stopping` state and rejects new data-plane work; hosts may call
+  `stop()` again after active calls finish.
 - `wait()` may overlap with `stop()`. It holds the hosted service alive while
   waiting.
 - After `stop()`, side-effecting runtime APIs return runtime lifecycle errors.

@@ -157,6 +157,11 @@ int main(int argc, char** argv) {
                       input.value("value", std::string{}));
                 }))
       .tool<Json, ToolResult>("slow", [](const Json& input) {
+        if (const auto* marker_path =
+                std::getenv("CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE")) {
+          std::ofstream marker(marker_path, std::ios::binary);
+          marker << "entered\n";
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds{
             input.value("sleepMs", 500)});
         return ToolResult::text("slow-done");

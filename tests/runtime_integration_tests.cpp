@@ -1261,6 +1261,18 @@ void require_persistent_pool_wait_timeout(const mcp::core::Error& error,
           "persistent pool wait timeout should preserve upstream context");
 }
 
+void require_active_call_drain_timeout(const mcp::core::Error& error) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "active call drain timeout should use InvalidRequest");
+  require(error.category == "gateway",
+          "active call drain timeout should remain gateway-owned");
+  require(error.message.find("active upstream calls") != std::string::npos,
+          "active call drain timeout should explain active upstream calls");
+  require(error.detail == "active upstream calls",
+          "active call drain timeout should preserve operation context");
+}
+
 void test_runtime_observer_reports_status_without_logger_dependency() {
   std::vector<mcp::gateway::GatewayRuntimeEvent> events;
   mcp::gateway::GatewayRuntimeOptions options;
@@ -4095,12 +4107,26 @@ void test_runtime_stop_waits_for_active_stdio_call() {
                           .time_since_epoch()
                           .count()) +
        ".txt");
+  const auto slow_marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_slow_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
   std::error_code ignored;
   std::filesystem::remove(marker_path, ignored);
+  std::filesystem::remove(slow_marker_path, ignored);
   config.upstreams.front()
       .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
       marker_path.string();
-  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE"] =
+      slow_marker_path.string();
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.active_call_drain_timeout = std::chrono::milliseconds{5000};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
 
   std::exception_ptr worker_error;
   std::thread worker([&] {
@@ -4116,6 +4142,7 @@ void test_runtime_stop_waits_for_active_stdio_call() {
 
   bool observed_active = false;
   bool observed_marker = false;
+  bool observed_slow_marker = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     const auto state =
         require_upstream_state(runtime.upstream_states(), "stdio_stop");
@@ -4125,13 +4152,18 @@ void test_runtime_stop_waits_for_active_stdio_call() {
     if (std::filesystem::exists(marker_path)) {
       observed_marker = true;
     }
-    if (observed_active && observed_marker) {
+    if (std::filesystem::exists(slow_marker_path)) {
+      observed_slow_marker = true;
+    }
+    if (observed_active && observed_marker && observed_slow_marker) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
   }
   require(observed_active, "stdio shutdown test should observe active call");
   require(observed_marker, "stdio shutdown test should observe child process marker");
+  require(observed_slow_marker,
+          "stdio shutdown test should observe slow handler marker");
 
   std::exception_ptr stop_error;
   const auto stop_started = std::chrono::steady_clock::now();
@@ -4246,6 +4278,7 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   }
   require(marker_removed,
           "runtime stop should clean up the active stdio child process");
+  std::filesystem::remove(slow_marker_path, ignored);
 
   auto post_stop_call =
       runtime.call_tool("stdio_stop.echo", Json{{"value", "after-stop"}});
@@ -4255,6 +4288,113 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   auto post_stop_list = runtime.list_tools();
   require(!post_stop_list.has_value(),
           "runtime should reject tools/list after stop");
+}
+
+void test_runtime_stop_timeout_bounds_active_stdio_call_wait() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "stdio_stop_timeout";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{3000};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_stop_timeout_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  const auto slow_marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_stop_timeout_slow_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  std::filesystem::remove(slow_marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE"] =
+      slow_marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.active_call_drain_timeout = std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = runtime.call_tool("stdio_stop_timeout.slow",
+                                      Json{{"sleepMs", 700}});
+      require(called.has_value(),
+              "active drain timeout test slow stdio call should succeed");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_marker = false;
+  bool observed_slow_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "stdio_stop_timeout");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (std::filesystem::exists(marker_path)) {
+      observed_marker = true;
+    }
+    if (std::filesystem::exists(slow_marker_path)) {
+      observed_slow_marker = true;
+    }
+    if (observed_active && observed_marker && observed_slow_marker) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "active drain timeout test should observe active stdio call");
+  require(observed_marker,
+          "active drain timeout test should observe child process marker");
+  require(observed_slow_marker,
+          "active drain timeout test should observe slow handler marker");
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  auto timed_out = runtime.stop();
+  const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+  require(!timed_out.has_value(),
+          "runtime stop should fail when active call drain times out");
+  require_active_call_drain_timeout(timed_out.error());
+  require(stop_elapsed < std::chrono::milliseconds{500},
+          "active call drain timeout should bound runtime stop wait");
+
+  const auto stopping =
+      require_upstream_state(runtime.upstream_states(), "stdio_stop_timeout");
+  require(stopping.active_calls >= 1,
+          "active drain timeout should leave active call observable");
+  require_status(stopping, UpstreamRuntimeStatus::stopping,
+                 "active drain timeout should leave runtime stopping");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "runtime stop should complete after active stdio call drains");
+  const auto stopped_state =
+      require_upstream_state(runtime.upstream_states(), "stdio_stop_timeout");
+  require(stopped_state.active_calls == 0,
+          "active drain timeout follow-up stop should clear active calls");
+  require_status(stopped_state, UpstreamRuntimeStatus::stopped,
+                 "active drain timeout follow-up stop should mark stopped");
+  std::filesystem::remove(slow_marker_path, ignored);
 }
 
 void test_runtime_stop_waits_for_active_http_call() {
@@ -5874,6 +6014,8 @@ int main() {
         test_cancellation_and_progress_notifications_are_local_noops);
     run("runtime stop waits for active stdio call",
         test_runtime_stop_waits_for_active_stdio_call);
+    run("runtime stop timeout bounds active stdio call wait",
+        test_runtime_stop_timeout_bounds_active_stdio_call_wait);
     run("runtime stop waits for active http call",
         test_runtime_stop_waits_for_active_http_call);
     run("concurrent calls to multiple upstreams",

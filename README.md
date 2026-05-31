@@ -125,6 +125,9 @@ reference runner form of the library
 `GatewayRuntimeOptions::persistent_session_acquire_timeout`, plus the
 `GatewayRuntime::refresh_upstream_capabilities()` path; it reduces repeated-call
 setup cost but remains a bounded per-upstream pool, not adaptive multiplexing.
+Library hosts can also set `GatewayRuntimeOptions::active_call_drain_timeout`
+to make shutdown return a lifecycle error after a bounded wait for active
+upstream calls; the gateway still does not cancel active upstream work.
 When `cxxmcp_gateway_config_io` is built, the reference runner also accepts
 `--config <file>` for JSON gateway config and appends any command-line
 upstreams to the loaded config. File config and command-line upstreams are

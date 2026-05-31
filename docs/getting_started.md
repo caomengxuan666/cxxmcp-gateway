@@ -119,6 +119,7 @@ options.upstream_session_mode =
     mcp::gateway::UpstreamSessionMode::persistent;
 options.persistent_session_pool_size = 2;
 options.persistent_session_acquire_timeout = std::chrono::milliseconds{100};
+options.active_call_drain_timeout = std::chrono::seconds{5};
 
 mcp::gateway::GatewayRuntime runtime(std::move(config), std::move(options));
 ```
@@ -134,6 +135,8 @@ be limited by the upstream transport or server.
 count, and busy slot count for host-owned metrics and diagnostics.
 Set `persistent_session_acquire_timeout` when queued same-upstream calls should
 fail after a bounded pool wait instead of waiting indefinitely.
+Set `active_call_drain_timeout` when shutdown should return a clear lifecycle
+error instead of waiting indefinitely for active upstream calls to finish.
 
 ## Reference CLI
 

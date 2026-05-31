@@ -663,6 +663,10 @@ The current MVP baseline has verified coverage for:
     fixed pool can fail after a defined wait instead of queueing indefinitely;
     integration coverage verifies this contract for both process stdio and
     Streamable HTTP upstreams.
+24. Active call drain bounding: hosts can set `active_call_drain_timeout` so
+    `GatewayRuntime::stop()` returns a lifecycle error after a defined wait for
+    active upstream calls instead of relying only on an outer test runner or
+    supervisor timeout. Active calls are still not cancelled by the gateway.
 
 ## Remaining Near-Term Backlog
 

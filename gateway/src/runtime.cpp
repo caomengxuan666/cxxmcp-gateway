@@ -188,6 +188,7 @@ struct GatewayRuntime::Impl final {
             std::max<std::size_t>(options.persistent_session_pool_size, 1)),
         persistent_session_acquire_timeout(
             options.persistent_session_acquire_timeout),
+        active_call_drain_timeout(options.active_call_drain_timeout),
         observer(std::move(options.observer)) {
     for (const auto& upstream : router.config().upstreams) {
       upstream_states.emplace(upstream.id,
@@ -212,6 +213,7 @@ struct GatewayRuntime::Impl final {
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
   std::size_t persistent_session_pool_size = 1;
   std::chrono::milliseconds persistent_session_acquire_timeout{0};
+  std::chrono::milliseconds active_call_drain_timeout{0};
   std::unordered_map<std::string, std::unique_ptr<PersistentUpstreamSession>>
       persistent_sessions;
   GatewayRuntimeObserver observer;
@@ -546,6 +548,13 @@ struct GatewayRuntime::Impl final {
     return make_gateway_error(protocol::ErrorCode::InvalidRequest,
                               "gateway persistent session pool wait timed out",
                               std::string(upstream_id));
+  }
+
+  core::Error active_call_drain_timeout_error() const {
+    return make_gateway_error(
+        protocol::ErrorCode::InvalidRequest,
+        "gateway runtime stop timed out waiting for active upstream calls",
+        "active upstream calls");
   }
 
   void notify_persistent_session_waiters() noexcept {
@@ -1661,13 +1670,22 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
     }
   }
 
-  std::unique_lock state_lock(impl_->upstream_state_mutex);
-  impl_->upstream_idle_cv.wait(state_lock, [&] {
+  auto active_calls_drained = [&] {
     return std::all_of(impl_->upstream_states.begin(),
                        impl_->upstream_states.end(), [](const auto& entry) {
                          return entry.second.active_calls == 0;
                        });
-  });
+  };
+  std::unique_lock state_lock(impl_->upstream_state_mutex);
+  if (impl_->active_call_drain_timeout.count() > 0) {
+    if (!impl_->upstream_idle_cv.wait_for(
+            state_lock, impl_->active_call_drain_timeout,
+            active_calls_drained)) {
+      return mcp::core::unexpected(impl_->active_call_drain_timeout_error());
+    }
+  } else {
+    impl_->upstream_idle_cv.wait(state_lock, active_calls_drained);
+  }
   state_lock.unlock();
   impl_->stop_persistent_sessions();
   state_lock.lock();
