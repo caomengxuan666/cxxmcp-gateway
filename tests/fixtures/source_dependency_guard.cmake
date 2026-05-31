@@ -21,6 +21,15 @@ file(GLOB_RECURSE test_sources
     "${CXXMCP_GATEWAY_SOURCE_DIR}/tests/*.json")
 list(APPEND scan_files ${test_sources})
 
+if(EXISTS "${CXXMCP_GATEWAY_SOURCE_DIR}/tools")
+    file(GLOB_RECURSE tool_sources
+        LIST_DIRECTORIES false
+        "${CXXMCP_GATEWAY_SOURCE_DIR}/tools/*.cpp"
+        "${CXXMCP_GATEWAY_SOURCE_DIR}/tools/*.hpp")
+    list(APPEND scan_files ${tool_sources})
+    list(APPEND legacy_scan_files ${tool_sources})
+endif()
+
 file(GLOB_RECURSE doc_sources
     LIST_DIRECTORIES false
     "${CXXMCP_GATEWAY_SOURCE_DIR}/docs/*.md")

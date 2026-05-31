@@ -3202,6 +3202,40 @@ void test_hosted_gateway_rejects_request_before_initialized_notification() {
           "pre-initialized hosted gateway should stop");
 }
 
+void test_hosted_gateway_rejects_request_before_initialize() {
+  const auto kPort = find_available_loopback_port();
+
+  mcp::gateway::GatewayRuntime gateway(make_stdio_config());
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(),
+          "pre-initialize hosted gateway endpoint should start");
+
+  const auto response = post_raw_http(
+      kPort, "/mcp",
+      R"({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})");
+  require(response.find("HTTP/1.1 404") != std::string::npos,
+          "pre-initialize tools/list should be rejected before gateway "
+          "routing");
+  require(response.find("http transport has no active session") !=
+              std::string::npos,
+          "pre-initialize tools/list rejection should explain session state");
+
+  const auto state = require_upstream_state(gateway.upstream_states(), "stdio");
+  require_status(state, UpstreamRuntimeStatus::configured,
+                 "pre-initialize hosted request should not start upstream");
+  require(state.active_calls == 0,
+          "pre-initialize hosted request should not create active calls");
+  require(!state.capabilities.has_value(),
+          "pre-initialize hosted request should not initialize capabilities");
+  require(!state.last_error.has_value(),
+          "pre-initialize hosted request should not record upstream errors");
+
+  auto stopped_gateway = gateway.stop();
+  require(stopped_gateway.has_value(),
+          "pre-initialize hosted gateway should stop");
+}
+
 void test_hosted_gateway_multiple_downstream_clients() {
   const auto kPort = find_available_loopback_port();
 
@@ -4034,6 +4068,7 @@ int main() {
     test_concurrent_calls_to_multiple_upstreams();
     test_hosted_gateway_http_endpoint();
     test_hosted_gateway_rejects_request_before_initialized_notification();
+    test_hosted_gateway_rejects_request_before_initialize();
     test_hosted_gateway_multiple_downstream_clients();
     test_hosted_cancellation_notifications_do_not_cancel_upstream_call();
     test_downstream_close_during_active_upstream_call_clears_state();
