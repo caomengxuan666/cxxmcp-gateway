@@ -94,6 +94,9 @@ The current package is not a compatibility promise for:
 Persistent mode supports a fixed, bounded per-upstream session pool for hosts
 that explicitly configure it. That pool is part of the runtime contract, but it
 is not a promise of adaptive multiplexing or hard real-time latency.
+Pool-slot wait timeout and active-call drain timeout knobs bound gateway-owned
+waiting points, but they do not cancel active upstream work and do not change
+the fixed-pool, non-hard-real-time contract.
 
 Those features require their own API, capability-advertisement, lifecycle, and
 test contracts before they can become supported surface.

@@ -531,9 +531,13 @@ not an adaptive pooled connection manager.
 the hosted downstream endpoint, rejects new upstream operations, waits for
 already active upstream calls to finish, closes any persistent upstream
 sessions, and then marks upstreams `stopped`. It does not yet cancel or
-interrupt an active upstream call. In the current lifecycle model, `stopped` is
+interrupt an active upstream call. Hosts that cannot tolerate unbounded
+shutdown waits can set `active_call_drain_timeout`; when that timeout expires,
+`stop()` returns a gateway-owned lifecycle error and the runtime remains
+`stopping`, still rejecting new routed work. A later `stop()` call can complete
+after active upstream calls drain. In the current lifecycle model, `stopped` is
 terminal for a runtime instance; hosts should construct a new `GatewayRuntime`
-to restart the data plane.
+to restart the data plane after it reaches `stopped`.
 
 The raw JSON-RPC entry point follows the same lifecycle boundary for
 gateway-routed methods. After `stop()`, routed requests such as `tools/list`,
@@ -545,8 +549,9 @@ ownership.
 
 For process-stdio upstreams, the per-call upstream SDK service is stopped at the
 end of each upstream operation. Shutdown tests cover active stdio calls by
-observing a fixture child process marker during the call and verifying that the
-marker is removed after `GatewayRuntime::stop()` returns.
+observing both a fixture child process marker and a slow-handler entry marker
+during the call, then verifying that the child process marker is removed after
+`GatewayRuntime::stop()` returns.
 
 ## Gateway Error Mapping
 
