@@ -5462,6 +5462,162 @@ void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
           "hosted notification no-op gateway should stop");
 }
 
+void test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call() {
+  const auto kUpstreamPort = find_available_loopback_port();
+  const std::string upstream_uri =
+      "http://127.0.0.1:" + std::to_string(kUpstreamPort) + "/mcp";
+  std::atomic_bool slow_entered = false;
+
+  auto upstream_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-hosted-http-cancel-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kUpstreamPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            slow_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 700)});
+            return ToolResult::text("slow-done");
+          })
+          .build();
+  require(upstream_server.has_value(),
+          "hosted http cancellation upstream should build");
+  auto running_upstream = mcp::serve(std::move(*upstream_server));
+  require(running_upstream.has_value(),
+          "hosted http cancellation upstream should start");
+  running_upstream->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "http_cancel";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = upstream_uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  const auto kGatewayPort = find_available_loopback_port();
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kGatewayPort, .path = "/mcp"});
+  require(started.has_value(),
+          "hosted http cancellation gateway should start");
+
+  auto make_client = [kGatewayPort] {
+    return mcp::ClientPeer::builder()
+        .streamable_http("http://127.0.0.1:" +
+                         std::to_string(kGatewayPort) + "/mcp")
+        .build();
+  };
+
+  auto caller_client = make_client();
+  auto notifier_client = make_client();
+  require(caller_client.has_value(),
+          "http cancellation caller client should build");
+  require(notifier_client.has_value(),
+          "http cancellation notifier client should build");
+
+  auto caller = mcp::serve(std::move(*caller_client));
+  auto notifier = mcp::serve(std::move(*notifier_client));
+  require(caller.has_value(), "http cancellation caller should start");
+  require(notifier.has_value(), "http cancellation notifier should start");
+
+  auto caller_initialized = caller->peer().initialize(
+      "cxxmcp-gateway-hosted-http-cancel-caller", "1.0.0");
+  auto notifier_initialized = notifier->peer().initialize(
+      "cxxmcp-gateway-hosted-http-cancel-notifier", "1.0.0");
+  require(caller_initialized.has_value(),
+          "http cancellation caller initialize should succeed");
+  require(notifier_initialized.has_value(),
+          "http cancellation notifier initialize should succeed");
+
+  auto caller_notified = caller->peer().notify_initialized();
+  auto notifier_notified = notifier->peer().notify_initialized();
+  require(caller_notified.has_value(),
+          "http cancellation caller initialized notification should work");
+  require(notifier_notified.has_value(),
+          "http cancellation notifier initialized notification should work");
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called =
+          caller->peer().call_tool("http_cancel.slow", Json{{"sleepMs", 700}});
+      require(called.has_value(),
+              "hosted http cancellation no-op should not cancel active call");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_handler = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(gateway.upstream_states(), "http_cancel");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (slow_entered.load()) {
+      observed_handler = true;
+    }
+    if (observed_active && observed_handler) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "hosted http cancellation test should observe active upstream call");
+  require(observed_handler,
+          "hosted http cancellation test should observe upstream handler");
+
+  auto cancelled = notifier->peer().raw_notification(
+      mcp::protocol::make_notification(
+          std::string(mcp::protocol::CancelledNotificationMethod),
+          Json{{"requestId", std::int64_t{1}},
+               {"reason", "downstream cancelled"}}));
+  require(cancelled.has_value(),
+          "hosted http cancellation notification should be accepted as no-op");
+
+  auto progress = notifier->peer().raw_notification(
+      mcp::protocol::make_notification(
+          std::string(mcp::protocol::ProgressNotificationMethod),
+          Json{{"progressToken", "hosted-http-call"}, {"progress", 0.5}}));
+  require(progress.has_value(),
+          "hosted http progress notification should be accepted as no-op");
+
+  const auto during =
+      require_upstream_state(gateway.upstream_states(), "http_cancel");
+  require(during.active_calls >= 1,
+          "hosted http notification no-ops should not clear active call");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  const auto state =
+      require_upstream_state(gateway.upstream_states(), "http_cancel");
+  require(state.active_calls == 0,
+          "hosted http cancellation no-op should clear after call completion");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "hosted http cancellation no-op should leave upstream healthy");
+
+  auto caller_stopped = caller->stop();
+  auto notifier_stopped = notifier->stop();
+  require(caller_stopped.has_value(),
+          "http cancellation caller should stop");
+  require(notifier_stopped.has_value(),
+          "http cancellation notifier should stop");
+
+  auto gateway_stopped = gateway.stop();
+  require(gateway_stopped.has_value(),
+          "hosted http cancellation gateway should stop");
+  auto upstream_stopped = running_upstream->stop();
+  require(upstream_stopped.has_value(),
+          "hosted http cancellation upstream should stop");
+}
+
 void test_downstream_close_during_active_upstream_call_clears_state() {
   const auto kPort = find_available_loopback_port();
 
@@ -6154,6 +6310,8 @@ int main() {
         test_hosted_gateway_multiple_downstream_clients);
     run("hosted cancellation notifications do not cancel upstream call",
         test_hosted_cancellation_notifications_do_not_cancel_upstream_call);
+    run("hosted cancellation notifications do not cancel http upstream call",
+        test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call);
     run("downstream close during active upstream call clears state",
         test_downstream_close_during_active_upstream_call_clears_state);
     run("hosted gateway without enabled upstreams advertises no tools",

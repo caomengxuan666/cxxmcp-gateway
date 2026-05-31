@@ -587,13 +587,14 @@ The current MVP baseline has verified coverage for:
    while SDK-owned lifecycle and liveness methods remain delegated,
    hosted endpoint option validation, wait-before-start rejection,
    overlapping wait/stop handling, observer lifecycle reentry,
-   cancellation/progress notification no-ops, stdio child cleanup after
-   successful per-call sessions and on stop, persistent stdio session reuse,
-   default same-upstream serialization, configured same-upstream pool
-   concurrency, active-call stop, hostile-call timeout during pool shutdown,
-   failure invalidation, pool failure isolation, reconnect, and cleanup on
-   stop, plus persistent HTTP default same-upstream serialization, pool queue
-   draining, and timeout recovery.
+   cancellation/progress notification no-ops for active process-stdio and
+   Streamable HTTP upstream calls, stdio child cleanup after successful
+   per-call sessions and on stop, persistent stdio session reuse, default
+   same-upstream serialization, configured same-upstream pool concurrency,
+   active-call stop, hostile-call timeout during pool shutdown, failure
+   invalidation, pool failure isolation, reconnect, and cleanup on stop, plus
+   persistent HTTP default same-upstream serialization, pool queue draining,
+   and timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
