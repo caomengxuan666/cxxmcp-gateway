@@ -653,12 +653,20 @@ The current MVP baseline has verified coverage for:
     hosted startup, and opt-in persistent upstream sessions without changing
     default package components; `gateway_examples_build` covers the optional
     example build in CTest.
+22. Persistent pool observability: `upstream_states()` exposes configured pool
+    size, initialized persistent session count, and busy persistent session
+    count so library hosts can distinguish active accepted calls from actual
+    occupied fixed-pool slots.
+23. Persistent pool wait bounding: hosts can set
+    `persistent_session_acquire_timeout` through the runtime API, reference
+    CLI, or JSON runtime config so same-upstream calls queued behind a full
+    fixed pool can fail after a defined wait instead of queueing indefinitely.
 
 ## Remaining Near-Term Backlog
 
 1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks,
-   especially around slot-level pool health and transport-specific
-   concurrency.
+   especially around transport-specific concurrency and active request
+   cancellation behavior.
 2. Refresh the performance baseline whenever the release-candidate SDK revision
    or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,

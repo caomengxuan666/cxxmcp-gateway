@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -36,6 +37,9 @@ struct UpstreamRuntimeState {
   std::string upstream_id;
   UpstreamRuntimeStatus status = UpstreamRuntimeStatus::configured;
   std::size_t active_calls = 0;
+  std::size_t persistent_session_pool_size = 0;
+  std::size_t initialized_persistent_sessions = 0;
+  std::size_t busy_persistent_sessions = 0;
   std::optional<protocol::ServerCapabilities> capabilities;
   std::optional<core::Error> last_error;
 };
@@ -67,6 +71,7 @@ struct GatewayRuntimeOptions {
   GatewayRuntimeObserver observer;
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
   std::size_t persistent_session_pool_size = 1;
+  std::chrono::milliseconds persistent_session_acquire_timeout{0};
 };
 
 class GatewayRuntime final {

@@ -1248,6 +1248,19 @@ void test_upstream_client_capabilities_are_minimal() {
           "client capability inspection should not leave active calls");
 }
 
+void require_persistent_pool_wait_timeout(const mcp::core::Error& error,
+                                          std::string_view upstream_id) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "persistent pool wait timeout should use InvalidRequest");
+  require(error.category == "gateway",
+          "persistent pool wait timeout should remain gateway-owned");
+  require(error.message.find("pool wait timed out") != std::string::npos,
+          "persistent pool wait timeout should explain pool wait timeout");
+  require(error.detail == upstream_id,
+          "persistent pool wait timeout should preserve upstream context");
+}
+
 void test_runtime_observer_reports_status_without_logger_dependency() {
   std::vector<mcp::gateway::GatewayRuntimeEvent> events;
   mcp::gateway::GatewayRuntimeOptions options;
@@ -2155,6 +2168,16 @@ void test_persistent_stdio_session_pool_allows_same_upstream_concurrency() {
   auto prewarmed = runtime.refresh_upstream_capabilities();
   require(prewarmed.has_value(),
           "persistent session pool prewarm should initialize sessions");
+  {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_pool");
+    require(state.persistent_session_pool_size == 2,
+            "persistent session pool state should expose configured size");
+    require(state.initialized_persistent_sessions == 2,
+            "persistent session pool prewarm should expose initialized slots");
+    require(state.busy_persistent_sessions == 0,
+            "persistent session pool prewarm should expose no busy slots");
+  }
 
   std::exception_ptr first_error;
   std::exception_ptr second_error;
@@ -2183,12 +2206,16 @@ void test_persistent_stdio_session_pool_allows_same_upstream_concurrency() {
   });
 
   bool observed_two_active = false;
+  bool observed_two_busy_slots = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     const auto state =
         require_upstream_state(runtime.upstream_states(), "persistent_pool");
     if (state.active_calls >= 2) {
       observed_two_active = true;
-      break;
+      if (state.busy_persistent_sessions == 2) {
+        observed_two_busy_slots = true;
+        break;
+      }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
   }
@@ -2206,6 +2233,8 @@ void test_persistent_stdio_session_pool_allows_same_upstream_concurrency() {
   require(observed_two_active,
           "pooled persistent same-upstream calls should report both active "
           "calls");
+  require(observed_two_busy_slots,
+          "pooled persistent same-upstream calls should expose busy slots");
   require(elapsed < std::chrono::milliseconds{800},
           "pooled persistent same-upstream calls should use separate sessions");
 
@@ -2213,6 +2242,10 @@ void test_persistent_stdio_session_pool_allows_same_upstream_concurrency() {
       require_upstream_state(runtime.upstream_states(), "persistent_pool");
   require(state.active_calls == 0,
           "pooled persistent calls should clear active calls");
+  require(state.initialized_persistent_sessions == 2,
+          "pooled persistent calls should keep both sessions initialized");
+  require(state.busy_persistent_sessions == 0,
+          "pooled persistent calls should clear busy slots");
   require_status(state, UpstreamRuntimeStatus::healthy,
                  "pooled persistent calls should leave upstream healthy");
 }
@@ -2268,17 +2301,24 @@ void test_persistent_stop_rejects_queued_session_pool_call() {
   });
 
   bool observed_queued_call = false;
+  bool observed_one_busy_slot = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     const auto state =
         require_upstream_state(runtime.upstream_states(), "persistent_queue");
     if (state.active_calls >= 2) {
       observed_queued_call = true;
-      break;
+      if (state.persistent_session_pool_size == 1 &&
+          state.busy_persistent_sessions == 1) {
+        observed_one_busy_slot = true;
+        break;
+      }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
   }
   require(observed_queued_call,
           "persistent queue test should observe call waiting for pool slot");
+  require(observed_one_busy_slot,
+          "persistent queue test should expose bounded busy pool slots");
 
   auto stopped = runtime.stop();
   require(stopped.has_value(),
@@ -2297,8 +2337,77 @@ void test_persistent_stop_rejects_queued_session_pool_call() {
       require_upstream_state(runtime.upstream_states(), "persistent_queue");
   require(state.active_calls == 0,
           "persistent queue stop should clear active call counters");
+  require(state.busy_persistent_sessions == 0,
+          "persistent queue stop should clear busy pool slots");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "persistent queue stop should leave upstream stopped");
+}
+
+void test_persistent_pool_acquire_timeout_rejects_queued_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_pool_wait_timeout";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  options.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_pool_wait_timeout.slow",
+                                     Json{{"sleepMs", 500}});
+      require(first.has_value(),
+              "active persistent pool wait timeout test call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_busy_slot = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(
+        runtime.upstream_states(), "persistent_pool_wait_timeout");
+    if (state.active_calls >= 1 && state.busy_persistent_sessions == 1) {
+      observed_busy_slot = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_busy_slot,
+          "persistent pool wait timeout test should observe busy slot");
+
+  const auto started = std::chrono::steady_clock::now();
+  auto queued = runtime.call_tool("persistent_pool_wait_timeout.echo",
+                                  Json{{"value", "queued"}});
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(!queued.has_value(),
+          "queued persistent pool call should fail on acquire timeout");
+  require_persistent_pool_wait_timeout(queued.error(),
+                                       "persistent_pool_wait_timeout");
+  require(elapsed < std::chrono::milliseconds{450},
+          "persistent pool acquire timeout should bound queued wait");
+
+  first_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_pool_wait_timeout");
+  require(state.active_calls == 0,
+          "persistent pool wait timeout should clear active calls");
+  require(state.initialized_persistent_sessions == 1,
+          "persistent pool wait timeout should keep healthy slot initialized");
+  require(state.busy_persistent_sessions == 0,
+          "persistent pool wait timeout should clear busy slot");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent pool wait timeout should leave upstream healthy");
 }
 
 void test_persistent_runtime_stop_waits_for_active_stdio_call() {
@@ -2579,6 +2688,16 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
   }
   require(one_slot_remained,
           "persistent stdio pool timeout should discard only the failed slot");
+  {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_pool_reconnect");
+    require(state.persistent_session_pool_size == 2,
+            "persistent stdio pool timeout should keep configured pool size");
+    require(state.initialized_persistent_sessions == 1,
+            "persistent stdio pool timeout should expose one healthy slot");
+    require(state.busy_persistent_sessions == 0,
+            "persistent stdio pool timeout should clear busy slots");
+  }
 
   auto recovered = runtime.call_tool("persistent_pool_reconnect.echo",
                                      Json{{"value", "recovered"}});
@@ -2601,6 +2720,10 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
                                            "persistent_pool_reconnect");
   require(state.active_calls == 0,
           "persistent stdio pool reconnect should clear active calls");
+  require(state.initialized_persistent_sessions == 2,
+          "persistent stdio pool reconnect should restore initialized slots");
+  require(state.busy_persistent_sessions == 0,
+          "persistent stdio pool reconnect should clear busy slots");
   require_status(state, UpstreamRuntimeStatus::healthy,
                  "persistent stdio pool reconnect should restore health");
 
@@ -5591,6 +5714,8 @@ int main() {
         test_persistent_stdio_session_pool_allows_same_upstream_concurrency);
     run("persistent stop rejects queued session pool call",
         test_persistent_stop_rejects_queued_session_pool_call);
+    run("persistent pool acquire timeout rejects queued call",
+        test_persistent_pool_acquire_timeout_rejects_queued_call);
     run("persistent runtime stop waits for active stdio call",
         test_persistent_runtime_stop_waits_for_active_stdio_call);
     run("persistent pool stop waits for timed out stdio call",

@@ -115,11 +115,14 @@ cxxmcp-gateway serve --port 39931 --upstream-http local=http://127.0.0.1:3000/mc
 Use `--upstream-stdio <id=command>` for process-stdio upstreams.
 Use `--session-mode persistent` to keep initialized upstream sessions and
 `--session-pool-size <n>` to allow up to `<n>` concurrent initialized sessions
-per upstream. `--prewarm` refreshes upstream capabilities before the hosted
+per upstream. `--session-acquire-timeout-ms <ms>` bounds how long a persistent
+call waits for a busy pool slot; the default `0` keeps the existing unbounded
+wait. `--prewarm` refreshes upstream capabilities before the hosted
 endpoint starts and initializes the configured persistent pool. This is the
 reference runner form of the library
 `GatewayRuntimeOptions::upstream_session_mode`,
 `GatewayRuntimeOptions::persistent_session_pool_size`, and
+`GatewayRuntimeOptions::persistent_session_acquire_timeout`, plus the
 `GatewayRuntime::refresh_upstream_capabilities()` path; it reduces repeated-call
 setup cost but remains a bounded per-upstream pool, not adaptive multiplexing.
 When `cxxmcp_gateway_config_io` is built, the reference runner also accepts

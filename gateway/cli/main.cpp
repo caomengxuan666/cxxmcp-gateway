@@ -1,6 +1,7 @@
 // Copyright (c) 2025 [caomengxuan666]
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <optional>
@@ -26,7 +27,8 @@ void print_usage(std::ostream& out) {
   out << " [--host <host>]\n"
       << "      [--port <port>] [--path <path>]\n"
       << "      [--session-mode <per-call|persistent>]\n"
-      << "      [--session-pool-size <n>] [--prewarm]\n"
+      << "      [--session-pool-size <n>]\n"
+      << "      [--session-acquire-timeout-ms <ms>] [--prewarm]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";
 }
@@ -53,6 +55,19 @@ bool parse_positive_size(std::string_view text, std::size_t& value) {
     return false;
   }
   value = parsed_value;
+  return true;
+}
+
+bool parse_nonnegative_milliseconds(std::string_view text,
+                                    std::chrono::milliseconds& value) {
+  std::int64_t parsed_value = 0;
+  const auto* begin = text.data();
+  const auto* end = text.data() + text.size();
+  const auto parsed = std::from_chars(begin, end, parsed_value);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || parsed_value < 0) {
+    return false;
+  }
+  value = std::chrono::milliseconds{parsed_value};
   return true;
 }
 
@@ -109,6 +124,7 @@ int main(int argc, char** argv) {
   mcp::gateway::GatewayRuntimeConfig runtime_config;
   std::optional<mcp::gateway::UpstreamSessionMode> session_mode_override;
   std::optional<std::size_t> session_pool_size_override;
+  std::optional<std::chrono::milliseconds> session_acquire_timeout_override;
   bool prewarm_flag = false;
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   std::optional<std::string> config_file;
@@ -152,6 +168,15 @@ int main(int argc, char** argv) {
         return 2;
       }
       session_pool_size_override = pool_size;
+      continue;
+    }
+    if (arg == "--session-acquire-timeout-ms" && i + 1 < args.size()) {
+      std::chrono::milliseconds timeout{0};
+      if (!parse_nonnegative_milliseconds(args[++i], timeout)) {
+        std::cerr << "invalid --session-acquire-timeout-ms value\n";
+        return 2;
+      }
+      session_acquire_timeout_override = timeout;
       continue;
     }
     if (arg == "--prewarm") {
@@ -232,6 +257,10 @@ int main(int argc, char** argv) {
     runtime_config.persistent_session_pool_size =
         *session_pool_size_override;
   }
+  if (session_acquire_timeout_override.has_value()) {
+    runtime_config.persistent_session_acquire_timeout =
+        *session_acquire_timeout_override;
+  }
   if (prewarm_flag) {
     runtime_config.prewarm_capabilities = true;
   }
@@ -245,6 +274,8 @@ int main(int argc, char** argv) {
   runtime_options.upstream_session_mode = runtime_config.upstream_session_mode;
   runtime_options.persistent_session_pool_size =
       runtime_config.persistent_session_pool_size;
+  runtime_options.persistent_session_acquire_timeout =
+      runtime_config.persistent_session_acquire_timeout;
   mcp::gateway::GatewayRuntime runtime(std::move(config),
                                        std::move(runtime_options));
   if (runtime_config.prewarm_capabilities) {

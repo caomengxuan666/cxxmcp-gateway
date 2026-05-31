@@ -118,6 +118,7 @@ mcp::gateway::GatewayRuntimeOptions options;
 options.upstream_session_mode =
     mcp::gateway::UpstreamSessionMode::persistent;
 options.persistent_session_pool_size = 2;
+options.persistent_session_acquire_timeout = std::chrono::milliseconds{100};
 
 mcp::gateway::GatewayRuntime runtime(std::move(config), std::move(options));
 ```
@@ -129,6 +130,10 @@ to use separate initialized sessions up to that bound. It reduces repeated-call
 setup cost, but it is still a fixed per-upstream pool and should not be
 presented as adaptive high-QPS multiplexing. End-to-end concurrency can still
 be limited by the upstream transport or server.
+`runtime.upstream_states()` exposes the configured pool size, initialized slot
+count, and busy slot count for host-owned metrics and diagnostics.
+Set `persistent_session_acquire_timeout` when queued same-upstream calls should
+fail after a bounded pool wait instead of waiting indefinitely.
 
 ## Reference CLI
 
@@ -149,6 +154,7 @@ When config IO is built, JSON config files can carry the same runtime choices:
   "runtime": {
     "upstreamSessionMode": "persistent",
     "persistentSessionPoolSize": 2,
+    "persistentSessionAcquireTimeoutMs": 100,
     "prewarmCapabilities": true
   },
   "upstreams": [

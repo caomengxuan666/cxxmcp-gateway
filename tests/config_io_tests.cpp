@@ -105,6 +105,7 @@ void test_parse_json_config_document() {
       {"runtime",
        Json{{"upstreamSessionMode", "persistent"},
             {"persistentSessionPoolSize", 3},
+            {"persistentSessionAcquireTimeoutMs", 250},
             {"prewarmCapabilities", true}}},
       {"upstreams",
        Json::array({Json{{"id", "stdio"},
@@ -121,6 +122,8 @@ void test_parse_json_config_document() {
           "document runtime session mode should parse");
   require(parsed->runtime.persistent_session_pool_size == 3,
           "document persistent session pool size should parse");
+  require(parsed->runtime.persistent_session_acquire_timeout.count() == 250,
+          "document persistent session acquire timeout should parse");
   require(parsed->runtime.prewarm_capabilities,
           "document prewarm flag should parse");
 
@@ -150,6 +153,8 @@ void test_parse_json_config_document() {
           "default runtime session mode should be per-call");
   require(parsed->runtime.persistent_session_pool_size == 1,
           "default persistent session pool size should be one");
+  require(parsed->runtime.persistent_session_acquire_timeout.count() == 0,
+          "default persistent session acquire timeout should be disabled");
   require(!parsed->runtime.prewarm_capabilities,
           "default runtime prewarm should be false");
 }
@@ -390,6 +395,24 @@ void test_reject_structured_field_type_mismatches() {
                               {"command", "fixture"}}})}},
       "$.runtime.persistentSessionPoolSize",
       "non-integer persistent session pool size should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionAcquireTimeoutMs", -1}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionAcquireTimeoutMs",
+      "negative persistent session acquire timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionAcquireTimeoutMs", "100"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionAcquireTimeoutMs",
+      "non-integer persistent session acquire timeout should fail");
 }
 
 void test_reject_endpoint_fields() {

@@ -3,6 +3,7 @@
 #include <cxxmcp/gateway/runtime.hpp>
 #include <cxxmcp/gateway/config.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <utility>
 
@@ -23,6 +24,7 @@ int main() {
   options.upstream_session_mode =
       mcp::gateway::UpstreamSessionMode::persistent;
   options.persistent_session_pool_size = 2;
+  options.persistent_session_acquire_timeout = std::chrono::milliseconds{100};
   options.observer =
       [&](const mcp::gateway::GatewayRuntimeEvent&) { ++observed_events; };
 
@@ -43,6 +45,9 @@ int main() {
 
   const auto states = runtime.upstream_states();
   return states.size() == 1 && !capabilities.tools.enabled &&
+                 states.front().persistent_session_pool_size == 2 &&
+                 states.front().initialized_persistent_sessions == 0 &&
+                 states.front().busy_persistent_sessions == 0 &&
                  observed_events > 0
              ? 0
              : 1;

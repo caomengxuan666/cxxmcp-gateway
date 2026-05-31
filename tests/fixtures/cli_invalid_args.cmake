@@ -42,6 +42,18 @@ expect_cli_failure(missing_session_pool_size
     "unknown or incomplete option: --session-pool-size"
     serve --session-pool-size)
 
+expect_cli_failure(invalid_session_acquire_timeout
+    "invalid --session-acquire-timeout-ms value"
+    serve --session-acquire-timeout-ms -1 --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(nonnumeric_session_acquire_timeout
+    "invalid --session-acquire-timeout-ms value"
+    serve --session-acquire-timeout-ms many --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(missing_session_acquire_timeout
+    "unknown or incomplete option: --session-acquire-timeout-ms"
+    serve --session-acquire-timeout-ms)
+
 expect_cli_failure(malformed_http_upstream
     "--upstream-http expects <id=url>"
     serve --upstream-http missing-assignment)
