@@ -2508,6 +2508,17 @@ void test_persistent_pool_stop_waits_for_timed_out_stdio_call() {
   config.upstreams.front()
       .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_DIR"] =
       marker_dir.string();
+  const auto slow_marker_path =
+      marker_dir /
+      ("slow-" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::filesystem::remove(slow_marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE"] =
+      slow_marker_path.string();
 
   mcp::gateway::GatewayRuntimeOptions options;
   options.upstream_session_mode =
@@ -2535,7 +2546,7 @@ void test_persistent_pool_stop_waits_for_timed_out_stdio_call() {
   std::thread worker([&] {
     try {
       auto result = runtime.call_tool("persistent_pool_stop_timeout.slow",
-                                      Json{{"sleepMs", 900}});
+                                      Json{{"sleepMs", 600}});
       require(!result.has_value(),
               "hostile persistent pool call should time out");
       require_gateway_upstream_timeout(result.error(),
@@ -2557,6 +2568,16 @@ void test_persistent_pool_stop_waits_for_timed_out_stdio_call() {
   }
   require(observed_active,
           "persistent pool stop timeout test should observe active call");
+  bool observed_slow_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (std::filesystem::exists(slow_marker_path)) {
+      observed_slow_marker = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_slow_marker,
+          "persistent pool stop timeout test should observe slow handler");
 
   const auto stop_started = std::chrono::steady_clock::now();
   auto stopped = runtime.stop();
@@ -2571,22 +2592,17 @@ void test_persistent_pool_stop_waits_for_timed_out_stdio_call() {
     std::rethrow_exception(worker_error);
   }
 
-  bool removed_markers = false;
-  for (int attempt = 0; attempt < 200; ++attempt) {
-    if (count_regular_files(marker_dir) == 0) {
-      removed_markers = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  }
-  require(removed_markers,
-          "persistent pool stop timeout should clean up all sessions");
   const auto state = require_upstream_state(runtime.upstream_states(),
                                            "persistent_pool_stop_timeout");
   require(state.active_calls == 0,
           "persistent pool stop timeout should clear active calls");
+  require(state.initialized_persistent_sessions == 0,
+          "persistent pool stop timeout should discard initialized sessions");
+  require(state.busy_persistent_sessions == 0,
+          "persistent pool stop timeout should release busy sessions");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "persistent pool stop timeout should leave upstream stopped");
+  std::filesystem::remove(slow_marker_path, ignored);
   std::filesystem::remove_all(marker_dir, ignored);
 }
 
