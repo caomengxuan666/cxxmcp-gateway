@@ -15,7 +15,7 @@ Gateway code commit measured:
 SDK source revision:
 
 ```text
-caomengxuan666/cxxmcp master
+caomengxuan666/cxxmcp
 8f89739665c9cf435607da932bca5b35a110fc4d
 ```
 
@@ -73,9 +73,8 @@ Notes:
 - The initial Release perf build against the adjacent SDK install failed because
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.
-- This refreshed baseline supersedes the earlier local measurements at gateway
-  commits `c785ff784014a9f8dc9cdaace710b093d4cfdcae` and the previous
-  uncommitted refresh after concurrent catalog fan-out, aggregate catalog
-  caching, process-stdio upstream timeouts, opt-in persistent upstream
-  sessions, expanded performance measurement, lifecycle hardening, persistent
-  lifecycle coverage, and example-gate work landed in the PR branch.
+- This refreshed baseline supersedes earlier local measurements after
+  concurrent catalog fan-out, aggregate catalog caching, process-stdio upstream
+  timeouts, opt-in persistent upstream sessions, expanded performance
+  measurement, lifecycle hardening, persistent lifecycle coverage, and
+  example-gate work landed in the PR branch.
