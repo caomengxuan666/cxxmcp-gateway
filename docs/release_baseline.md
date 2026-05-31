@@ -9,7 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-30254ae7f5a368b5c38d2cb932542c194da73fb8
+045d5bdf1b359d38f2d6aef4391b72f03681982f
 ```
 
 SDK source revision:
@@ -53,15 +53,15 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list:cold,50,39427,53219
-stdio,tools/list:cached,50,8,9
-stdio,tools/call:per_call,50,38661,49494
-stdio,tools/call:persistent,50,135,270
-http,tools/list:cold,50,46750,63753
-http,tools/list:cached,50,4,4
-http,tools/call:per_call,50,47015,63736
-http,tools/call:persistent,50,14407,16784
-http,tools/call:persistent_pool2_pair,50,219157,234966
+stdio,tools/list:cold,50,37588,52132
+stdio,tools/list:cached,50,9,10
+stdio,tools/call:per_call,50,36826,41357
+stdio,tools/call:persistent,50,139,188
+http,tools/list:cold,50,45476,62521
+http,tools/list:cached,50,10,11
+http,tools/call:per_call,50,45732,63373
+http,tools/call:persistent,50,15393,16245
+http,tools/call:persistent_pool2_pair,50,219260,235660
 ```
 
 Notes:
