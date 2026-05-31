@@ -3174,9 +3174,41 @@ void test_raw_request_routing_surface() {
   require(parsed_completion->completion.values.front() == "raw-summary",
           "completion/complete raw response should route prompt ref");
 
+  mcp::protocol::CompleteParams raw_resource_completion;
+  raw_resource_completion.ref =
+      mcp::protocol::resource_completion_reference(
+          mcp::gateway::GatewayRouter::expose_resource_template_uri(
+              "stdio", "file:///fixture/{path}"));
+  raw_resource_completion.argument.name = "path";
+  raw_resource_completion.argument.value = "raw/";
+  mcp::protocol::JsonRpcRequest resource_completion_request;
+  resource_completion_request.method =
+      mcp::protocol::CompletionCompleteMethod;
+  resource_completion_request.id = std::int64_t{16};
+  resource_completion_request.params =
+      mcp::protocol::complete_params_to_json(raw_resource_completion);
+  auto resource_completion_response =
+      runtime.handle_request(resource_completion_request);
+  require(resource_completion_response.has_value(),
+          "resource completion/complete raw request should respond");
+  require(resource_completion_response->result.has_value(),
+          "resource completion/complete raw request should succeed");
+  const auto parsed_resource_completion =
+      mcp::protocol::complete_result_from_json(
+          *resource_completion_response->result);
+  require(parsed_resource_completion.has_value(),
+          "resource completion/complete raw response should parse");
+  require(parsed_resource_completion->completion.values.size() == 2,
+          "resource completion/complete raw response should include "
+          "candidates");
+  require(parsed_resource_completion->completion.values.front() ==
+              "raw/readme.txt",
+          "resource completion/complete raw response should route resource "
+          "template ref");
+
   mcp::protocol::JsonRpcRequest invalid_completion_params;
   invalid_completion_params.method = mcp::protocol::CompletionCompleteMethod;
-  invalid_completion_params.id = std::int64_t{16};
+  invalid_completion_params.id = std::int64_t{17};
   invalid_completion_params.params =
       Json{{"ref", Json{{"type", "ref/prompt"}, {"name", Json::array()}}},
            {"argument", Json{{"name", "text"}, {"value", "raw"}}}};
@@ -3192,7 +3224,7 @@ void test_raw_request_routing_surface() {
 
   mcp::protocol::JsonRpcRequest invalid_prompt_params;
   invalid_prompt_params.method = mcp::protocol::PromptsGetMethod;
-  invalid_prompt_params.id = std::int64_t{17};
+  invalid_prompt_params.id = std::int64_t{18};
   invalid_prompt_params.params = Json{{"name", Json::array()}};
   auto invalid_prompt_response =
       runtime.handle_request(invalid_prompt_params);
@@ -3206,7 +3238,7 @@ void test_raw_request_routing_surface() {
 
   mcp::protocol::JsonRpcRequest invalid_prompt_name;
   invalid_prompt_name.method = mcp::protocol::PromptsGetMethod;
-  invalid_prompt_name.id = std::int64_t{18};
+  invalid_prompt_name.id = std::int64_t{19};
   invalid_prompt_name.params =
       Json{{"name", "bad"}, {"arguments", Json::object()}};
   auto invalid_prompt_name_response =
