@@ -589,10 +589,11 @@ The current MVP baseline has verified coverage for:
    hosted multi-client routing for process-stdio and Streamable HTTP
    upstreams, wait-before-start rejection, overlapping wait/stop handling,
    observer lifecycle reentry,
-   cancellation/progress notification no-ops for active process-stdio and
-   Streamable HTTP upstream calls, stdio child cleanup after successful
-   per-call sessions and on stop, persistent stdio session reuse, default
-   same-upstream serialization, configured same-upstream pool concurrency,
+   cancellation/progress notification no-ops for active and stopping
+   process-stdio and Streamable HTTP upstream calls, stdio child cleanup after
+   successful per-call sessions and on stop, persistent stdio session reuse,
+   default same-upstream serialization, configured same-upstream pool
+   concurrency,
    active-call stop, hostile-call timeout during pool shutdown, failure
    invalidation, pool failure isolation, reconnect, and cleanup on stop, plus
    persistent HTTP default same-upstream serialization, pool queue draining,

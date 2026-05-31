@@ -583,6 +583,37 @@ void require_raw_runtime_stopped_error(
           "raw runtime stopped response data should match operation");
 }
 
+void require_stopping_notifications_are_noops(
+    mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id) {
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "downstream cancelled while stopping"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "during-stop"}, {"progress", 0.5}}},
+      {std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::PromptsListChangedNotificationMethod),
+       Json::object()},
+  };
+
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "stopping runtime notifications should remain local no-ops");
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), upstream_id);
+  require(state.active_calls >= 1,
+          "stopping notification no-ops should not clear active calls");
+  require_status(state, UpstreamRuntimeStatus::stopping,
+                 "stopping notification no-ops should not change status");
+}
+
 void require_gateway_unsupported_capability_error(
     const mcp::core::Error& error, std::string_view upstream_id) {
   require(error.code ==
@@ -4169,6 +4200,8 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   require(observed_stopping,
           "runtime stop should expose stopping state while stdio call drains");
 
+  require_stopping_notifications_are_noops(runtime, "stdio_stop");
+
   auto stopping_list = runtime.list_tools();
   require(!stopping_list.has_value(),
           "runtime should reject tools/list while stopping");
@@ -4580,6 +4613,8 @@ void test_runtime_stop_timeout_bounds_active_http_call_wait() {
           "active http drain timeout should leave active call observable");
   require_status(stopping, UpstreamRuntimeStatus::stopping,
                  "active http drain timeout should leave runtime stopping");
+
+  require_stopping_notifications_are_noops(runtime, "shutdown_timeout");
 
   worker.join();
   if (worker_error) {
