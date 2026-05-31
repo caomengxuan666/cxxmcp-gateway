@@ -236,12 +236,17 @@ struct GatewayRuntime::Impl final {
     state.last_error.reset();
   }
 
-  core::Error mark_upstream_degraded(std::string_view upstream_id,
-                                     core::Error error) {
+  core::Error mark_upstream_degraded(
+      std::string_view upstream_id, core::Error error,
+      std::optional<protocol::ServerCapabilities> capabilities =
+          std::nullopt) {
     std::lock_guard lock(upstream_state_mutex);
     auto& state = upstream_states[std::string(upstream_id)];
     state.upstream_id = std::string(upstream_id);
     state.status = UpstreamRuntimeStatus::degraded;
+    if (capabilities.has_value()) {
+      state.capabilities = std::move(capabilities);
+    }
     state.last_error = error;
     return error;
   }
@@ -325,8 +330,9 @@ struct GatewayRuntime::Impl final {
     (void)running->stop();
     if (!result) {
       return mcp::core::unexpected(mark_upstream_degraded(
-          upstream.id,
-          annotate_gateway_upstream_error(result.error(), upstream.id)));
+          upstream.id, annotate_gateway_upstream_error(result.error(),
+                                                       upstream.id),
+          std::move(capabilities)));
     }
     mark_upstream_healthy(upstream.id, std::move(capabilities));
     return result;

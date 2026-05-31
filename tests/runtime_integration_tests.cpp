@@ -787,6 +787,40 @@ void test_stdio_malformed_response_before_initialize() {
   require_gateway_upstream_protocol(*state.last_error, "malformed");
 }
 
+void test_first_call_upstream_mcp_error_records_capabilities() {
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+
+  auto failed = runtime.call_tool("stdio.fail", Json::object());
+  require(!failed.has_value(), "first upstream MCP error should fail");
+  require(failed.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "first upstream MCP error code should be preserved");
+
+  const auto state = require_upstream_state(runtime.upstream_states(), "stdio");
+  require_status(state, UpstreamRuntimeStatus::degraded,
+                 "first upstream MCP error should mark upstream degraded");
+  require(state.last_error.has_value(),
+          "first upstream MCP error should record last error");
+  require(state.capabilities.has_value(),
+          "initialized upstream capabilities should be retained when the "
+          "routed call fails");
+  require(state.capabilities->tools.enabled,
+          "retained capabilities should include upstream tools support");
+  require(state.capabilities->completions.enabled,
+          "retained capabilities should include upstream completion support");
+
+  const auto capabilities = runtime.server_capabilities();
+  require(capabilities.tools.enabled,
+          "retained capabilities should keep tools advertised");
+  require(capabilities.resources.enabled,
+          "retained capabilities should keep resources advertised");
+  require(capabilities.prompts.enabled,
+          "retained capabilities should keep prompts advertised");
+  require(capabilities.completions.enabled,
+          "retained capabilities should enable completion advertisement");
+  require_mvp_server_capability_json_shape(capabilities, true);
+}
+
 void test_stdio_upstream() {
   mcp::gateway::GatewayRuntime runtime(make_stdio_config());
   auto capabilities = runtime.server_capabilities();
@@ -3265,6 +3299,7 @@ int main() {
     test_prompts_list_fail_fast_after_partial_success();
     test_stdio_process_exit_before_initialize();
     test_stdio_malformed_response_before_initialize();
+    test_first_call_upstream_mcp_error_records_capabilities();
     test_stdio_upstream();
     test_upstream_client_capabilities_are_minimal();
     test_capability_advertisement_uses_initialized_upstream_cache();
