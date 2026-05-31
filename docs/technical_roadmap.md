@@ -574,7 +574,7 @@ The current MVP baseline has verified coverage for:
    upstream MCP failures, including direct coverage for gateway-owned error
    construction and upstream error annotation.
 8. Runtime lifecycle decision: default explicit per-call upstream sessions,
-   plus opt-in persistent one-session-per-upstream mode, with initialized
+   plus opt-in persistent bounded per-upstream session pools, with initialized
    upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
    to one upstream, concurrent calls to multiple upstreams, concurrent
@@ -589,9 +589,10 @@ The current MVP baseline has verified coverage for:
    overlapping wait/stop handling, observer lifecycle reentry,
    cancellation/progress notification no-ops, stdio child cleanup after
    successful per-call sessions and on stop, persistent stdio session reuse,
-   same-upstream serialization, active-call stop, failure invalidation,
-   reconnect, and cleanup on stop, plus persistent HTTP same-upstream
-   serialization and timeout recovery.
+   default same-upstream serialization, configured same-upstream pool
+   concurrency, active-call stop, failure invalidation, reconnect, and cleanup
+   on stop, plus persistent HTTP default same-upstream serialization and
+   timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
@@ -654,7 +655,7 @@ The current MVP baseline has verified coverage for:
 ## Remaining Near-Term Backlog
 
 1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks,
-   especially if future pooled upstream sessions are introduced.
+   especially around persistent pool shutdown, timeout, and reconnect behavior.
 2. Refresh the performance baseline whenever the release-candidate SDK revision
    or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,

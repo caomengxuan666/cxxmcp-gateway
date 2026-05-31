@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "runtime": {
     "upstreamSessionMode": "persistent",
+    "persistentSessionPoolSize": 2,
     "prewarmCapabilities": true
   },
   "upstreams": [

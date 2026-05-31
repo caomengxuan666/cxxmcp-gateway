@@ -36,16 +36,19 @@ session lifecycle.
 
 - `UpstreamSessionMode::per_call` is the default. Each routed upstream
   operation creates, initializes, uses, and stops an SDK client service.
-- `UpstreamSessionMode::persistent` lazily keeps one initialized session per
-  upstream. Same-upstream operations are serialized through that session.
+- `UpstreamSessionMode::persistent` lazily keeps a bounded initialized session
+  pool per upstream. The default pool size is one, which serializes
+  same-upstream operations through that session. Larger pool sizes allow
+  same-upstream operations to use separate initialized sessions up to the
+  configured bound.
 - Persistent sessions are discarded after non-gateway-owned upstream failures
   and can reconnect on the next operation.
 - `GatewayRuntime::stop()` closes retained persistent sessions.
 - `clear_cached_catalogs()` does not close persistent sessions.
 
-Persistent mode reduces repeated-call setup cost. It is not a connection pool,
-does not multiplex multiple sessions per upstream, and should not be described
-as a hard real-time or ultra-low-latency mode.
+Persistent mode reduces repeated-call setup cost. It is a fixed per-upstream
+pool, not adaptive multiplexing, and should not be described as a hard
+real-time or ultra-low-latency mode.
 
 ## Catalogs and Capabilities
 
@@ -68,12 +71,12 @@ completion routes.
 - Hosted HTTP endpoints capture a capability snapshot at `start_http()`.
   Call `refresh_upstream_capabilities()` first when startup advertisement needs
   initialized upstream evidence.
-- The reference CLI maps `--session-mode persistent` to
-  `GatewayRuntimeOptions::upstream_session_mode` and maps `--prewarm` or JSON
-  `runtime.prewarmCapabilities` to a startup
+- The reference CLI maps `--session-mode persistent` and
+  `--session-pool-size <n>` to `GatewayRuntimeOptions`. It maps `--prewarm` or
+  JSON `runtime.prewarmCapabilities` to a startup
   `refresh_upstream_capabilities()` call before binding the hosted endpoint.
   In per-call mode this refresh opens and closes upstream sessions; in
-  persistent mode it leaves initialized upstream sessions retained.
+  persistent mode it initializes and retains the configured persistent pool.
 
 The MVP does not advertise listChanged, resource subscriptions, tasks,
 progress, cancellation forwarding, or logging control.
@@ -94,11 +97,16 @@ progress, cancellation forwarding, or logging control.
 `GatewayRuntime` supports concurrent data-plane calls.
 
 - Different upstreams can run concurrently.
-- Persistent same-upstream calls are serialized by the per-upstream session
-  mutex.
+- Persistent same-upstream calls are serialized when the pool size is one and
+  can run concurrently up to `persistent_session_pool_size` when a larger pool
+  is configured.
+- `active_calls` counts gateway-accepted upstream operations, including an
+  operation waiting for a persistent pool slot.
 - `stop()` is graceful. It marks the runtime stopping, rejects new data-plane
   work, waits for active upstream calls to drain, stops the hosted endpoint, and
   then marks upstreams stopped.
+- Calls waiting for a persistent pool slot are woken during `stop()` and return
+  a runtime stopping error instead of starting a new upstream operation.
 - Active calls are not cancelled by `stop()`. Transport timeouts are the
   current bound for slow upstream operations.
 - `wait()` may overlap with `stop()`. It holds the hosted service alive while

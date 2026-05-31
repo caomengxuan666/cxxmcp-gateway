@@ -15,6 +15,7 @@ int main() {
   const mcp::protocol::Json document_json = {
       {"runtime",
        mcp::protocol::Json{{"upstreamSessionMode", "persistent"},
+                           {"persistentSessionPoolSize", 2},
                            {"prewarmCapabilities", true}}},
       {"upstreams",
        mcp::protocol::Json::array(
@@ -28,6 +29,7 @@ int main() {
   }
   if (document->runtime.upstream_session_mode !=
           mcp::gateway::UpstreamSessionMode::persistent ||
+      document->runtime.persistent_session_pool_size != 2 ||
       !document->runtime.prewarm_capabilities) {
     return 1;
   }

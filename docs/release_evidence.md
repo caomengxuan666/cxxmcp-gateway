@@ -50,6 +50,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Catalog caching and invalidation | `test_tools_list_uses_cached_catalog_until_cleared`, `test_clear_cached_catalogs_keeps_persistent_session` |
 | Per-call default session behavior | repeated stdio call tests and stdio child-process cleanup assertions |
 | Opt-in persistent sessions | persistent stdio and HTTP lifecycle tests |
+| Persistent session pool concurrency | `test_persistent_stdio_session_pool_allows_same_upstream_concurrency` |
 | Graceful stop and concurrent wait/stop | runtime stop, active-call stop, and wait/stop overlap tests |
 | Unsupported methods and notifications | raw request routing and notification no-op tests |
 | Error mapping | router tests, runtime integration error assertions, and config IO tests |

@@ -167,13 +167,23 @@ struct GatewayRuntime::Impl final {
 
   struct PersistentUpstreamSession {
     std::mutex mutex;
-    std::optional<RunningService<RoleClient>> service;
-    std::optional<protocol::ServerCapabilities> capabilities;
+    std::condition_variable available;
+    struct Slot {
+      bool in_use = false;
+      std::optional<RunningService<RoleClient>> service;
+      std::optional<protocol::ServerCapabilities> capabilities;
+    };
+    std::vector<Slot> slots;
+
+    explicit PersistentUpstreamSession(std::size_t pool_size)
+        : slots(pool_size) {}
   };
 
   explicit Impl(GatewayConfig config, GatewayRuntimeOptions options)
       : router(std::move(config)),
         upstream_session_mode(options.upstream_session_mode),
+        persistent_session_pool_size(
+            std::max<std::size_t>(options.persistent_session_pool_size, 1)),
         observer(std::move(options.observer)) {
     for (const auto& upstream : router.config().upstreams) {
       upstream_states.emplace(upstream.id,
@@ -182,7 +192,8 @@ struct GatewayRuntime::Impl final {
                                   .status = UpstreamRuntimeStatus::configured,
                               });
       persistent_sessions.emplace(upstream.id,
-                                  std::make_unique<PersistentUpstreamSession>());
+                                  std::make_unique<PersistentUpstreamSession>(
+                                      persistent_session_pool_size));
     }
   }
 
@@ -195,6 +206,7 @@ struct GatewayRuntime::Impl final {
   mutable std::mutex catalog_cache_mutex;
   CatalogCache catalog_cache;
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
+  std::size_t persistent_session_pool_size = 1;
   std::unordered_map<std::string, std::unique_ptr<PersistentUpstreamSession>>
       persistent_sessions;
   GatewayRuntimeObserver observer;
@@ -495,14 +507,90 @@ struct GatewayRuntime::Impl final {
     return *persistent_sessions.at(std::string(upstream_id));
   }
 
+  bool runtime_is_stopping_or_stopped() const {
+    std::lock_guard lock(upstream_state_mutex);
+    return stopping || stopped;
+  }
+
+  void notify_persistent_session_waiters() noexcept {
+    for (auto& [_, session] : persistent_sessions) {
+      session->available.notify_all();
+    }
+  }
+
+  core::Result<PersistentUpstreamSession::Slot*>
+  acquire_persistent_session_slot(PersistentUpstreamSession& session,
+                                  std::string_view upstream_id) {
+    std::unique_lock lock(session.mutex);
+    session.available.wait(lock, [this, &session] {
+      return runtime_is_stopping_or_stopped() ||
+             std::any_of(session.slots.begin(), session.slots.end(),
+                         [](const auto& slot) { return !slot.in_use; });
+    });
+    if (runtime_is_stopping_or_stopped()) {
+      return mcp::core::unexpected(runtime_error(
+          "gateway runtime is stopping", std::string(upstream_id)));
+    }
+    auto slot = std::find_if(session.slots.begin(), session.slots.end(),
+                             [](const auto& candidate) {
+                               return !candidate.in_use;
+                             });
+    slot->in_use = true;
+    return &*slot;
+  }
+
+  core::Result<std::vector<PersistentUpstreamSession::Slot*>>
+  acquire_all_persistent_session_slots(PersistentUpstreamSession& session,
+                                       std::string_view upstream_id) {
+    std::unique_lock lock(session.mutex);
+    session.available.wait(lock, [this, &session] {
+      return runtime_is_stopping_or_stopped() ||
+             std::all_of(session.slots.begin(), session.slots.end(),
+                         [](const auto& slot) { return !slot.in_use; });
+    });
+    if (runtime_is_stopping_or_stopped()) {
+      return mcp::core::unexpected(runtime_error(
+          "gateway runtime is stopping", std::string(upstream_id)));
+    }
+    std::vector<PersistentUpstreamSession::Slot*> slots;
+    slots.reserve(session.slots.size());
+    for (auto& slot : session.slots) {
+      slot.in_use = true;
+      slots.push_back(&slot);
+    }
+    return slots;
+  }
+
+  void release_persistent_session_slot(
+      PersistentUpstreamSession& session,
+      PersistentUpstreamSession::Slot& slot) noexcept {
+    {
+      std::lock_guard lock(session.mutex);
+      slot.in_use = false;
+    }
+    session.available.notify_one();
+  }
+
+  void release_persistent_session_slots(
+      PersistentUpstreamSession& session,
+      const std::vector<PersistentUpstreamSession::Slot*>& slots) noexcept {
+    {
+      std::lock_guard lock(session.mutex);
+      for (auto* slot : slots) {
+        slot->in_use = false;
+      }
+    }
+    session.available.notify_all();
+  }
+
   core::Result<core::Unit> ensure_persistent_session_initialized(
-      const UpstreamServer& upstream, PersistentUpstreamSession& session) {
-    if (session.service.has_value() && session.service->running()) {
+      const UpstreamServer& upstream, PersistentUpstreamSession::Slot& slot) {
+    if (slot.service.has_value() && slot.service->running()) {
       return core::Unit{};
     }
 
-    session.service.reset();
-    session.capabilities.reset();
+    slot.service.reset();
+    slot.capabilities.reset();
     set_upstream_status(upstream.id, UpstreamRuntimeStatus::connecting);
 
     auto peer = build_client_peer(upstream);
@@ -538,24 +626,26 @@ struct GatewayRuntime::Impl final {
           annotate_gateway_upstream_error(notified.error(), upstream.id)));
     }
 
-    session.capabilities = capabilities;
-    session.service.emplace(std::move(*running));
+    slot.capabilities = capabilities;
+    slot.service.emplace(std::move(*running));
     mark_upstream_healthy(upstream.id, capabilities);
     return core::Unit{};
   }
 
-  void discard_persistent_session(PersistentUpstreamSession& session) {
-    if (session.service.has_value()) {
-      (void)session.service->stop();
-      session.service.reset();
+  void discard_persistent_session_slot(PersistentUpstreamSession::Slot& slot) {
+    if (slot.service.has_value()) {
+      (void)slot.service->stop();
+      slot.service.reset();
     }
-    session.capabilities.reset();
+    slot.capabilities.reset();
   }
 
   void stop_persistent_sessions() noexcept {
     for (auto& [_, session] : persistent_sessions) {
       std::lock_guard lock(session->mutex);
-      discard_persistent_session(*session);
+      for (auto& slot : session->slots) {
+        discard_persistent_session_slot(slot);
+      }
     }
   }
 
@@ -660,15 +750,28 @@ struct GatewayRuntime::Impl final {
     ActiveCallGuard active_call(*this, upstream.id);
 
     auto& session = persistent_session_for(upstream.id);
-    std::lock_guard session_lock(session.mutex);
-    auto initialized = ensure_persistent_session_initialized(upstream, session);
+    auto acquired_slot = acquire_persistent_session_slot(session, upstream.id);
+    if (!acquired_slot) {
+      return mcp::core::unexpected(acquired_slot.error());
+    }
+    auto& slot = **acquired_slot;
+    struct SlotGuard {
+      Impl& impl;
+      PersistentUpstreamSession& session;
+      PersistentUpstreamSession::Slot& slot;
+      ~SlotGuard() {
+        impl.release_persistent_session_slot(session, slot);
+      }
+    } slot_guard{*this, session, slot};
+
+    auto initialized = ensure_persistent_session_initialized(upstream, slot);
     if (!initialized) {
-      discard_persistent_session(session);
+      discard_persistent_session_slot(slot);
       return mcp::core::unexpected(initialized.error());
     }
 
-    auto& running = *session.service;
-    auto capabilities = session.capabilities;
+    auto& running = *slot.service;
+    auto capabilities = slot.capabilities;
     auto result = [&]() -> core::Result<Result> {
       if constexpr (std::is_invocable_v<
                         Fn, ClientPeer&,
@@ -688,11 +791,56 @@ struct GatewayRuntime::Impl final {
           upstream.id,
           annotate_gateway_upstream_error(result.error(), upstream.id),
           capabilities);
-      discard_persistent_session(session);
+      discard_persistent_session_slot(slot);
       return mcp::core::unexpected(std::move(error));
     }
     mark_upstream_healthy(upstream.id, capabilities);
     return result;
+  }
+
+  core::Result<core::Unit> prewarm_persistent_upstream_pool(
+      const UpstreamServer& upstream) {
+    struct ActiveCallGuard {
+      Impl& impl;
+      std::string upstream_id;
+
+      ActiveCallGuard(Impl& owner, std::string_view id)
+          : impl(owner), upstream_id(id) {
+      }
+
+      ~ActiveCallGuard() { impl.finish_upstream_call(upstream_id); }
+    };
+
+    auto started = begin_upstream_call(upstream.id);
+    if (!started) {
+      return mcp::core::unexpected(started.error());
+    }
+    ActiveCallGuard active_call(*this, upstream.id);
+
+    auto& session = persistent_session_for(upstream.id);
+    auto acquired_slots =
+        acquire_all_persistent_session_slots(session, upstream.id);
+    if (!acquired_slots) {
+      return mcp::core::unexpected(acquired_slots.error());
+    }
+    auto slots = std::move(*acquired_slots);
+    struct SlotsGuard {
+      Impl& impl;
+      PersistentUpstreamSession& session;
+      const std::vector<PersistentUpstreamSession::Slot*>& slots;
+      ~SlotsGuard() {
+        impl.release_persistent_session_slots(session, slots);
+      }
+    } slots_guard{*this, session, slots};
+
+    for (auto* slot : slots) {
+      auto initialized = ensure_persistent_session_initialized(upstream, *slot);
+      if (!initialized) {
+        discard_persistent_session_slot(*slot);
+        return mcp::core::unexpected(initialized.error());
+      }
+    }
+    return core::Unit{};
   }
 
   template <class Result, class Fn>
@@ -1055,10 +1203,13 @@ struct GatewayRuntime::Impl final {
         continue;
       }
 
-      auto refreshed = with_initialized_upstream<core::Unit>(
-          upstream, [](ClientPeer&) {
-            return core::Result<core::Unit>{core::Unit{}};
-          });
+      auto refreshed =
+          upstream_session_mode == UpstreamSessionMode::persistent
+              ? prewarm_persistent_upstream_pool(upstream)
+              : with_initialized_upstream<core::Unit>(
+                    upstream, [](ClientPeer&) {
+                      return core::Result<core::Unit>{core::Unit{}};
+                    });
       if (!refreshed) {
         return mcp::core::unexpected(refreshed.error());
       }
@@ -1442,6 +1593,7 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
   impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopping,
                                   UpstreamRuntimeStatus::stopping);
   impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopping);
+  impl_->notify_persistent_session_waiters();
 
   core::Result<core::Unit> service_stopped = core::Unit{};
   if (service) {

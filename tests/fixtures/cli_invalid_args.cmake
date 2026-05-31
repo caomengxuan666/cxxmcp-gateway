@@ -30,6 +30,18 @@ expect_cli_failure(missing_session_mode
     "unknown or incomplete option: --session-mode"
     serve --session-mode)
 
+expect_cli_failure(invalid_session_pool_size
+    "invalid --session-pool-size value"
+    serve --session-pool-size 0 --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(nonnumeric_session_pool_size
+    "invalid --session-pool-size value"
+    serve --session-pool-size many --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(missing_session_pool_size
+    "unknown or incomplete option: --session-pool-size"
+    serve --session-pool-size)
+
 expect_cli_failure(malformed_http_upstream
     "--upstream-http expects <id=url>"
     serve --upstream-http missing-assignment)

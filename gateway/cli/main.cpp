@@ -25,7 +25,8 @@ void print_usage(std::ostream& out) {
 #endif
   out << " [--host <host>]\n"
       << "      [--port <port>] [--path <path>]\n"
-      << "      [--session-mode <per-call|persistent>] [--prewarm]\n"
+      << "      [--session-mode <per-call|persistent>]\n"
+      << "      [--session-pool-size <n>] [--prewarm]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";
 }
@@ -40,6 +41,18 @@ bool parse_port(std::string_view text, std::uint16_t& port) {
     return false;
   }
   port = static_cast<std::uint16_t>(value);
+  return true;
+}
+
+bool parse_positive_size(std::string_view text, std::size_t& value) {
+  std::size_t parsed_value = 0;
+  const auto* begin = text.data();
+  const auto* end = text.data() + text.size();
+  const auto parsed = std::from_chars(begin, end, parsed_value);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || parsed_value == 0) {
+    return false;
+  }
+  value = parsed_value;
   return true;
 }
 
@@ -95,6 +108,7 @@ int main(int argc, char** argv) {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::GatewayRuntimeConfig runtime_config;
   std::optional<mcp::gateway::UpstreamSessionMode> session_mode_override;
+  std::optional<std::size_t> session_pool_size_override;
   bool prewarm_flag = false;
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   std::optional<std::string> config_file;
@@ -129,6 +143,15 @@ int main(int argc, char** argv) {
         return 2;
       }
       session_mode_override = mode;
+      continue;
+    }
+    if (arg == "--session-pool-size" && i + 1 < args.size()) {
+      std::size_t pool_size = 1;
+      if (!parse_positive_size(args[++i], pool_size)) {
+        std::cerr << "invalid --session-pool-size value\n";
+        return 2;
+      }
+      session_pool_size_override = pool_size;
       continue;
     }
     if (arg == "--prewarm") {
@@ -205,6 +228,10 @@ int main(int argc, char** argv) {
   if (session_mode_override.has_value()) {
     runtime_config.upstream_session_mode = *session_mode_override;
   }
+  if (session_pool_size_override.has_value()) {
+    runtime_config.persistent_session_pool_size =
+        *session_pool_size_override;
+  }
   if (prewarm_flag) {
     runtime_config.prewarm_capabilities = true;
   }
@@ -216,6 +243,8 @@ int main(int argc, char** argv) {
 
   mcp::gateway::GatewayRuntimeOptions runtime_options;
   runtime_options.upstream_session_mode = runtime_config.upstream_session_mode;
+  runtime_options.persistent_session_pool_size =
+      runtime_config.persistent_session_pool_size;
   mcp::gateway::GatewayRuntime runtime(std::move(config),
                                        std::move(runtime_options));
   if (runtime_config.prewarm_capabilities) {

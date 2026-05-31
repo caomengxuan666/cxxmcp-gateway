@@ -104,6 +104,7 @@ void test_parse_json_config_document() {
   const Json json = {
       {"runtime",
        Json{{"upstreamSessionMode", "persistent"},
+            {"persistentSessionPoolSize", 3},
             {"prewarmCapabilities", true}}},
       {"upstreams",
        Json::array({Json{{"id", "stdio"},
@@ -118,6 +119,8 @@ void test_parse_json_config_document() {
   require(parsed->runtime.upstream_session_mode ==
               mcp::gateway::UpstreamSessionMode::persistent,
           "document runtime session mode should parse");
+  require(parsed->runtime.persistent_session_pool_size == 3,
+          "document persistent session pool size should parse");
   require(parsed->runtime.prewarm_capabilities,
           "document prewarm flag should parse");
 
@@ -145,6 +148,8 @@ void test_parse_json_config_document() {
   require(parsed->runtime.upstream_session_mode ==
               mcp::gateway::UpstreamSessionMode::per_call,
           "default runtime session mode should be per-call");
+  require(parsed->runtime.persistent_session_pool_size == 1,
+          "default persistent session pool size should be one");
   require(!parsed->runtime.prewarm_capabilities,
           "default runtime prewarm should be false");
 }
@@ -358,6 +363,33 @@ void test_reject_structured_field_type_mismatches() {
                               {"command", "fixture"}}})}},
       "$.runtime.prewarmCapabilities",
       "non-boolean runtime prewarm should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionPoolSize", 0}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionPoolSize",
+      "zero persistent session pool size should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionPoolSize", -1}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionPoolSize",
+      "negative persistent session pool size should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionPoolSize", "2"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionPoolSize",
+      "non-integer persistent session pool size should fail");
 }
 
 void test_reject_endpoint_fields() {
@@ -415,6 +447,8 @@ void test_load_config_file() {
   require(document->runtime.upstream_session_mode ==
               mcp::gateway::UpstreamSessionMode::persistent,
           "config fixture runtime session mode should load");
+  require(document->runtime.persistent_session_pool_size == 2,
+          "config fixture persistent session pool size should load");
   require(document->runtime.prewarm_capabilities,
           "config fixture runtime prewarm should load");
 

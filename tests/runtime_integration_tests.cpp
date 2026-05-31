@@ -2126,6 +2126,166 @@ void test_persistent_stdio_calls_to_one_upstream_are_serialized() {
                  "persistent serialized calls should leave upstream healthy");
 }
 
+void test_persistent_stdio_session_pool_allows_same_upstream_concurrency() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_pool";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent session pool prewarm should initialize sessions");
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first =
+          runtime.call_tool("persistent_pool.slow", Json{{"sleepMs", 450}});
+      require(first.has_value(),
+              "first pooled persistent slow call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second =
+          runtime.call_tool("persistent_pool.slow", Json{{"sleepMs", 450}});
+      require(second.has_value(),
+              "second pooled persistent slow call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_two_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_pool");
+    if (state.active_calls >= 2) {
+      observed_two_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_two_active,
+          "pooled persistent same-upstream calls should report both active "
+          "calls");
+  require(elapsed < std::chrono::milliseconds{800},
+          "pooled persistent same-upstream calls should use separate sessions");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_pool");
+  require(state.active_calls == 0,
+          "pooled persistent calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "pooled persistent calls should leave upstream healthy");
+}
+
+void test_persistent_stop_rejects_queued_session_pool_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_queue";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::thread first_worker([&] {
+    try {
+      auto first =
+          runtime.call_tool("persistent_queue.slow", Json{{"sleepMs", 600}});
+      require(first.has_value(),
+              "active persistent queue test call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_first_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_queue");
+    if (state.active_calls >= 1) {
+      observed_first_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_first_active,
+          "persistent queue test should observe first active call");
+
+  std::thread second_worker([&] {
+    try {
+      auto second =
+          runtime.call_tool("persistent_queue.echo", Json{{"value", "queued"}});
+      require(!second.has_value(),
+              "queued persistent call should be rejected during stop");
+      require_runtime_stopping_error(second.error(), "persistent_queue");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_queued_call = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_queue");
+    if (state.active_calls >= 2) {
+      observed_queued_call = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_queued_call,
+          "persistent queue test should observe call waiting for pool slot");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "persistent queue test runtime should stop after active call drains");
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_queue");
+  require(state.active_calls == 0,
+          "persistent queue stop should clear active call counters");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "persistent queue stop should leave upstream stopped");
+}
+
 void test_persistent_runtime_stop_waits_for_active_stdio_call() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "persistent_stop";
@@ -5001,6 +5161,10 @@ int main() {
         test_persistent_capability_refresh_prewarms_stdio_session);
     run("persistent stdio calls to one upstream are serialized",
         test_persistent_stdio_calls_to_one_upstream_are_serialized);
+    run("persistent stdio session pool allows same upstream concurrency",
+        test_persistent_stdio_session_pool_allows_same_upstream_concurrency);
+    run("persistent stop rejects queued session pool call",
+        test_persistent_stop_rejects_queued_session_pool_call);
     run("persistent runtime stop waits for active stdio call",
         test_persistent_runtime_stop_waits_for_active_stdio_call);
     run("persistent stdio failure invalidates session for reconnect",

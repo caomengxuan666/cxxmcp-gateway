@@ -66,6 +66,7 @@ using GatewayRuntimeObserver =
 struct GatewayRuntimeOptions {
   GatewayRuntimeObserver observer;
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
+  std::size_t persistent_session_pool_size = 1;
 };
 
 class GatewayRuntime final {

@@ -16,7 +16,8 @@ namespace {
 void print_usage(std::ostream& out) {
   out << "Usage:\n"
       << "  cxxmcp-gateway-embedded-runtime-example [--host <host>]\n"
-      << "      [--port <port>] [--path <path>] [--persistent] [--prewarm]\n"
+      << "      [--port <port>] [--path <path>] [--persistent]\n"
+      << "      [--session-pool-size <n>] [--prewarm]\n"
       << "      --http <id=uri> [--http <id=uri> ...]\n"
       << "      --stdio <id=command> [--stdio <id=command> ...]\n";
 }
@@ -31,6 +32,18 @@ bool parse_port(std::string_view text, std::uint16_t& port) {
     return false;
   }
   port = static_cast<std::uint16_t>(value);
+  return true;
+}
+
+bool parse_positive_size(std::string_view text, std::size_t& value) {
+  std::size_t parsed_value = 0;
+  const auto* begin = text.data();
+  const auto* end = text.data() + text.size();
+  const auto parsed = std::from_chars(begin, end, parsed_value);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || parsed_value == 0) {
+    return false;
+  }
+  value = parsed_value;
   return true;
 }
 
@@ -127,6 +140,15 @@ int main(int argc, char** argv) {
     if (arg == "--persistent") {
       options.upstream_session_mode =
           mcp::gateway::UpstreamSessionMode::persistent;
+      continue;
+    }
+    if (arg == "--session-pool-size" && i + 1 < args.size()) {
+      std::size_t pool_size = 1;
+      if (!parse_positive_size(args[++i], pool_size)) {
+        std::cerr << "invalid --session-pool-size value\n";
+        return 2;
+      }
+      options.persistent_session_pool_size = pool_size;
       continue;
     }
     if (arg == "--prewarm") {

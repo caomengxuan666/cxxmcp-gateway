@@ -499,10 +499,12 @@ is validated.
 
 Hosts that need lower repeated-call latency can opt into persistent upstream
 sessions through `GatewayRuntimeOptions`. The current persistent mode lazily
-keeps one initialized session per upstream, serializes calls to the same
-upstream, reuses initialized capabilities, and closes retained sessions during
-`GatewayRuntime::stop()`. It is not a general connection pool and does not
-change the default per-call behavior.
+keeps a bounded initialized session pool per upstream, reuses initialized
+capabilities, and closes retained sessions during `GatewayRuntime::stop()`.
+The default pool size is one, which preserves serialized same-upstream
+behavior. Larger explicit pool sizes allow same-upstream calls to use separate
+initialized sessions up to the configured bound. It is not an adaptive
+multiplexing layer and does not change the default per-call behavior.
 Both Streamable HTTP and process-stdio upstreams support a configured
 per-operation timeout; timeout failures are normalized as gateway upstream
 timeout errors.
@@ -518,9 +520,12 @@ The current implementation reports configured upstreams, marks an
 upstream `connecting`/`initialized` during a call, records initialized upstream
 capabilities, marks successful calls `healthy`, marks failed calls `degraded`
 with the last gateway-normalized error, exposes the number of active in-flight
-upstream calls, and marks upstreams `stopping`/`stopped` during runtime
-shutdown. This is an observable lifecycle contract; persistent mode is one
-session per upstream, not a pooled connection manager.
+gateway-accepted upstream operations, and marks upstreams `stopping`/`stopped`
+during runtime shutdown. For persistent pools, `active_calls` includes calls
+waiting for a pool slot; those waiters are woken during shutdown and return a
+runtime stopping error instead of starting a new upstream operation. This is an
+observable lifecycle contract; persistent mode uses a fixed per-upstream pool,
+not an adaptive pooled connection manager.
 
 `GatewayRuntime::stop()` is graceful for the current lifecycle model: it stops
 the hosted downstream endpoint, rejects new upstream operations, waits for

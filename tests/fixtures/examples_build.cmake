@@ -79,6 +79,7 @@ if(NOT help_result EQUAL 0)
         "stderr: ${help_stderr}")
 endif()
 if(NOT help_stdout MATCHES "--persistent" OR
+   NOT help_stdout MATCHES "--session-pool-size" OR
    NOT help_stdout MATCHES "--prewarm")
     message(FATAL_ERROR
         "embedded runtime example help did not advertise runtime options\n"

@@ -89,7 +89,11 @@ The current package is not a compatibility promise for:
 - task APIs;
 - subscriptions;
 - progress or cancellation forwarding;
-- high-QPS connection pooling or hard real-time latency.
+- adaptive high-QPS connection pooling or hard real-time latency.
+
+Persistent mode supports a fixed, bounded per-upstream session pool for hosts
+that explicitly configure it. That pool is part of the runtime contract, but it
+is not a promise of adaptive multiplexing or hard real-time latency.
 
 Those features require their own API, capability-advertisement, lifecycle, and
 test contracts before they can become supported surface.

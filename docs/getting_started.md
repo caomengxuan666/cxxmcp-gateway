@@ -117,21 +117,24 @@ sessions:
 mcp::gateway::GatewayRuntimeOptions options;
 options.upstream_session_mode =
     mcp::gateway::UpstreamSessionMode::persistent;
+options.persistent_session_pool_size = 2;
 
 mcp::gateway::GatewayRuntime runtime(std::move(config), std::move(options));
 ```
 
-Persistent mode keeps one initialized session per upstream and serializes
-same-upstream calls through that session. It reduces repeated-call setup cost,
-but it is not a connection pool and should not be presented as an ultra-low
-latency or high-QPS multiplexing layer.
+Persistent mode keeps a bounded pool of initialized sessions per upstream.
+The default pool size is one, which preserves serialized same-upstream
+behavior. Increasing `persistent_session_pool_size` allows same-upstream calls
+to use separate initialized sessions up to that bound. It reduces repeated-call
+setup cost, but it is still a fixed per-upstream pool and should not be
+presented as adaptive high-QPS multiplexing.
 
 ## Reference CLI
 
 The `cxxmcp-gateway` executable is a thin reference runner:
 
 ```powershell
-cxxmcp-gateway serve --port 39931 --session-mode persistent --prewarm --upstream-http tools=http://127.0.0.1:3001/mcp
+cxxmcp-gateway serve --port 39931 --session-mode persistent --session-pool-size 2 --prewarm --upstream-http tools=http://127.0.0.1:3001/mcp
 ```
 
 Use it for local development, smoke tests, demos, and simple sidecars. Product
@@ -144,6 +147,7 @@ When config IO is built, JSON config files can carry the same runtime choices:
 {
   "runtime": {
     "upstreamSessionMode": "persistent",
+    "persistentSessionPoolSize": 2,
     "prewarmCapabilities": true
   },
   "upstreams": [
@@ -156,8 +160,9 @@ When config IO is built, JSON config files can carry the same runtime choices:
 }
 ```
 
-Command-line `--session-mode` overrides the file value, and `--prewarm` enables
-startup capability refresh even when the file leaves it disabled.
+Command-line `--session-mode` and `--session-pool-size` override file values,
+and `--prewarm` enables startup capability refresh even when the file leaves it
+disabled.
 
 ## Buildable Example
 

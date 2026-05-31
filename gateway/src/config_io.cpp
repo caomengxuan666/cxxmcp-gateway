@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iterator>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -98,6 +99,24 @@ core::Result<GatewayRuntimeConfig> runtime_config_from_json(
           "'persistent'",
           "$.runtime.upstreamSessionMode"));
     }
+  }
+  if (runtime_json.contains("persistentSessionPoolSize")) {
+    if (!runtime_json.at("persistentSessionPoolSize").is_number_integer() ||
+        runtime_json.at("persistentSessionPoolSize").get<std::int64_t>() <= 0) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a positive integer",
+          "$.runtime.persistentSessionPoolSize"));
+    }
+    const auto value =
+        runtime_json.at("persistentSessionPoolSize").get<std::int64_t>();
+    if (static_cast<std::uint64_t>(value) >
+        static_cast<std::uint64_t>(
+            std::numeric_limits<std::size_t>::max())) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field is too large",
+          "$.runtime.persistentSessionPoolSize"));
+    }
+    runtime.persistent_session_pool_size = static_cast<std::size_t>(value);
   }
   if (runtime_json.contains("prewarmCapabilities")) {
     if (!runtime_json.at("prewarmCapabilities").is_boolean()) {

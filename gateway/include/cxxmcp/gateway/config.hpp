@@ -3,6 +3,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -53,6 +54,7 @@ enum class UpstreamSessionMode {
 
 struct GatewayRuntimeConfig {
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
+  std::size_t persistent_session_pool_size = 1;
   bool prewarm_capabilities = false;
 };
 
