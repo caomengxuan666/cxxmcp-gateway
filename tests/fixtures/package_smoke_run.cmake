@@ -16,6 +16,9 @@ endif()
 if(NOT DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_CLI)
     set(CXXMCP_GATEWAY_PACKAGE_SMOKE_CLI "")
 endif()
+if(NOT DEFINED CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION)
+    set(CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION "")
+endif()
 
 if(CMAKE_HOST_WIN32)
     set(executable_suffix ".exe")
@@ -83,8 +86,20 @@ if(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_CLI)
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E env "${runtime_env}"
             "${CXXMCP_GATEWAY_PACKAGE_SMOKE_CLI}" --version
-        RESULT_VARIABLE cli_result)
+        RESULT_VARIABLE cli_result
+        OUTPUT_VARIABLE cli_stdout
+        ERROR_VARIABLE cli_stderr
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE)
     if(NOT cli_result EQUAL 0)
-        message(FATAL_ERROR "package smoke CLI executable failed")
+        message(FATAL_ERROR
+            "package smoke CLI executable failed\n${cli_stderr}")
+    endif()
+    if(CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION AND
+       NOT cli_stdout STREQUAL CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION)
+        message(FATAL_ERROR
+            "package smoke CLI version mismatch: expected "
+            "${CXXMCP_GATEWAY_PACKAGE_SMOKE_EXPECTED_VERSION}, got "
+            "${cli_stdout}")
     endif()
 endif()

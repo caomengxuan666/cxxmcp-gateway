@@ -1405,6 +1405,79 @@ void test_hosted_capability_advertisement_uses_refresh_cache() {
           "hosted tools-only gateway should stop");
 }
 
+void test_hosted_capability_advertisement_snapshots_at_start() {
+  constexpr auto kPort = 39968;
+
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "tools_only";
+  config.upstreams.front().process_stdio.args = {"--tools-only"};
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+
+  const auto before_start = gateway.server_capabilities();
+  require(before_start.tools.enabled,
+          "hosted snapshot gateway should advertise configured tools before "
+          "discovery");
+  require(before_start.resources.enabled,
+          "hosted snapshot gateway should advertise configured resources "
+          "before discovery");
+  require(before_start.prompts.enabled,
+          "hosted snapshot gateway should advertise configured prompts before "
+          "discovery");
+
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(),
+          "hosted snapshot gateway endpoint should start");
+
+  auto refreshed = gateway.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "hosted snapshot capability refresh after start should succeed");
+
+  const auto refreshed_capabilities = gateway.server_capabilities();
+  require(refreshed_capabilities.tools.enabled,
+          "refreshed hosted snapshot runtime should keep tools advertised");
+  require(!refreshed_capabilities.resources.enabled,
+          "refreshed hosted snapshot runtime should drop resources");
+  require(!refreshed_capabilities.prompts.enabled,
+          "refreshed hosted snapshot runtime should drop prompts");
+  require_mvp_server_capability_json_shape(refreshed_capabilities);
+
+  auto client = mcp::ClientPeer::builder()
+                    .streamable_http("http://127.0.0.1:" +
+                                     std::to_string(kPort) + "/mcp")
+                    .build();
+  require(client.has_value(), "hosted snapshot client should build");
+
+  auto running_client = mcp::serve(std::move(*client));
+  require(running_client.has_value(),
+          "hosted snapshot client service should start");
+
+  auto initialized = running_client->peer().initialize(
+      "cxxmcp-gateway-snapshot-client", "1.0.0");
+  require(initialized.has_value(),
+          "hosted snapshot client should initialize");
+
+  auto hosted_capabilities = running_client->peer().server_capabilities();
+  require(hosted_capabilities.has_value(),
+          "hosted snapshot client should receive capabilities");
+  require(hosted_capabilities->tools.enabled,
+          "hosted snapshot should keep tools from start-time snapshot");
+  require(hosted_capabilities->resources.enabled,
+          "hosted snapshot should keep resources from start-time snapshot");
+  require(hosted_capabilities->prompts.enabled,
+          "hosted snapshot should keep prompts from start-time snapshot");
+  require(!hosted_capabilities->completions.enabled,
+          "hosted snapshot should not invent completion support");
+  require_mvp_server_capability_json_shape(*hosted_capabilities);
+
+  auto stopped_client = running_client->stop();
+  require(stopped_client.has_value(),
+          "hosted snapshot client should stop");
+  auto stopped_gateway = gateway.stop();
+  require(stopped_gateway.has_value(),
+          "hosted snapshot gateway should stop");
+}
+
 void test_completion_routes_to_stdio_upstream() {
   mcp::gateway::GatewayRuntime runtime(make_stdio_config());
 
@@ -1600,11 +1673,57 @@ void test_hosted_completion_routes_after_capability_refresh() {
 void test_repeated_stdio_calls_to_one_upstream() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "repeat";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_repeat_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
   mcp::gateway::GatewayRuntime runtime(std::move(config));
 
-  auto first = runtime.call_tool("repeat.echo", Json{{"value", "first"}});
-  require(first.has_value(), "first repeated stdio call should succeed");
-  require_text_result(*first, "first");
+  std::exception_ptr first_error;
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("repeat.slow", Json{{"sleepMs", 250}});
+      require(first.has_value(), "first repeated stdio call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_first_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_first_marker = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_first_marker,
+          "first repeated stdio call should create child process marker");
+
+  first_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+
+  bool removed_first_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      removed_first_marker = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(removed_first_marker,
+          "first repeated stdio call should clean up child process marker");
 
   auto first_state = require_upstream_state(runtime.upstream_states(), "repeat");
   require(first_state.active_calls == 0,
@@ -1627,6 +1746,9 @@ void test_repeated_stdio_calls_to_one_upstream() {
           "second repeated call should retain upstream capabilities");
   require(!second_state.last_error.has_value(),
           "successful repeated calls should leave no upstream error");
+  require(!std::filesystem::exists(marker_path),
+          "second repeated stdio call should leave child process marker "
+          "cleaned up");
 }
 
 void test_http_upstream() {
@@ -1647,6 +1769,15 @@ void test_http_upstream() {
                               input.value("sleepMs", 300)});
                       return ToolResult::text("slow-done");
                     })
+                    .tool<Json, ToolResult>(
+                        "fail",
+                        [](const Json&) -> mcp::core::Result<ToolResult> {
+                          return mcp::core::unexpected(mcp::core::Error{
+                              static_cast<int>(
+                                  mcp::protocol::ErrorCode::PermissionDenied),
+                              "http fixture denied", "http fixture detail",
+                              "fixture"});
+                        })
                     .prompt(mcp::protocol::Prompt{
                                 .title = "HTTP Summary",
                                 .name = "summarize",
@@ -1672,6 +1803,17 @@ void test_http_upstream() {
                                               "text", std::string{})));
                               return result;
                             })
+                    .prompt("fail-prompt",
+                            [](const mcp::server::PromptContext&)
+                                -> mcp::core::Result<
+                                    mcp::protocol::PromptsGetResult> {
+                              return mcp::core::unexpected(mcp::core::Error{
+                                  static_cast<int>(
+                                      mcp::protocol::ErrorCode::
+                                          PermissionDenied),
+                                  "http prompt denied", "http prompt detail",
+                                  "fixture"});
+                            })
                     .resource(mcp::protocol::Resource{
                                   .title = "HTTP Readme",
                                   .uri = "file:///http/readme.txt",
@@ -1690,6 +1832,17 @@ void test_http_upstream() {
                                         .text = "hello from http resource",
                                     });
                                 return result;
+                              })
+                    .resource("file:///http/fail.txt",
+                              [](const mcp::server::ResourceContext&)
+                                  -> mcp::core::Result<
+                                      mcp::protocol::ResourcesReadResult> {
+                                return mcp::core::unexpected(mcp::core::Error{
+                                    static_cast<int>(
+                                        mcp::protocol::ErrorCode::
+                                            PermissionDenied),
+                                    "http resource denied",
+                                    "http resource detail", "fixture"});
                               })
                     .resource_template(mcp::protocol::ResourceTemplate{
                         .title = "HTTP File",
@@ -1758,6 +1911,19 @@ void test_http_upstream() {
   require(called.has_value(), "http tools/call should succeed");
   require_text_result(*called, "from-http");
 
+  auto upstream_tool_error = runtime.call_tool("http.fail", Json::object());
+  require(!upstream_tool_error.has_value(),
+          "http upstream MCP tool error should fail");
+  require(upstream_tool_error.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "http upstream MCP tool error code should be preserved");
+  require(upstream_tool_error.error().message == "http fixture denied",
+          "http upstream MCP tool error message should be preserved");
+  require(upstream_tool_error.error().detail.find("http fixture detail") !=
+              std::string::npos,
+          "http upstream MCP tool error detail should be preserved");
+  require_gateway_upstream_error(upstream_tool_error.error(), "http");
+
   const auto http_resource_uri =
       mcp::gateway::GatewayRouter::expose_resource_uri(
           "http", "file:///http/readme.txt");
@@ -1769,6 +1935,23 @@ void test_http_upstream() {
   require(read.has_value(), "http resources/read should succeed");
   require_text_resource(*read, http_resource_uri,
                         "hello from http resource");
+
+  const auto http_error_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "http", "file:///http/fail.txt");
+  auto upstream_resource_error =
+      runtime.read_resource(http_error_resource_uri);
+  require(!upstream_resource_error.has_value(),
+          "http upstream MCP resource error should fail");
+  require(upstream_resource_error.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "http upstream MCP resource error code should be preserved");
+  require(upstream_resource_error.error().message == "http resource denied",
+          "http upstream MCP resource error message should be preserved");
+  require(upstream_resource_error.error().detail.find(
+              "http resource detail") != std::string::npos,
+          "http upstream MCP resource error detail should be preserved");
+  require_gateway_upstream_error(upstream_resource_error.error(), "http");
 
   const auto http_template_uri =
       mcp::gateway::GatewayRouter::expose_resource_template_uri(
@@ -1787,6 +1970,20 @@ void test_http_upstream() {
       runtime.get_prompt("http.summarize", Json{{"text", "from-http"}});
   require(prompt.has_value(), "http prompts/get should succeed");
   require_text_prompt(*prompt, "HTTP summarize from-http");
+
+  auto upstream_prompt_error =
+      runtime.get_prompt("http.fail-prompt", Json::object());
+  require(!upstream_prompt_error.has_value(),
+          "http upstream MCP prompt error should fail");
+  require(upstream_prompt_error.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "http upstream MCP prompt error code should be preserved");
+  require(upstream_prompt_error.error().message == "http prompt denied",
+          "http upstream MCP prompt error message should be preserved");
+  require(upstream_prompt_error.error().detail.find("http prompt detail") !=
+              std::string::npos,
+          "http upstream MCP prompt error detail should be preserved");
+  require_gateway_upstream_error(upstream_prompt_error.error(), "http");
 
   mcp::protocol::CompleteParams prompt_completion;
   prompt_completion.ref =
@@ -3764,6 +3961,7 @@ int main() {
     test_capability_advertisement_uses_initialized_upstream_cache();
     test_capability_advertisement_unions_multiple_upstream_caches();
     test_hosted_capability_advertisement_uses_refresh_cache();
+    test_hosted_capability_advertisement_snapshots_at_start();
     test_completion_routes_to_stdio_upstream();
     test_hosted_completion_routes_after_capability_refresh();
     test_repeated_stdio_calls_to_one_upstream();
