@@ -2030,6 +2030,30 @@ void test_runtime_stop_waits_for_active_http_call() {
   require(!post_stop_call.has_value(),
           "runtime should reject new upstream calls after stop");
 
+  auto post_stop_resource_list = runtime.list_resources();
+  require(!post_stop_resource_list.has_value(),
+          "runtime should reject resources/list after stop");
+
+  auto post_stop_resource_templates = runtime.list_resource_templates();
+  require(!post_stop_resource_templates.has_value(),
+          "runtime should reject resources/templates/list after stop");
+
+  const auto post_stop_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "shutdown", "file:///after-stop.txt");
+  auto post_stop_resource_read = runtime.read_resource(post_stop_resource_uri);
+  require(!post_stop_resource_read.has_value(),
+          "runtime should reject resources/read after stop");
+
+  auto post_stop_prompt_list = runtime.list_prompts();
+  require(!post_stop_prompt_list.has_value(),
+          "runtime should reject prompts/list after stop");
+
+  auto post_stop_prompt =
+      runtime.get_prompt("shutdown.prompt", Json::object());
+  require(!post_stop_prompt.has_value(),
+          "runtime should reject prompts/get after stop");
+
   auto post_stop_refresh = runtime.refresh_upstream_capabilities();
   require(!post_stop_refresh.has_value(),
           "runtime should reject capability refresh after stop");
