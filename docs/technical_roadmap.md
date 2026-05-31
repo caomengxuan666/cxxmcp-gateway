@@ -592,7 +592,7 @@ The current MVP baseline has verified coverage for:
    default same-upstream serialization, configured same-upstream pool
    concurrency, active-call stop, failure invalidation, pool failure isolation,
    reconnect, and cleanup on stop, plus persistent HTTP default same-upstream
-   serialization and timeout recovery.
+   serialization, pool queue draining, and timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported

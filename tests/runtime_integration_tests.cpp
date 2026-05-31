@@ -3183,6 +3183,94 @@ void test_persistent_http_failure_invalidates_session_for_reconnect() {
           "persistent http reconnect fixture should stop");
 }
 
+void test_persistent_http_pool_timeout_recovers() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-pool-timeout")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 1000)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http pool timeout fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http pool timeout fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_pool_timeout";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::milliseconds{250};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent http pool timeout test should prewarm sessions");
+
+  auto timed_out = runtime.call_tool("persistent_http_pool_timeout.slow",
+                                     Json{{"sleepMs", 1000}});
+  require(!timed_out.has_value(),
+          "persistent http pool slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(),
+                                   "persistent_http_pool_timeout");
+
+  const auto degraded = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_pool_timeout");
+  require_status(degraded, UpstreamRuntimeStatus::degraded,
+                 "persistent http pool timeout should mark upstream degraded");
+  require(degraded.active_calls == 0,
+          "persistent http pool timeout should clear active calls");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{1000});
+  auto recovered = runtime.call_tool("persistent_http_pool_timeout.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent http pool should recover after timeout");
+  require_text_result(*recovered, "recovered");
+
+  auto second = runtime.call_tool("persistent_http_pool_timeout.echo",
+                                  Json{{"value", "second"}});
+  require(second.has_value(),
+          "persistent http pool should continue serving after recovery");
+  require_text_result(*second, "second");
+
+  const auto recovered_state = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_pool_timeout");
+  require(recovered_state.active_calls == 0,
+          "persistent http pool recovery should clear active calls");
+  require_status(recovered_state, UpstreamRuntimeStatus::healthy,
+                 "persistent http pool recovery should restore health");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http pool timeout runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http pool timeout fixture should stop");
+}
+
 void test_stdio_timeout() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "slow_stdio";
@@ -5435,6 +5523,8 @@ int main() {
         test_persistent_http_session_pool_handles_queued_calls);
     run("persistent http failure invalidates session for reconnect",
         test_persistent_http_failure_invalidates_session_for_reconnect);
+    run("persistent http pool timeout recovers",
+        test_persistent_http_pool_timeout_recovers);
     run("stdio timeout", test_stdio_timeout);
     run("concurrent http calls update active state",
         test_concurrent_http_calls_update_active_state);
