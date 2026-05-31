@@ -5297,6 +5297,206 @@ void test_hosted_gateway_multiple_downstream_clients() {
           "multi-client hosted gateway should stop");
 }
 
+void test_hosted_gateway_multiple_downstream_clients_to_http_upstreams() {
+  const auto [kFirstPort, kSecondPort] = find_two_distinct_loopback_ports();
+  const std::string first_uri =
+      "http://127.0.0.1:" + std::to_string(kFirstPort) + "/mcp";
+  const std::string second_uri =
+      "http://127.0.0.1:" + std::to_string(kSecondPort) + "/mcp";
+  std::atomic_bool first_entered = false;
+  std::atomic_bool second_entered = false;
+
+  auto first_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-multi-client-http-first-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kFirstPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            first_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 650)});
+            return ToolResult::text("first-http-done");
+          })
+          .build();
+  require(first_server.has_value(),
+          "first multi-client HTTP upstream fixture should build");
+  auto second_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-multi-client-http-second-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kSecondPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            second_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 650)});
+            return ToolResult::text("second-http-done");
+          })
+          .build();
+  require(second_server.has_value(),
+          "second multi-client HTTP upstream fixture should build");
+
+  auto first_upstream = mcp::serve(std::move(*first_server));
+  require(first_upstream.has_value(),
+          "first multi-client HTTP upstream fixture should start");
+  first_upstream->wait_until_ready();
+  auto second_upstream = mcp::serve(std::move(*second_server));
+  require(second_upstream.has_value(),
+          "second multi-client HTTP upstream fixture should start");
+  second_upstream->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer first;
+  first.id = "http_first";
+  first.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  first.streamable_http.uri = first_uri;
+  first.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(first));
+
+  mcp::gateway::UpstreamServer second;
+  second.id = "http_second";
+  second.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  second.streamable_http.uri = second_uri;
+  second.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(second));
+
+  const auto kGatewayPort = find_available_loopback_port();
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kGatewayPort, .path = "/mcp"});
+  require(started.has_value(),
+          "multi-client HTTP multi-upstream hosted gateway should start");
+
+  auto make_client = [kGatewayPort] {
+    return mcp::ClientPeer::builder()
+        .streamable_http("http://127.0.0.1:" +
+                         std::to_string(kGatewayPort) + "/mcp")
+        .build();
+  };
+
+  auto first_client = make_client();
+  auto second_client = make_client();
+  require(first_client.has_value(),
+          "first HTTP downstream client should build");
+  require(second_client.has_value(),
+          "second HTTP downstream client should build");
+
+  auto first_running = mcp::serve(std::move(*first_client));
+  auto second_running = mcp::serve(std::move(*second_client));
+  require(first_running.has_value(),
+          "first HTTP downstream client should start");
+  require(second_running.has_value(),
+          "second HTTP downstream client should start");
+
+  auto first_initialized = first_running->peer().initialize(
+      "cxxmcp-gateway-multi-client-http-a", "1.0.0");
+  auto second_initialized = second_running->peer().initialize(
+      "cxxmcp-gateway-multi-client-http-b", "1.0.0");
+  require(first_initialized.has_value(),
+          "first HTTP downstream initialize should succeed");
+  require(second_initialized.has_value(),
+          "second HTTP downstream initialize should succeed");
+
+  auto first_notified = first_running->peer().notify_initialized();
+  auto second_notified = second_running->peer().notify_initialized();
+  require(first_notified.has_value(),
+          "first HTTP downstream initialized notification should work");
+  require(second_notified.has_value(),
+          "second HTTP downstream initialized notification should work");
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::thread first_worker([&] {
+    try {
+      auto called = first_running->peer().call_tool(
+          "http_first.slow", Json{{"sleepMs", 650}});
+      if (!called.has_value()) {
+        throw std::runtime_error("first HTTP downstream call should route: " +
+                                 called.error().message + " / " +
+                                 called.error().detail + " / " +
+                                 called.error().category);
+      }
+      require_text_result(*called, "first-http-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto called = second_running->peer().call_tool(
+          "http_second.slow", Json{{"sleepMs", 650}});
+      if (!called.has_value()) {
+        throw std::runtime_error("second HTTP downstream call should route: " +
+                                 called.error().message + " / " +
+                                 called.error().detail + " / " +
+                                 called.error().category);
+      }
+      require_text_result(*called, "second-http-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_both_handlers = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto states = gateway.upstream_states();
+    const auto first_state = require_upstream_state(states, "http_first");
+    const auto second_state = require_upstream_state(states, "http_second");
+    if (first_state.active_calls >= 1 || second_state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (first_entered.load() && second_entered.load()) {
+      observed_both_handlers = true;
+    }
+    if (observed_active && observed_both_handlers) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  require(observed_active,
+          "multi-client HTTP hosted calls should expose active upstream work");
+  require(observed_both_handlers,
+          "multi-client HTTP hosted calls should reach both upstream handlers");
+
+  const auto states = gateway.upstream_states();
+  const auto first_state = require_upstream_state(states, "http_first");
+  const auto second_state = require_upstream_state(states, "http_second");
+  require(first_state.active_calls == 0,
+          "first multi-client HTTP active calls should clear");
+  require(second_state.active_calls == 0,
+          "second multi-client HTTP active calls should clear");
+  require_status(first_state, UpstreamRuntimeStatus::healthy,
+                 "first multi-client HTTP upstream should be healthy");
+  require_status(second_state, UpstreamRuntimeStatus::healthy,
+                 "second multi-client HTTP upstream should be healthy");
+
+  auto first_stopped = first_running->stop();
+  auto second_stopped = second_running->stop();
+  require(first_stopped.has_value(),
+          "first HTTP downstream client should stop");
+  require(second_stopped.has_value(),
+          "second HTTP downstream client should stop");
+
+  auto gateway_stopped = gateway.stop();
+  require(gateway_stopped.has_value(),
+          "multi-client HTTP hosted gateway should stop");
+  auto first_upstream_stopped = first_upstream->stop();
+  require(first_upstream_stopped.has_value(),
+          "first multi-client HTTP upstream fixture should stop");
+  auto second_upstream_stopped = second_upstream->stop();
+  require(second_upstream_stopped.has_value(),
+          "second multi-client HTTP upstream fixture should stop");
+}
+
 void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
   const auto kPort = find_available_loopback_port();
 
@@ -6384,6 +6584,8 @@ int main() {
         test_hosted_gateway_rejects_request_before_initialize);
     run("hosted gateway multiple downstream clients",
         test_hosted_gateway_multiple_downstream_clients);
+    run("hosted gateway multiple downstream clients to http upstreams",
+        test_hosted_gateway_multiple_downstream_clients_to_http_upstreams);
     run("hosted cancellation notifications do not cancel upstream call",
         test_hosted_cancellation_notifications_do_not_cancel_upstream_call);
     run("hosted cancellation notifications do not cancel http upstream call",
