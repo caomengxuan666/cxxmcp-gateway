@@ -9,7 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-8db312e8be75b7c822a832b41b00577cef6262b4
+a58f699ecba2eb2bbc84be8569a6989904ef6185
 ```
 
 SDK source revision:
@@ -53,10 +53,10 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list,50,42581,72232
-stdio,tools/call,50,45176,76859
-http,tools/list,50,29969,47448
-http,tools/call,50,30198,47994
+stdio,tools/list,50,43909,78035
+stdio,tools/call,50,49050,87428
+http,tools/list,50,47056,63241
+http,tools/call,50,47042,63514
 ```
 
 Notes:
@@ -71,6 +71,7 @@ Notes:
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.
 - This refreshed baseline supersedes the earlier local measurement at gateway
-  commit `6317886e7965d9e1c651929f315ed1c1967a1bcb` after routing/runtime,
-  capability-advertisement, config-IO, source-hygiene, lifecycle evidence, and
-  package-smoke changes landed in the PR branch.
+  commit `8db312e8be75b7c822a832b41b00577cef6262b4` after runtime observer,
+  capability-aware catalog aggregation, package component dependency, metadata
+  preservation, source-hygiene, and shared-CI coverage changes landed in the PR
+  branch.
