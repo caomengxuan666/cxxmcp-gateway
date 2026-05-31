@@ -26,7 +26,28 @@ namespace {
 
 class MarkerFile final {
  public:
-  explicit MarkerFile(const char* path) : path_(path == nullptr ? "" : path) {
+  MarkerFile(const char* path, const char* directory)
+      : path_(path == nullptr ? "" : path) {
+    const std::filesystem::path directory_path =
+        directory == nullptr ? std::filesystem::path{} : directory;
+    if (!directory_path.empty()) {
+      std::error_code ignored;
+      std::filesystem::create_directories(directory_path, ignored);
+      for (int attempt = 0; attempt < 100; ++attempt) {
+        const auto name =
+            "started-" +
+            std::to_string(std::chrono::steady_clock::now()
+                               .time_since_epoch()
+                               .count()) +
+            "-" + std::to_string(attempt) + ".txt";
+        const auto candidate = directory_path / name;
+        if (std::filesystem::exists(candidate)) {
+          continue;
+        }
+        path_ = candidate;
+        break;
+      }
+    }
     if (path_.empty()) {
       return;
     }
@@ -72,7 +93,8 @@ int main(int argc, char** argv) {
   using Json = mcp::protocol::Json;
   using ToolResult = mcp::protocol::ToolResult;
 
-  MarkerFile marker(std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_FILE"));
+  MarkerFile marker(std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_FILE"),
+                    std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_DIR"));
 
   const auto startup_delay = option_value(argc, argv, "--startup-delay-ms");
   if (!startup_delay.empty()) {

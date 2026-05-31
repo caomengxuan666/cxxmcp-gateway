@@ -590,9 +590,9 @@ The current MVP baseline has verified coverage for:
    cancellation/progress notification no-ops, stdio child cleanup after
    successful per-call sessions and on stop, persistent stdio session reuse,
    default same-upstream serialization, configured same-upstream pool
-   concurrency, active-call stop, failure invalidation, reconnect, and cleanup
-   on stop, plus persistent HTTP default same-upstream serialization and
-   timeout recovery.
+   concurrency, active-call stop, failure invalidation, pool failure isolation,
+   reconnect, and cleanup on stop, plus persistent HTTP default same-upstream
+   serialization and timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported

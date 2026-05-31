@@ -51,6 +51,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Per-call default session behavior | repeated stdio call tests and stdio child-process cleanup assertions |
 | Opt-in persistent sessions | persistent stdio and HTTP lifecycle tests |
 | Persistent session pool concurrency | `test_persistent_stdio_session_pool_allows_same_upstream_concurrency`, `test_persistent_http_session_pool_handles_queued_calls`, perf `tools/call:persistent_pool2_pair` |
+| Persistent session pool failure isolation | `test_persistent_stdio_pool_failure_isolates_failed_slot` |
 | Graceful stop and concurrent wait/stop | runtime stop, active-call stop, and wait/stop overlap tests |
 | Unsupported methods and notifications | raw request routing and notification no-op tests |
 | Error mapping | router tests, runtime integration error assertions, and config IO tests |
