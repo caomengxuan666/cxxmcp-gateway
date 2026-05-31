@@ -580,7 +580,8 @@ The current MVP baseline has verified coverage for:
    capability refresh, raw JSON-RPC post-stop rejection for routed methods
    while SDK-owned lifecycle and liveness methods remain delegated,
    hosted endpoint option validation, wait-before-start rejection,
-   cancellation/progress notification no-ops, and stdio child cleanup on stop.
+   cancellation/progress notification no-ops, and stdio child cleanup after
+   successful per-call sessions and on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
@@ -600,7 +601,8 @@ The current MVP baseline has verified coverage for:
     side-effect-free, uses config-based MVP advertisement before upstream
     discovery, narrows tools/resources/prompts plus completion advertisement
     once all enabled upstream capability records are cached, and unions
-    advertised capability families across multiple initialized upstream caches.
+    advertised capability families across multiple initialized upstream caches;
+    hosted endpoints retain the capability snapshot captured at `start_http()`.
 14. Explicit capability refresh API: hosts can call
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
     initialize upstream capability caches without fetching catalogs or routing
