@@ -1,0 +1,11 @@
+{
+  "name": "fixture-gateway",
+  "version": "1.0.0",
+  "upstreams": [
+    {
+      "id": "fixture",
+      "transport": "stdio",
+      "command": "fixture-server"
+    }
+  ]
+}

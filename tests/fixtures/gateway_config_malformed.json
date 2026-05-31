@@ -1,0 +1,8 @@
+{
+  "upstreams": [
+    {
+      "id": "broken",
+      "transport": "stdio",
+      "command": "fixture"
+    }
+  ],
