@@ -660,7 +660,9 @@ The current MVP baseline has verified coverage for:
 23. Persistent pool wait bounding: hosts can set
     `persistent_session_acquire_timeout` through the runtime API, reference
     CLI, or JSON runtime config so same-upstream calls queued behind a full
-    fixed pool can fail after a defined wait instead of queueing indefinitely.
+    fixed pool can fail after a defined wait instead of queueing indefinitely;
+    integration coverage verifies this contract for both process stdio and
+    Streamable HTTP upstreams.
 
 ## Remaining Near-Term Backlog
 
