@@ -17,7 +17,7 @@ Repository direction:
 cxxmcp-gateway
   cxxmcp_gateway_core
   cxxmcp_gateway_runtime
-  future cxxmcp_gateway_config_io
+  optional cxxmcp_gateway_config_io
   cxxmcp-gateway optional CLI
   docs / tests / examples
 
