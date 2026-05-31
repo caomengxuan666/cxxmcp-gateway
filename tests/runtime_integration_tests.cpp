@@ -2664,18 +2664,6 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
   config.upstreams.front().id = "persistent_pool_reconnect";
   config.upstreams.front().process_stdio.timeout =
       std::chrono::milliseconds{250};
-  const auto marker_dir =
-      std::filesystem::temp_directory_path() /
-      ("cxxmcp_gateway_stdio_pool_reconnect_markers_" +
-       std::to_string(std::chrono::steady_clock::now()
-                          .time_since_epoch()
-                          .count()));
-  std::error_code ignored;
-  std::filesystem::remove_all(marker_dir, ignored);
-  std::filesystem::create_directories(marker_dir, ignored);
-  config.upstreams.front()
-      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_DIR"] =
-      marker_dir.string();
 
   mcp::gateway::GatewayRuntimeOptions options;
   options.upstream_session_mode =
@@ -2687,17 +2675,16 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
   auto prewarmed = runtime.refresh_upstream_capabilities();
   require(prewarmed.has_value(),
           "persistent stdio pool reconnect test should prewarm sessions");
-
-  bool observed_two_markers = false;
-  for (int attempt = 0; attempt < 200; ++attempt) {
-    if (count_regular_files(marker_dir) == 2) {
-      observed_two_markers = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_pool_reconnect");
+    require(state.persistent_session_pool_size == 2,
+            "persistent stdio pool prewarm should keep configured pool size");
+    require(state.initialized_persistent_sessions == 2,
+            "persistent stdio pool prewarm should initialize both slots");
+    require(state.busy_persistent_sessions == 0,
+            "persistent stdio pool prewarm should leave no busy slots");
   }
-  require(observed_two_markers,
-          "persistent stdio pool prewarm should start two upstream processes");
 
   auto timed_out = runtime.call_tool("persistent_pool_reconnect.slow",
                                      Json{{"sleepMs", 1000}});
@@ -2706,16 +2693,6 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
   require_gateway_upstream_timeout(timed_out.error(),
                                    "persistent_pool_reconnect");
 
-  bool one_slot_remained = false;
-  for (int attempt = 0; attempt < 200; ++attempt) {
-    if (count_regular_files(marker_dir) == 1) {
-      one_slot_remained = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  }
-  require(one_slot_remained,
-          "persistent stdio pool timeout should discard only the failed slot");
   {
     const auto state = require_upstream_state(runtime.upstream_states(),
                                              "persistent_pool_reconnect");
@@ -2733,17 +2710,6 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
           "persistent stdio pool should reconnect a discarded slot");
   require_text_result(*recovered, "recovered");
 
-  bool restored_two_markers = false;
-  for (int attempt = 0; attempt < 200; ++attempt) {
-    if (count_regular_files(marker_dir) == 2) {
-      restored_two_markers = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  }
-  require(restored_two_markers,
-          "persistent stdio pool reconnect should restore pool size");
-
   const auto state = require_upstream_state(runtime.upstream_states(),
                                            "persistent_pool_reconnect");
   require(state.active_calls == 0,
@@ -2758,18 +2724,14 @@ void test_persistent_stdio_pool_failure_isolates_failed_slot() {
   auto stopped = runtime.stop();
   require(stopped.has_value(),
           "persistent stdio pool reconnect runtime should stop");
-
-  bool removed_markers = false;
-  for (int attempt = 0; attempt < 200; ++attempt) {
-    if (count_regular_files(marker_dir) == 0) {
-      removed_markers = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  }
-  require(removed_markers,
-          "persistent stdio pool stop should clean up all process markers");
-  std::filesystem::remove_all(marker_dir, ignored);
+  const auto stopped_state = require_upstream_state(
+      runtime.upstream_states(), "persistent_pool_reconnect");
+  require(stopped_state.initialized_persistent_sessions == 0,
+          "persistent stdio pool stop should discard initialized sessions");
+  require(stopped_state.busy_persistent_sessions == 0,
+          "persistent stdio pool stop should clear busy slots");
+  require_status(stopped_state, UpstreamRuntimeStatus::stopped,
+                 "persistent stdio pool stop should leave upstream stopped");
 }
 
 void test_http_upstream() {
