@@ -611,15 +611,19 @@ The current MVP baseline has verified coverage for:
     the capability snapshot captured at `start_http()`.
 14. Explicit capability refresh API: hosts can call
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
-    initialize upstream capability caches without fetching catalogs or routing
-    a data-plane request.
-15. Current local Release performance baseline recorded in
+    initialize upstream capability caches, clear cached aggregate catalogs,
+    and avoid routing a data-plane request.
+15. Runtime catalog cache: successful aggregate tools/resources/templates/
+    prompts catalog lists are cached until explicit invalidation, capability
+    refresh, or runtime recreation, while cache misses retain concurrent
+    multi-upstream fan-out and whole-request failure semantics.
+16. Current local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
-16. Basic runtime observability hooks: library consumers can install a
+17. Basic runtime observability hooks: library consumers can install a
     `GatewayRuntimeObserver` to receive runtime lifecycle and upstream status
     events without adding a logging framework dependency to core or runtime.
-17. Release-readiness checklist documented in
+18. Release-readiness checklist documented in
     [`release_checklist.md`](release_checklist.md), including package
     consumption, component install, SDK revision, performance evidence, and
     public-contract gates.

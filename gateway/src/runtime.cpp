@@ -153,6 +153,13 @@ core::Result<ClientPeer> build_client_peer(const UpstreamServer& upstream) {
 }  // namespace
 
 struct GatewayRuntime::Impl final {
+  struct CatalogCache {
+    std::optional<std::vector<protocol::ToolDefinition>> tools;
+    std::optional<std::vector<protocol::Resource>> resources;
+    std::optional<std::vector<protocol::ResourceTemplate>> resource_templates;
+    std::optional<std::vector<protocol::Prompt>> prompts;
+  };
+
   explicit Impl(GatewayConfig config, GatewayRuntimeOptions options)
       : router(std::move(config)), observer(std::move(options.observer)) {
     for (const auto& upstream : router.config().upstreams) {
@@ -170,6 +177,8 @@ struct GatewayRuntime::Impl final {
   mutable std::mutex upstream_state_mutex;
   std::condition_variable upstream_idle_cv;
   std::unordered_map<std::string, UpstreamRuntimeState> upstream_states;
+  mutable std::mutex catalog_cache_mutex;
+  CatalogCache catalog_cache;
   GatewayRuntimeObserver observer;
   bool stopping = false;
   bool stopped = false;
@@ -407,6 +416,62 @@ struct GatewayRuntime::Impl final {
     return gateway_server_capabilities(router.config(), upstream_states);
   }
 
+  std::optional<std::vector<protocol::ToolDefinition>> cached_tools() const {
+    std::lock_guard lock(catalog_cache_mutex);
+    return catalog_cache.tools;
+  }
+
+  std::optional<std::vector<protocol::Resource>> cached_resources() const {
+    std::lock_guard lock(catalog_cache_mutex);
+    return catalog_cache.resources;
+  }
+
+  std::optional<std::vector<protocol::ResourceTemplate>>
+  cached_resource_templates() const {
+    std::lock_guard lock(catalog_cache_mutex);
+    return catalog_cache.resource_templates;
+  }
+
+  std::optional<std::vector<protocol::Prompt>> cached_prompts() const {
+    std::lock_guard lock(catalog_cache_mutex);
+    return catalog_cache.prompts;
+  }
+
+  void store_tools(std::vector<protocol::ToolDefinition> tools) {
+    std::lock_guard lock(catalog_cache_mutex);
+    catalog_cache.tools = std::move(tools);
+  }
+
+  void store_resources(std::vector<protocol::Resource> resources) {
+    std::lock_guard lock(catalog_cache_mutex);
+    catalog_cache.resources = std::move(resources);
+  }
+
+  void store_resource_templates(
+      std::vector<protocol::ResourceTemplate> resource_templates) {
+    std::lock_guard lock(catalog_cache_mutex);
+    catalog_cache.resource_templates = std::move(resource_templates);
+  }
+
+  void store_prompts(std::vector<protocol::Prompt> prompts) {
+    std::lock_guard lock(catalog_cache_mutex);
+    catalog_cache.prompts = std::move(prompts);
+  }
+
+  void clear_cached_catalogs_unchecked() {
+    std::lock_guard lock(catalog_cache_mutex);
+    catalog_cache = CatalogCache{};
+  }
+
+  core::Result<core::Unit> clear_cached_catalogs() {
+    auto accepting = ensure_runtime_accepting("clear_cached_catalogs");
+    if (!accepting) {
+      return mcp::core::unexpected(accepting.error());
+    }
+    clear_cached_catalogs_unchecked();
+    return core::Unit{};
+  }
+
   template <class Result, class Fn>
   core::Result<Result> with_initialized_upstream(
       const UpstreamServer& upstream, Fn&& fn) {
@@ -497,6 +562,9 @@ struct GatewayRuntime::Impl final {
     if (!valid) {
       return mcp::core::unexpected(valid.error());
     }
+    if (auto cached = cached_tools()) {
+      return *cached;
+    }
 
     std::vector<UpstreamToolCatalog> catalogs;
     struct PendingCatalog {
@@ -542,7 +610,11 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(*first_error);
     }
 
-    return merge_tool_catalogs(catalogs);
+    auto merged = merge_tool_catalogs(catalogs);
+    if (merged) {
+      store_tools(*merged);
+    }
+    return merged;
   }
 
   core::Result<protocol::ToolResult> call_tool(
@@ -584,6 +656,9 @@ struct GatewayRuntime::Impl final {
     auto valid = router.validate_config();
     if (!valid) {
       return mcp::core::unexpected(valid.error());
+    }
+    if (auto cached = cached_resources()) {
+      return *cached;
     }
 
     std::vector<UpstreamResourceCatalog> catalogs;
@@ -631,7 +706,11 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(*first_error);
     }
 
-    return merge_resource_catalogs(catalogs);
+    auto merged = merge_resource_catalogs(catalogs);
+    if (merged) {
+      store_resources(*merged);
+    }
+    return merged;
   }
 
   core::Result<protocol::ResourcesReadResult> read_resource(
@@ -682,6 +761,9 @@ struct GatewayRuntime::Impl final {
     if (!valid) {
       return mcp::core::unexpected(valid.error());
     }
+    if (auto cached = cached_resource_templates()) {
+      return *cached;
+    }
 
     std::vector<UpstreamResourceTemplateCatalog> catalogs;
     struct PendingCatalog {
@@ -729,7 +811,11 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(*first_error);
     }
 
-    return merge_resource_template_catalogs(catalogs);
+    auto merged = merge_resource_template_catalogs(catalogs);
+    if (merged) {
+      store_resource_templates(*merged);
+    }
+    return merged;
   }
 
   core::Result<std::vector<protocol::Prompt>> list_prompts() {
@@ -741,6 +827,9 @@ struct GatewayRuntime::Impl final {
     auto valid = router.validate_config();
     if (!valid) {
       return mcp::core::unexpected(valid.error());
+    }
+    if (auto cached = cached_prompts()) {
+      return *cached;
     }
 
     std::vector<UpstreamPromptCatalog> catalogs;
@@ -788,7 +877,11 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(*first_error);
     }
 
-    return merge_prompt_catalogs(catalogs);
+    auto merged = merge_prompt_catalogs(catalogs);
+    if (merged) {
+      store_prompts(*merged);
+    }
+    return merged;
   }
 
   core::Result<core::Unit> refresh_upstream_capabilities() {
@@ -801,6 +894,7 @@ struct GatewayRuntime::Impl final {
     if (!valid) {
       return mcp::core::unexpected(valid.error());
     }
+    clear_cached_catalogs_unchecked();
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
@@ -1090,6 +1184,10 @@ std::optional<protocol::JsonRpcResponse> GatewayRuntime::handle_request(
 
 std::vector<UpstreamRuntimeState> GatewayRuntime::upstream_states() const {
   return impl_->snapshot_upstream_states();
+}
+
+core::Result<core::Unit> GatewayRuntime::clear_cached_catalogs() {
+  return impl_->clear_cached_catalogs();
 }
 
 core::Result<core::Unit> GatewayRuntime::refresh_upstream_capabilities() {

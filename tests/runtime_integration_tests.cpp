@@ -2487,6 +2487,105 @@ void test_multi_upstream_tools_list_starts_upstreams_concurrently() {
           "second parallel listed upstream should clear active calls");
 }
 
+void test_tools_list_uses_cached_catalog_until_cleared() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "cached";
+  config.upstreams.front().process_stdio.args = {"--startup-delay-ms", "500"};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_cached_list_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto first = runtime.list_tools();
+  require(first.has_value(), "initial tools/list should populate cache");
+  require(has_tool(*first, "cached.echo"),
+          "initial tools/list should include upstream tool");
+
+  for (int attempt = 0; attempt < 200 && std::filesystem::exists(marker_path);
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(!std::filesystem::exists(marker_path),
+          "initial cached-list upstream process should be cleaned up");
+
+  std::atomic_bool second_done = false;
+  std::exception_ptr second_error;
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.list_tools();
+      require(second.has_value(), "cached tools/list should succeed");
+      require(has_tool(*second, "cached.echo"),
+              "cached tools/list should include upstream tool");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+    second_done = true;
+  });
+
+  bool observed_second_marker = false;
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_second_marker = true;
+      break;
+    }
+    if (second_done.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  second_worker.join();
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  require(!observed_second_marker,
+          "cached tools/list should not start a new upstream process");
+
+  auto cleared = runtime.clear_cached_catalogs();
+  require(cleared.has_value(), "clear_cached_catalogs should succeed");
+
+  std::atomic_bool third_done = false;
+  std::exception_ptr third_error;
+  std::thread third_worker([&] {
+    try {
+      auto third = runtime.list_tools();
+      require(third.has_value(),
+              "tools/list after clearing cache should succeed");
+      require(has_tool(*third, "cached.echo"),
+              "tools/list after clearing cache should include upstream tool");
+    } catch (...) {
+      third_error = std::current_exception();
+    }
+    third_done = true;
+  });
+
+  bool observed_third_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_third_marker = true;
+      break;
+    }
+    if (third_done.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  third_worker.join();
+  if (third_error) {
+    std::rethrow_exception(third_error);
+  }
+  require(observed_third_marker,
+          "tools/list after clearing cache should start upstream again");
+}
+
 void test_cancellation_and_progress_notifications_are_local_noops() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "notify";
@@ -4261,6 +4360,7 @@ int main() {
     test_concurrent_http_calls_update_active_state();
     test_concurrent_stdio_calls_to_one_upstream();
     test_multi_upstream_tools_list_starts_upstreams_concurrently();
+    test_tools_list_uses_cached_catalog_until_cleared();
     test_cancellation_and_progress_notifications_are_local_noops();
     test_runtime_stop_waits_for_active_stdio_call();
     test_runtime_stop_waits_for_active_http_call();

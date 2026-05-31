@@ -98,6 +98,7 @@ class GatewayRuntime final {
   std::optional<protocol::JsonRpcResponse> handle_request(
       const protocol::JsonRpcRequest& request);
   std::vector<UpstreamRuntimeState> upstream_states() const;
+  core::Result<core::Unit> clear_cached_catalogs();
   core::Result<core::Unit> refresh_upstream_capabilities();
   protocol::ServerCapabilities server_capabilities() const;
 

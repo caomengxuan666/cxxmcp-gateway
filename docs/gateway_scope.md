@@ -363,11 +363,18 @@ of failing an advertised aggregate because of a capability-negative upstream.
 Routed calls to a capability-negative upstream are rejected by the gateway
 without opening a new upstream session.
 
+Catalog listing methods cache successful aggregate results inside the runtime.
+Repeated `tools/list`, `resources/list`, `resources/templates/list`, and
+`prompts/list` calls return the cached aggregate until the host calls
+`GatewayRuntime::clear_cached_catalogs()`, refreshes upstream capabilities, or
+recreates the runtime. The gateway does not advertise or forward list-changed
+notifications in the MVP, so cache invalidation is an explicit host decision.
+
 Hosts that need narrowed advertisement before starting a hosted endpoint can
 call `GatewayRuntime::refresh_upstream_capabilities()`. That API is explicitly
 side-effecting: it initializes enabled upstreams, records their advertised
-capabilities in runtime state, and does not fetch catalogs or route data-plane
-requests.
+capabilities in runtime state, clears cached aggregate catalogs, and does not
+fetch catalogs or route data-plane requests.
 
 Hosted HTTP endpoints use the capability snapshot captured by
 `GatewayRuntime::start_http()`. Capability discovery after the hosted endpoint
