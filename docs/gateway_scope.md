@@ -498,11 +498,17 @@ constraint, not the final model. Phase 1 must document this limitation, and
 Phase 2 must decide whether upstream sessions are per-call, pooled, or
 configurable.
 
-The current Phase 2 decision is explicit per-call upstream sessions. Each
+The default Phase 2 decision is explicit per-call upstream sessions. Each
 upstream list or call operation creates, initializes, uses, and stops its own
 upstream SDK service. This keeps ownership simple while the data-plane behavior
-is validated. Pooling or reuse can be added later behind the runtime boundary
-when its latency and shutdown tradeoffs are tested.
+is validated.
+
+Hosts that need lower repeated-call latency can opt into persistent upstream
+sessions through `GatewayRuntimeOptions`. The current persistent mode lazily
+keeps one initialized session per upstream, serializes calls to the same
+upstream, reuses initialized capabilities, and closes retained sessions during
+`GatewayRuntime::stop()`. It is not a general connection pool and does not
+change the default per-call behavior.
 Both Streamable HTTP and process-stdio upstreams support a configured
 per-operation timeout; timeout failures are normalized as gateway upstream
 timeout errors.
@@ -514,20 +520,21 @@ This reduces multi-upstream catalog latency without changing the per-call
 session model for an individual upstream operation.
 
 The runtime exposes an upstream state snapshot for hosts and future admin APIs.
-The current per-call implementation reports configured upstreams, marks an
+The current implementation reports configured upstreams, marks an
 upstream `connecting`/`initialized` during a call, records initialized upstream
 capabilities, marks successful calls `healthy`, marks failed calls `degraded`
 with the last gateway-normalized error, exposes the number of active in-flight
 upstream calls, and marks upstreams `stopping`/`stopped` during runtime
-shutdown. This is an observable lifecycle contract; it is not yet a pooled
-connection manager.
+shutdown. This is an observable lifecycle contract; persistent mode is one
+session per upstream, not a pooled connection manager.
 
-`GatewayRuntime::stop()` is graceful for the current per-call model: it stops
+`GatewayRuntime::stop()` is graceful for the current lifecycle model: it stops
 the hosted downstream endpoint, rejects new upstream operations, waits for
-already active upstream calls to finish, and then marks upstreams `stopped`. It
-does not yet cancel or interrupt an active upstream call. In the current
-lifecycle model, `stopped` is terminal for a runtime instance; hosts should
-construct a new `GatewayRuntime` to restart the data plane.
+already active upstream calls to finish, closes any persistent upstream
+sessions, and then marks upstreams `stopped`. It does not yet cancel or
+interrupt an active upstream call. In the current lifecycle model, `stopped` is
+terminal for a runtime instance; hosts should construct a new `GatewayRuntime`
+to restart the data plane.
 
 The raw JSON-RPC entry point follows the same lifecycle boundary for
 gateway-routed methods. After `stop()`, routed requests such as `tools/list`,

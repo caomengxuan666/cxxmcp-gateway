@@ -53,6 +53,10 @@ mcp::gateway::GatewayRuntime runtime(std::move(config));
 Hosts that need observability can install a `GatewayRuntimeObserver` through
 `GatewayRuntimeOptions`. Observer callbacks receive runtime lifecycle and
 upstream status events and do not require a logging framework dependency.
+Repeated upstream calls use explicit per-call sessions by default. Hosts that
+prefer lower repeated-call latency over the simplest lifecycle can opt into one
+persistent session per upstream with
+`GatewayRuntimeOptions::upstream_session_mode`.
 
 ## Build
 

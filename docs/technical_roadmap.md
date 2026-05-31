@@ -573,8 +573,9 @@ The current MVP baseline has verified coverage for:
 7. Gateway error mapping for routing, transport, timeout, protocol, and
    upstream MCP failures, including direct coverage for gateway-owned error
    construction and upstream error annotation.
-8. Runtime lifecycle decision: explicit per-call upstream sessions, with
-   initialized upstream capabilities recorded in runtime state.
+8. Runtime lifecycle decision: default explicit per-call upstream sessions,
+   plus opt-in persistent one-session-per-upstream mode, with initialized
+   upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
    to one upstream, concurrent calls to multiple upstreams, concurrent
    multi-upstream catalog list fan-out, idle shutdown,
@@ -585,8 +586,9 @@ The current MVP baseline has verified coverage for:
    capability refresh, raw JSON-RPC post-stop rejection for routed methods
    while SDK-owned lifecycle and liveness methods remain delegated,
    hosted endpoint option validation, wait-before-start rejection,
-   cancellation/progress notification no-ops, and stdio child cleanup after
-   successful per-call sessions and on stop.
+   cancellation/progress notification no-ops, stdio child cleanup after
+   successful per-call sessions and on stop, and persistent stdio session reuse
+   with cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported

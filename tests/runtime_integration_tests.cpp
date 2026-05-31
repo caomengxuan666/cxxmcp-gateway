@@ -1946,6 +1946,115 @@ void test_repeated_stdio_calls_to_one_upstream() {
           "cleaned up");
 }
 
+void test_persistent_stdio_session_reuses_upstream_process() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto first = runtime.call_tool("persistent.echo", Json{{"value", "first"}});
+  require(first.has_value(), "first persistent stdio call should succeed");
+  require_text_result(*first, "first");
+  require(std::filesystem::exists(marker_path),
+          "persistent stdio session should keep upstream process alive after "
+          "first call");
+
+  auto first_state =
+      require_upstream_state(runtime.upstream_states(), "persistent");
+  require(first_state.active_calls == 0,
+          "persistent first call should leave no active upstream calls");
+  require_status(first_state, UpstreamRuntimeStatus::healthy,
+                 "persistent first call should leave upstream healthy");
+
+  auto second =
+      runtime.call_tool("persistent.echo", Json{{"value", "second"}});
+  require(second.has_value(), "second persistent stdio call should succeed");
+  require_text_result(*second, "second");
+  require(std::filesystem::exists(marker_path),
+          "persistent stdio session should reuse the existing upstream "
+          "process for repeated calls");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "persistent runtime should stop");
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent runtime stop should clean up upstream process");
+}
+
+void test_persistent_capability_refresh_prewarms_stdio_session() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "prewarm";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_prewarm_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto refreshed = runtime.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "persistent capability refresh should initialize upstream");
+  require(std::filesystem::exists(marker_path),
+          "persistent capability refresh should keep stdio session alive");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "prewarm");
+  require(state.capabilities.has_value(),
+          "persistent capability refresh should record capabilities");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent capability refresh should leave upstream healthy");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "persistent prewarm runtime should stop");
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent prewarm stop should clean up upstream process");
+}
+
 void test_http_upstream() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -4368,6 +4477,8 @@ int main() {
     test_completion_routes_to_stdio_upstream();
     test_hosted_completion_routes_after_capability_refresh();
     test_repeated_stdio_calls_to_one_upstream();
+    test_persistent_stdio_session_reuses_upstream_process();
+    test_persistent_capability_refresh_prewarms_stdio_session();
     test_http_upstream();
     test_http_unavailable();
     test_http_malformed_response_before_initialize();

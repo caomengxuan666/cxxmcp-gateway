@@ -63,8 +63,14 @@ struct GatewayRuntimeEvent {
 using GatewayRuntimeObserver =
     std::function<void(const GatewayRuntimeEvent& event)>;
 
+enum class UpstreamSessionMode {
+  per_call,
+  persistent,
+};
+
 struct GatewayRuntimeOptions {
   GatewayRuntimeObserver observer;
+  UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
 };
 
 class GatewayRuntime final {
