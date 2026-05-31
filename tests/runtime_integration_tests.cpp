@@ -819,6 +819,21 @@ void test_first_call_upstream_mcp_error_records_capabilities() {
   require(capabilities.completions.enabled,
           "retained capabilities should enable completion advertisement");
   require_mvp_server_capability_json_shape(capabilities, true);
+
+  auto recovered =
+      runtime.call_tool("stdio.echo", Json{{"value", "after-error"}});
+  require(recovered.has_value(),
+          "successful call after upstream MCP error should recover");
+  require_text_result(*recovered, "after-error");
+  const auto recovered_state =
+      require_upstream_state(runtime.upstream_states(), "stdio");
+  require_status(recovered_state, UpstreamRuntimeStatus::healthy,
+                 "successful call after upstream MCP error should mark "
+                 "upstream healthy");
+  require(!recovered_state.last_error.has_value(),
+          "successful call after upstream MCP error should clear last error");
+  require(recovered_state.capabilities.has_value(),
+          "successful recovery should keep initialized capabilities");
 }
 
 void test_stdio_upstream() {
