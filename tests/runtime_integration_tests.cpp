@@ -7,6 +7,8 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -350,6 +352,18 @@ bool has_resource_template(const std::vector<ResourceTemplate>& templates,
 bool has_prompt(const std::vector<Prompt>& prompts, std::string_view name) {
   return std::any_of(prompts.begin(), prompts.end(), [&](const auto& prompt) {
     return prompt.name == name;
+  });
+}
+
+bool has_runtime_event(
+    const std::vector<mcp::gateway::GatewayRuntimeEvent>& events,
+    mcp::gateway::GatewayRuntimeEventKind kind,
+    std::string_view upstream_id = {},
+    std::optional<UpstreamRuntimeStatus> status = std::nullopt) {
+  return std::any_of(events.begin(), events.end(), [&](const auto& event) {
+    return event.kind == kind &&
+           (upstream_id.empty() || event.upstream_id == upstream_id) &&
+           (!status.has_value() || event.upstream_status == *status);
   });
 }
 
@@ -1219,6 +1233,76 @@ void test_upstream_client_capabilities_are_minimal() {
           "client capability inspection should not leave active calls");
 }
 
+void test_runtime_observer_reports_status_without_logger_dependency() {
+  std::vector<mcp::gateway::GatewayRuntimeEvent> events;
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.observer = [&](const mcp::gateway::GatewayRuntimeEvent& event) {
+    events.push_back(event);
+  };
+
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config(),
+                                       std::move(options));
+
+  auto tools = runtime.list_tools();
+  require(tools.has_value(), "observed runtime tools/list should succeed");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::connecting),
+          "observer should see upstream connecting status");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::initialized),
+          "observer should see upstream initialized status");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::healthy),
+          "observer should see upstream healthy status");
+
+  auto failed = runtime.call_tool("stdio.fail", Json::object());
+  require(!failed.has_value(), "observed runtime upstream error should fail");
+  const auto degraded = std::find_if(
+      events.begin(), events.end(), [](const auto& event) {
+        return event.kind ==
+                   mcp::gateway::GatewayRuntimeEventKind::
+                       upstream_status_changed &&
+               event.upstream_id == "stdio" &&
+               event.upstream_status == UpstreamRuntimeStatus::degraded &&
+               event.error.has_value();
+      });
+  require(degraded != events.end(),
+          "observer should see degraded status with stable error");
+  require_gateway_upstream_error(*degraded->error, "stdio");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "observed runtime stop should succeed");
+  require(has_runtime_event(
+              events, mcp::gateway::GatewayRuntimeEventKind::runtime_stopping),
+          "observer should see runtime stopping event");
+  require(has_runtime_event(
+              events, mcp::gateway::GatewayRuntimeEventKind::runtime_stopped),
+          "observer should see runtime stopped event");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::stopped),
+          "observer should see upstream stopped status");
+
+  mcp::gateway::GatewayRuntimeOptions throwing_options;
+  throwing_options.observer =
+      [](const mcp::gateway::GatewayRuntimeEvent&) { throw std::runtime_error("ignored"); };
+  mcp::gateway::GatewayRuntime throwing_runtime(make_disabled_config("quiet"),
+                                                std::move(throwing_options));
+  auto quiet_tools = throwing_runtime.list_tools();
+  require(quiet_tools.has_value(),
+          "observer exceptions should not affect runtime operations");
+  auto quiet_stop = throwing_runtime.stop();
+  require(quiet_stop.has_value(),
+          "observer exceptions should not affect runtime shutdown");
+}
+
 void test_capability_advertisement_uses_initialized_upstream_cache() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "tools_only";
@@ -1285,6 +1369,22 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
   require_gateway_unsupported_capability_error(unsupported.error(),
                                               "tools_only");
 
+  const auto unsupported_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "tools_only", "file:///fixture/readme.txt");
+  auto unsupported_resource = runtime.read_resource(unsupported_resource_uri);
+  require(!unsupported_resource.has_value(),
+          "tools-only upstream resource read should be rejected by gateway");
+  require_gateway_unsupported_capability_error(unsupported_resource.error(),
+                                              "tools_only");
+
+  auto unsupported_prompt =
+      runtime.get_prompt("tools_only.summarize", Json{{"text", "fixture"}});
+  require(!unsupported_prompt.has_value(),
+          "tools-only upstream prompt get should be rejected by gateway");
+  require_gateway_unsupported_capability_error(unsupported_prompt.error(),
+                                              "tools_only");
+
   const auto after_unsupported =
       require_upstream_state(runtime.upstream_states(), "tools_only");
   require_status(after_unsupported, UpstreamRuntimeStatus::healthy,
@@ -1294,10 +1394,14 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
           "unsupported completion should retain initialized capabilities");
   require(!after_unsupported.capabilities->completions.enabled,
           "unsupported completion should retain completion-negative cache");
+  require(!after_unsupported.capabilities->resources.enabled,
+          "unsupported resource should retain resource-negative cache");
+  require(!after_unsupported.capabilities->prompts.enabled,
+          "unsupported prompt should retain prompt-negative cache");
   require(!after_unsupported.last_error.has_value(),
-          "unsupported completion should not record an upstream error");
+          "unsupported capability checks should not record an upstream error");
   require(after_unsupported.active_calls == 0,
-          "unsupported completion should not leave active calls");
+          "unsupported capability checks should not leave active calls");
 
   auto tools = runtime.list_tools();
   require(tools.has_value(), "tools-only upstream tools/list should succeed");
@@ -1399,6 +1503,46 @@ void test_capability_advertisement_unions_multiple_upstream_caches() {
   require(!after.tasks.has_value(),
           "multi-upstream capability union should not advertise tasks");
   require_mvp_server_capability_json_shape(after, true);
+
+  auto listed_tools = runtime.list_tools();
+  require(listed_tools.has_value(),
+          "capability-aware tools/list should keep tools-capable upstreams");
+  require(has_tool(*listed_tools, "full.echo"),
+          "tools/list should include full upstream tool");
+  require(has_tool(*listed_tools, "tools_only.echo"),
+          "tools/list should include tools-only upstream tool");
+
+  auto listed_resources = runtime.list_resources();
+  require(listed_resources.has_value(),
+          "capability-aware resources/list should skip tools-only upstream");
+  require(has_resource(*listed_resources,
+                       mcp::gateway::GatewayRouter::expose_resource_uri(
+                           "full", "file:///fixture/readme.txt")),
+          "resources/list should include resource-capable upstream");
+
+  auto listed_templates = runtime.list_resource_templates();
+  require(listed_templates.has_value(),
+          "capability-aware resources/templates/list should skip tools-only "
+          "upstream");
+  require(has_resource_template(
+              *listed_templates,
+              mcp::gateway::GatewayRouter::expose_resource_template_uri(
+                  "full", "file:///fixture/{path}")),
+          "resources/templates/list should include resource-capable upstream");
+
+  auto listed_prompts = runtime.list_prompts();
+  require(listed_prompts.has_value(),
+          "capability-aware prompts/list should skip tools-only upstream");
+  require(has_prompt(*listed_prompts, "full.summarize"),
+          "prompts/list should include prompt-capable upstream");
+
+  const auto after_listing = runtime.upstream_states();
+  const auto listed_tools_only =
+      require_upstream_state(after_listing, "tools_only");
+  require_status(listed_tools_only, UpstreamRuntimeStatus::healthy,
+                 "skipped capability-negative upstream should stay healthy");
+  require(!listed_tools_only.last_error.has_value(),
+          "skipped capability-negative upstream should not record errors");
 }
 
 void test_hosted_capability_advertisement_uses_refresh_cache() {
@@ -4044,6 +4188,7 @@ int main() {
     test_first_call_upstream_mcp_error_records_capabilities();
     test_stdio_upstream();
     test_upstream_client_capabilities_are_minimal();
+    test_runtime_observer_reports_status_without_logger_dependency();
     test_capability_advertisement_uses_initialized_upstream_cache();
     test_capability_advertisement_unions_multiple_upstream_caches();
     test_hosted_capability_advertisement_uses_refresh_cache();

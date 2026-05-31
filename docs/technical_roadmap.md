@@ -232,7 +232,7 @@ Scope:
 
 - validate upstream ids and duplicate ids at startup;
 - define stable exposed-name rules;
-- aggregate `tools/list` from all enabled upstreams;
+- aggregate `tools/list` from all enabled, tool-capable upstreams;
 - preserve upstream metadata;
 - route `tools/call`;
 - normalize gateway errors;
@@ -252,15 +252,15 @@ Supported MCP method matrix for Phase 1:
 | -------------------- | ---------------- |
 | `initialize` | SDK-owned downstream lifecycle; gateway capabilities must match routed methods |
 | `ping` | SDK-owned |
-| `tools/list` | Aggregated from enabled upstreams |
+| `tools/list` | Aggregated from enabled, tool-capable upstreams |
 | `tools/call` | Routed by exposed tool name |
 | `notifications/initialized` | SDK-owned |
 | `notifications/tools/list_changed` | Not advertised and not forwarded in MVP |
-| `resources/list` | Aggregated from enabled upstreams with gateway-owned resource URIs |
+| `resources/list` | Aggregated from enabled, resource-capable upstreams with gateway-owned resource URIs |
 | `resources/read` | Routed by gateway resource URI |
-| `resources/templates/list` | Aggregated from enabled upstreams with gateway-owned resource URI templates |
+| `resources/templates/list` | Aggregated from enabled, resource-capable upstreams with gateway-owned resource URI templates |
 | resource subscriptions/listChanged/updated | Not advertised and not forwarded in MVP |
-| `prompts/list` | Aggregated from enabled upstreams |
+| `prompts/list` | Aggregated from enabled, prompt-capable upstreams |
 | `prompts/get` | Routed by exposed prompt name |
 | `notifications/prompts/list_changed` | Not advertised and not forwarded in MVP |
 | tasks | Not advertised unless SDK and gateway routing support exist |
@@ -512,6 +512,8 @@ Scope:
 
 Current operational gates are documented in
 [`operational_gates.md`](operational_gates.md).
+The release-candidate checklist is documented in
+[`release_checklist.md`](release_checklist.md).
 
 Exit criteria:
 
@@ -603,7 +605,9 @@ The current MVP baseline has verified coverage for:
     discovery, narrows tools/resources/prompts plus completion advertisement
     once all enabled upstream capability records are cached, and unions
     advertised capability families across multiple initialized upstream caches;
-    hosted endpoints retain the capability snapshot captured at `start_http()`.
+    capability-negative upstreams are skipped for cached aggregate catalog
+    listing and rejected locally for routed operations; hosted endpoints retain
+    the capability snapshot captured at `start_http()`.
 14. Explicit capability refresh API: hosts can call
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
     initialize upstream capability caches without fetching catalogs or routing
@@ -611,6 +615,13 @@ The current MVP baseline has verified coverage for:
 15. Current local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
+16. Basic runtime observability hooks: library consumers can install a
+    `GatewayRuntimeObserver` to receive runtime lifecycle and upstream status
+    events without adding a logging framework dependency to core or runtime.
+17. Release-readiness checklist documented in
+    [`release_checklist.md`](release_checklist.md), including package
+    consumption, component install, SDK revision, performance evidence, and
+    public-contract gates.
 
 ## Remaining Near-Term Backlog
 

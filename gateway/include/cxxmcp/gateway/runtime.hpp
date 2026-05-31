@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -45,9 +46,31 @@ struct HttpEndpoint {
   std::string path = "/mcp";
 };
 
+enum class GatewayRuntimeEventKind {
+  upstream_status_changed,
+  runtime_stopping,
+  runtime_stopped,
+};
+
+struct GatewayRuntimeEvent {
+  GatewayRuntimeEventKind kind =
+      GatewayRuntimeEventKind::upstream_status_changed;
+  std::string upstream_id;
+  UpstreamRuntimeStatus upstream_status = UpstreamRuntimeStatus::configured;
+  std::optional<core::Error> error;
+};
+
+using GatewayRuntimeObserver =
+    std::function<void(const GatewayRuntimeEvent& event)>;
+
+struct GatewayRuntimeOptions {
+  GatewayRuntimeObserver observer;
+};
+
 class GatewayRuntime final {
  public:
   explicit GatewayRuntime(GatewayConfig config);
+  GatewayRuntime(GatewayConfig config, GatewayRuntimeOptions options);
   ~GatewayRuntime();
 
   GatewayRuntime(const GatewayRuntime&) = delete;

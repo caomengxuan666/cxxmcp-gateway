@@ -56,6 +56,34 @@ expect_guard_failure(
     "cmake_minimum_required(VERSION 3.24)\n# CLI11\n"
     "forbidden legacy dependency")
 
+set(cmake_template_case_dir "${fixture_root}/cmake_template")
+file(REMOVE_RECURSE "${cmake_template_case_dir}")
+file(MAKE_DIRECTORY "${cmake_template_case_dir}/cmake")
+file(WRITE "${cmake_template_case_dir}/CMakeLists.txt"
+    "cmake_minimum_required(VERSION 3.24)\n")
+file(WRITE "${cmake_template_case_dir}/README.md" "clean\n")
+file(WRITE "${cmake_template_case_dir}/cmake/package.cmake.in"
+    "# generated template with trailing whitespace \n")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+        -DCXXMCP_GATEWAY_SOURCE_DIR=${cmake_template_case_dir}
+        -P "${guard_script}"
+    RESULT_VARIABLE cmake_template_result
+    OUTPUT_VARIABLE cmake_template_stdout
+    ERROR_VARIABLE cmake_template_stderr)
+if(cmake_template_result EQUAL 0)
+    message(FATAL_ERROR
+        "source hygiene guard accepted cmake_template\n"
+        "stdout: ${cmake_template_stdout}\n"
+        "stderr: ${cmake_template_stderr}")
+endif()
+if(NOT cmake_template_stderr MATCHES "trailing whitespace")
+    message(FATAL_ERROR
+        "source hygiene guard did not report cmake template whitespace\n"
+        "stdout: ${cmake_template_stdout}\n"
+        "stderr: ${cmake_template_stderr}")
+endif()
+
 set(legacy_path_case_dir "${fixture_root}/legacy_path")
 file(REMOVE_RECURSE "${legacy_path_case_dir}")
 file(MAKE_DIRECTORY "${legacy_path_case_dir}/runtime/include")

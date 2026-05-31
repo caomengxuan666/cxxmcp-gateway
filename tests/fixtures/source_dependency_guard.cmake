@@ -46,7 +46,8 @@ endif()
 if(EXISTS "${CXXMCP_GATEWAY_SOURCE_DIR}/cmake")
     file(GLOB_RECURSE cmake_sources
         LIST_DIRECTORIES false
-        "${CXXMCP_GATEWAY_SOURCE_DIR}/cmake/*.cmake")
+        "${CXXMCP_GATEWAY_SOURCE_DIR}/cmake/*.cmake"
+        "${CXXMCP_GATEWAY_SOURCE_DIR}/cmake/*.cmake.in")
     list(APPEND scan_files ${cmake_sources})
     list(APPEND legacy_scan_files ${cmake_sources})
 endif()

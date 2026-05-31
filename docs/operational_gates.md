@@ -100,6 +100,14 @@ load. Do not compare Debug-build timings across releases.
 The current recorded release-candidate performance evidence is in
 [`release_baseline.md`](release_baseline.md).
 
+## Release Checklist
+
+Before cutting or tagging a release candidate, complete
+[`release_checklist.md`](release_checklist.md). The checklist is intentionally
+library-first: it validates package consumption, component installs, SDK
+revision evidence, performance evidence, and public contracts without adding
+GUI, daemon, policy, auth, or admin API gates.
+
 ## Non-Goals For This Gate
 
 This gate does not add:

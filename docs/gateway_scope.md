@@ -300,14 +300,14 @@ transport-specific connection fields are required.
 
 Current MVP:
 
-- `tools/list`: aggregated from enabled upstreams.
+- `tools/list`: aggregated from enabled, tool-capable upstreams.
 - `tools/call`: routed by exposed tool name.
-- `resources/list`: aggregated from enabled upstreams with gateway-owned
-  resource URIs.
+- `resources/list`: aggregated from enabled, resource-capable upstreams with
+  gateway-owned resource URIs.
 - `resources/read`: routed by gateway resource URI.
-- `resources/templates/list`: aggregated from enabled upstreams with
-  gateway-owned resource URI templates.
-- `prompts/list`: aggregated from enabled upstreams.
+- `resources/templates/list`: aggregated from enabled, resource-capable
+  upstreams with gateway-owned resource URI templates.
+- `prompts/list`: aggregated from enabled, prompt-capable upstreams.
 - `prompts/get`: routed by exposed prompt name.
 - `completion/complete`: routed for gateway prompt names and gateway resource
   template URIs when the target upstream supports completion.
@@ -357,6 +357,11 @@ all enabled upstreams have initialized capability records in runtime state, the
 same method narrows `tools`, `resources`, and `prompts` advertisement and adds
 `completion` advertisement from the families actually advertised by those
 upstreams. Unsupported families such as tasks remain unadvertised.
+When a complete capability cache is available, catalog listing methods skip
+enabled upstreams that explicitly do not support that catalog family instead
+of failing an advertised aggregate because of a capability-negative upstream.
+Routed calls to a capability-negative upstream are rejected by the gateway
+without opening a new upstream session.
 
 Hosts that need narrowed advertisement before starting a hosted endpoint can
 call `GatewayRuntime::refresh_upstream_capabilities()`. That API is explicitly

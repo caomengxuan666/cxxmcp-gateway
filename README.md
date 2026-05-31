@@ -30,6 +30,8 @@ See [Gateway Technical Roadmap](docs/technical_roadmap.md) for the phased
 implementation path.
 See [Operational Gates](docs/operational_gates.md) for release-blocking checks,
 the supported CI matrix, and performance measurement expectations.
+See [Release Checklist](docs/release_checklist.md) for the release-candidate
+validation checklist.
 
 ## Use as a Library
 
@@ -47,6 +49,10 @@ mcp::gateway::GatewayRuntime runtime(std::move(config));
 (void)runtime.start_http({.host = "127.0.0.1", .port = 39931, .path = "/mcp"});
 (void)runtime.wait();
 ```
+
+Hosts that need observability can install a `GatewayRuntimeObserver` through
+`GatewayRuntimeOptions`. Observer callbacks receive runtime lifecycle and
+upstream status events and do not require a logging framework dependency.
 
 ## Build
 

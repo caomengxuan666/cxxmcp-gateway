@@ -152,7 +152,8 @@ core::Result<ClientPeer> build_client_peer(const UpstreamServer& upstream) {
 }  // namespace
 
 struct GatewayRuntime::Impl final {
-  explicit Impl(GatewayConfig config) : router(std::move(config)) {
+  explicit Impl(GatewayConfig config, GatewayRuntimeOptions options)
+      : router(std::move(config)), observer(std::move(options.observer)) {
     for (const auto& upstream : router.config().upstreams) {
       upstream_states.emplace(upstream.id,
                               UpstreamRuntimeState{
@@ -168,8 +169,45 @@ struct GatewayRuntime::Impl final {
   mutable std::mutex upstream_state_mutex;
   std::condition_variable upstream_idle_cv;
   std::unordered_map<std::string, UpstreamRuntimeState> upstream_states;
+  GatewayRuntimeObserver observer;
   bool stopping = false;
   bool stopped = false;
+
+  void notify_runtime_event(GatewayRuntimeEvent event) const noexcept {
+    if (!observer) {
+      return;
+    }
+    try {
+      observer(event);
+    } catch (...) {
+    }
+  }
+
+  void notify_upstream_status(
+      std::string_view upstream_id, UpstreamRuntimeStatus status,
+      std::optional<core::Error> error = std::nullopt) const noexcept {
+    notify_runtime_event(GatewayRuntimeEvent{
+        .kind = GatewayRuntimeEventKind::upstream_status_changed,
+        .upstream_id = std::string(upstream_id),
+        .upstream_status = status,
+        .error = std::move(error),
+    });
+  }
+
+  void notify_runtime_lifecycle(GatewayRuntimeEventKind kind,
+                                UpstreamRuntimeStatus status) const noexcept {
+    notify_runtime_event(GatewayRuntimeEvent{
+        .kind = kind,
+        .upstream_status = status,
+    });
+  }
+
+  void notify_all_upstream_statuses(
+      UpstreamRuntimeStatus status) const noexcept {
+    for (const auto& upstream : router.config().upstreams) {
+      notify_upstream_status(upstream.id, status);
+    }
+  }
 
   core::Result<core::Unit> ensure_runtime_accepting(
       std::string_view operation) const {
@@ -194,8 +232,11 @@ struct GatewayRuntime::Impl final {
 
   void set_upstream_status(std::string_view upstream_id,
                            UpstreamRuntimeStatus status) {
-    std::lock_guard lock(upstream_state_mutex);
-    set_upstream_status_locked(upstream_id, status);
+    {
+      std::lock_guard lock(upstream_state_mutex);
+      set_upstream_status_locked(upstream_id, status);
+    }
+    notify_upstream_status(upstream_id, status);
   }
 
   core::Result<core::Unit> begin_upstream_call(std::string_view upstream_id) {
@@ -234,27 +275,116 @@ struct GatewayRuntime::Impl final {
   void mark_upstream_healthy(
       std::string_view upstream_id,
       std::optional<protocol::ServerCapabilities> capabilities) {
-    std::lock_guard lock(upstream_state_mutex);
-    auto& state = upstream_states[std::string(upstream_id)];
-    state.upstream_id = std::string(upstream_id);
-    state.status = UpstreamRuntimeStatus::healthy;
-    state.capabilities = std::move(capabilities);
-    state.last_error.reset();
+    {
+      std::lock_guard lock(upstream_state_mutex);
+      auto& state = upstream_states[std::string(upstream_id)];
+      state.upstream_id = std::string(upstream_id);
+      state.status = UpstreamRuntimeStatus::healthy;
+      state.capabilities = std::move(capabilities);
+      state.last_error.reset();
+    }
+    notify_upstream_status(upstream_id, UpstreamRuntimeStatus::healthy);
   }
 
   core::Error mark_upstream_degraded(
       std::string_view upstream_id, core::Error error,
       std::optional<protocol::ServerCapabilities> capabilities =
           std::nullopt) {
-    std::lock_guard lock(upstream_state_mutex);
-    auto& state = upstream_states[std::string(upstream_id)];
-    state.upstream_id = std::string(upstream_id);
-    state.status = UpstreamRuntimeStatus::degraded;
-    if (capabilities.has_value()) {
-      state.capabilities = std::move(capabilities);
+    {
+      std::lock_guard lock(upstream_state_mutex);
+      auto& state = upstream_states[std::string(upstream_id)];
+      state.upstream_id = std::string(upstream_id);
+      state.status = UpstreamRuntimeStatus::degraded;
+      if (capabilities.has_value()) {
+        state.capabilities = std::move(capabilities);
+      }
+      state.last_error = error;
     }
-    state.last_error = error;
+    auto observed_error = error;
+    notify_upstream_status(upstream_id, UpstreamRuntimeStatus::degraded,
+                           std::move(observed_error));
     return error;
+  }
+
+  std::optional<protocol::ServerCapabilities> cached_capabilities(
+      std::string_view upstream_id) const {
+    std::lock_guard lock(upstream_state_mutex);
+    const auto it = upstream_states.find(std::string(upstream_id));
+    if (it == upstream_states.end()) {
+      return std::nullopt;
+    }
+    return it->second.capabilities;
+  }
+
+  bool has_complete_capability_cache() const {
+    std::lock_guard lock(upstream_state_mutex);
+    for (const auto& upstream : router.config().upstreams) {
+      if (!upstream.enabled) {
+        continue;
+      }
+      const auto it = upstream_states.find(upstream.id);
+      if (it == upstream_states.end() || !it->second.capabilities.has_value()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool should_list_tools_for(const UpstreamServer& upstream) const {
+    if (!has_complete_capability_cache()) {
+      return true;
+    }
+    const auto capabilities = cached_capabilities(upstream.id);
+    return capabilities.has_value() && capabilities->tools.enabled;
+  }
+
+  bool should_list_resources_for(const UpstreamServer& upstream) const {
+    if (!has_complete_capability_cache()) {
+      return true;
+    }
+    const auto capabilities = cached_capabilities(upstream.id);
+    return capabilities.has_value() && capabilities->resources.enabled;
+  }
+
+  bool should_list_prompts_for(const UpstreamServer& upstream) const {
+    if (!has_complete_capability_cache()) {
+      return true;
+    }
+    const auto capabilities = cached_capabilities(upstream.id);
+    return capabilities.has_value() && capabilities->prompts.enabled;
+  }
+
+  core::Result<core::Unit> require_tool_capability(
+      const UpstreamServer& upstream) const {
+    const auto capabilities = cached_capabilities(upstream.id);
+    if (capabilities.has_value() && !capabilities->tools.enabled) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::MethodNotFound,
+          "gateway upstream does not support tools", upstream.id));
+    }
+    return core::Unit{};
+  }
+
+  core::Result<core::Unit> require_resource_capability(
+      const UpstreamServer& upstream) const {
+    const auto capabilities = cached_capabilities(upstream.id);
+    if (capabilities.has_value() && !capabilities->resources.enabled) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::MethodNotFound,
+          "gateway upstream does not support resources", upstream.id));
+    }
+    return core::Unit{};
+  }
+
+  core::Result<core::Unit> require_prompt_capability(
+      const UpstreamServer& upstream) const {
+    const auto capabilities = cached_capabilities(upstream.id);
+    if (capabilities.has_value() && !capabilities->prompts.enabled) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::MethodNotFound,
+          "gateway upstream does not support prompts", upstream.id));
+    }
+    return core::Unit{};
   }
 
   std::vector<UpstreamRuntimeState> snapshot_upstream_states() const {
@@ -373,6 +503,9 @@ struct GatewayRuntime::Impl final {
       if (!upstream.enabled) {
         continue;
       }
+      if (!should_list_tools_for(upstream)) {
+        continue;
+      }
 
       auto tools = with_initialized_upstream<
           std::vector<protocol::ToolDefinition>>(
@@ -404,6 +537,10 @@ struct GatewayRuntime::Impl final {
     if (!route) {
       return mcp::core::unexpected(route.error());
     }
+    auto supported = require_tool_capability(*route->upstream);
+    if (!supported) {
+      return mcp::core::unexpected(supported.error());
+    }
 
     protocol::ToolCall call;
     call.name = route->upstream_tool_name;
@@ -429,6 +566,9 @@ struct GatewayRuntime::Impl final {
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
+        continue;
+      }
+      if (!should_list_resources_for(upstream)) {
         continue;
       }
 
@@ -463,6 +603,10 @@ struct GatewayRuntime::Impl final {
     auto route = router.resolve_resource_route(exposed_uri);
     if (!route) {
       return mcp::core::unexpected(route.error());
+    }
+    auto supported = require_resource_capability(*route->upstream);
+    if (!supported) {
+      return mcp::core::unexpected(supported.error());
     }
 
     return with_initialized_upstream<protocol::ResourcesReadResult>(
@@ -499,6 +643,9 @@ struct GatewayRuntime::Impl final {
       if (!upstream.enabled) {
         continue;
       }
+      if (!should_list_resources_for(upstream)) {
+        continue;
+      }
 
       auto resource_templates = with_initialized_upstream<
           std::vector<protocol::ResourceTemplate>>(
@@ -531,6 +678,9 @@ struct GatewayRuntime::Impl final {
 
     for (const auto& upstream : router.config().upstreams) {
       if (!upstream.enabled) {
+        continue;
+      }
+      if (!should_list_prompts_for(upstream)) {
         continue;
       }
 
@@ -593,6 +743,10 @@ struct GatewayRuntime::Impl final {
     if (!route) {
       return mcp::core::unexpected(route.error());
     }
+    auto supported = require_prompt_capability(*route->upstream);
+    if (!supported) {
+      return mcp::core::unexpected(supported.error());
+    }
 
     protocol::PromptsGetParams request;
     request.name = route->upstream_prompt_name;
@@ -635,6 +789,13 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(make_gateway_error(
           protocol::ErrorCode::InvalidParams,
           "gateway completion ref type is not supported", params.ref.type));
+    }
+
+    const auto cached = cached_capabilities(upstream->id);
+    if (cached.has_value() && !cached->completions.enabled) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::MethodNotFound,
+          "gateway upstream does not support completion", upstream->id));
     }
 
     return with_initialized_upstream<protocol::CompleteResult>(
@@ -767,7 +928,11 @@ struct GatewayRuntime::Impl final {
 };
 
 GatewayRuntime::GatewayRuntime(GatewayConfig config)
-    : impl_(std::make_unique<Impl>(std::move(config))) {}
+    : GatewayRuntime(std::move(config), GatewayRuntimeOptions{}) {}
+
+GatewayRuntime::GatewayRuntime(GatewayConfig config,
+                               GatewayRuntimeOptions options)
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(options))) {}
 
 GatewayRuntime::~GatewayRuntime() { (void)stop(); }
 
@@ -924,6 +1089,9 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
                                         UpstreamRuntimeStatus::stopping);
     }
   }
+  impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopping,
+                                  UpstreamRuntimeStatus::stopping);
+  impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopping);
 
   if (!impl_ || !impl_->service.has_value()) {
     std::unique_lock state_lock(impl_->upstream_state_mutex);
@@ -939,6 +1107,10 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
       impl_->set_upstream_status_locked(upstream.id,
                                         UpstreamRuntimeStatus::stopped);
     }
+    state_lock.unlock();
+    impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopped);
+    impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopped,
+                                    UpstreamRuntimeStatus::stopped);
     return core::Unit{};
   }
   auto* service = &*impl_->service;
@@ -946,9 +1118,6 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
   auto stopped = service->stop();
   lock.lock();
   impl_->service.reset();
-  if (!stopped) {
-    return mcp::core::unexpected(stopped.error());
-  }
   std::unique_lock state_lock(impl_->upstream_state_mutex);
   impl_->upstream_idle_cv.wait(state_lock, [&] {
     return std::all_of(impl_->upstream_states.begin(),
@@ -961,6 +1130,13 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
   for (const auto& upstream : impl_->router.config().upstreams) {
     impl_->set_upstream_status_locked(upstream.id,
                                       UpstreamRuntimeStatus::stopped);
+  }
+  state_lock.unlock();
+  impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopped);
+  impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopped,
+                                  UpstreamRuntimeStatus::stopped);
+  if (!stopped) {
+    return mcp::core::unexpected(stopped.error());
   }
   return core::Unit{};
 }
