@@ -4,12 +4,13 @@ This file records reproducible release-candidate evidence for the current
 library-first routing MVP. It complements the release-blocking gates in
 [`operational_gates.md`](operational_gates.md).
 
-## 2026-05-31 Refreshed Routing MVP Baseline
+## 2026-06-01 Refreshed Routing MVP Baseline
 
 Gateway code commit measured:
 
 ```text
-a58f699ecba2eb2bbc84be8569a6989904ef6185
+gateway/roadmap-completion working tree immediately before the baseline
+document refresh commit
 ```
 
 SDK source revision:
@@ -53,10 +54,14 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list,50,43909,78035
-stdio,tools/call,50,49050,87428
-http,tools/list,50,47056,63241
-http,tools/call,50,47042,63514
+stdio,tools/list:cold,50,40470,54264
+stdio,tools/list:cached,50,9,13
+stdio,tools/call:per_call,50,38733,50436
+stdio,tools/call:persistent,50,166,479
+http,tools/list:cold,50,31235,61857
+http,tools/list:cached,50,6,7
+http,tools/call:per_call,50,46936,62520
+http,tools/call:persistent,50,12691,16390
 ```
 
 Notes:
@@ -71,7 +76,7 @@ Notes:
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.
 - This refreshed baseline supersedes the earlier local measurement at gateway
-  commit `8db312e8be75b7c822a832b41b00577cef6262b4` after runtime observer,
-  capability-aware catalog aggregation, package component dependency, metadata
-  preservation, source-hygiene, and shared-CI coverage changes landed in the PR
-  branch.
+  commit `c785ff784014a9f8dc9cdaace710b093d4cfdcae` after concurrent catalog
+  fan-out, aggregate catalog caching, process-stdio upstream timeouts, opt-in
+  persistent upstream sessions, and expanded performance measurement landed in
+  the PR branch.

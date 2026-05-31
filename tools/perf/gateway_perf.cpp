@@ -124,6 +124,13 @@ mcp::gateway::GatewayConfig make_http_config(std::uint16_t port) {
   return config;
 }
 
+mcp::gateway::GatewayRuntimeOptions persistent_options() {
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  return options;
+}
+
 void require_result(bool ok, std::string_view message) {
   if (!ok) {
     throw std::runtime_error(std::string(message));
@@ -164,12 +171,22 @@ int main(int argc, char** argv) {
     print_csv_header();
 
     {
-      mcp::gateway::GatewayRuntime runtime(make_stdio_config());
-      print_csv_row(measure("stdio", "tools/list", options.iterations, [&] {
+      print_csv_row(measure("stdio", "tools/list:cold", options.iterations,
+                            [&] {
+        mcp::gateway::GatewayRuntime runtime(make_stdio_config());
         auto listed = runtime.list_tools();
         require_result(listed.has_value(), "stdio tools/list failed");
       }));
-      print_csv_row(measure("stdio", "tools/call", options.iterations, [&] {
+      mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+      auto listed = runtime.list_tools();
+      require_result(listed.has_value(), "stdio tools/list warmup failed");
+      print_csv_row(measure("stdio", "tools/list:cached", options.iterations,
+                            [&] {
+        auto cached = runtime.list_tools();
+        require_result(cached.has_value(), "stdio cached tools/list failed");
+      }));
+      print_csv_row(measure("stdio", "tools/call:per_call",
+                            options.iterations, [&] {
         auto called =
             runtime.call_tool("stdio.echo", Json{{"value", "perf"}});
         require_result(called.has_value(), "stdio tools/call failed");
@@ -177,15 +194,56 @@ int main(int argc, char** argv) {
     }
 
     {
-      mcp::gateway::GatewayRuntime runtime(
-          make_http_config(options.http_port));
-      print_csv_row(measure("http", "tools/list", options.iterations, [&] {
+      mcp::gateway::GatewayRuntime runtime(make_stdio_config(),
+                                           persistent_options());
+      auto warmed =
+          runtime.call_tool("stdio.echo", Json{{"value", "warmup"}});
+      require_result(warmed.has_value(),
+                     "stdio persistent tools/call warmup failed");
+      print_csv_row(measure("stdio", "tools/call:persistent",
+                            options.iterations, [&] {
+        auto called =
+            runtime.call_tool("stdio.echo", Json{{"value", "perf"}});
+        require_result(called.has_value(),
+                       "stdio persistent tools/call failed");
+      }));
+    }
+
+    {
+      print_csv_row(measure("http", "tools/list:cold", options.iterations,
+                            [&] {
+        mcp::gateway::GatewayRuntime runtime(
+            make_http_config(options.http_port));
         auto listed = runtime.list_tools();
         require_result(listed.has_value(), "http tools/list failed");
       }));
-      print_csv_row(measure("http", "tools/call", options.iterations, [&] {
+      mcp::gateway::GatewayRuntime runtime(
+          make_http_config(options.http_port));
+      auto listed = runtime.list_tools();
+      require_result(listed.has_value(), "http tools/list warmup failed");
+      print_csv_row(measure("http", "tools/list:cached", options.iterations,
+                            [&] {
+        auto cached = runtime.list_tools();
+        require_result(cached.has_value(), "http cached tools/list failed");
+      }));
+      print_csv_row(measure("http", "tools/call:per_call",
+                            options.iterations, [&] {
         auto called = runtime.call_tool("http.echo", Json{{"value", "perf"}});
         require_result(called.has_value(), "http tools/call failed");
+      }));
+    }
+
+    {
+      mcp::gateway::GatewayRuntime runtime(make_http_config(options.http_port),
+                                           persistent_options());
+      auto warmed = runtime.call_tool("http.echo", Json{{"value", "warmup"}});
+      require_result(warmed.has_value(),
+                     "http persistent tools/call warmup failed");
+      print_csv_row(measure("http", "tools/call:persistent",
+                            options.iterations, [&] {
+        auto called = runtime.call_tool("http.echo", Json{{"value", "perf"}});
+        require_result(called.has_value(),
+                       "http persistent tools/call failed");
       }));
     }
 

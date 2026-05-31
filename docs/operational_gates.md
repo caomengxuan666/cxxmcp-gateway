@@ -90,10 +90,11 @@ latency, and p95 latency in microseconds.
 
 Measure at least:
 
-- `tools/list` through one stdio upstream;
-- `tools/list` through one Streamable HTTP upstream;
-- `tools/call` through one stdio upstream;
-- `tools/call` through one Streamable HTTP upstream.
+- cold and cached `tools/list` through one stdio upstream;
+- cold and cached `tools/list` through one Streamable HTTP upstream;
+- per-call and persistent-session `tools/call` through one stdio upstream;
+- per-call and persistent-session `tools/call` through one Streamable HTTP
+  upstream.
 
 Record the gateway commit, SDK commit, OS, compiler, build type, transport,
 operation, iteration count, median latency, p95 latency, and notes about local

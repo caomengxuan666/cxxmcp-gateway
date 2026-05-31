@@ -89,7 +89,8 @@ ABI is still stabilizing.
 
 Optional performance tooling is available with
 `-DCXXMCP_GATEWAY_BUILD_PERF=ON`. It is excluded from the default build and
-prints CSV latency summaries for stdio/HTTP `tools/list` and `tools/call`.
+prints CSV latency summaries for stdio/HTTP cold and cached `tools/list`,
+per-call `tools/call`, and opt-in persistent-session `tools/call`.
 
 ## CLI
 
