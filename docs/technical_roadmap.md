@@ -541,14 +541,16 @@ The current MVP baseline has verified coverage for:
 1. Library packaging contract: shared/static builds, package components,
    top-level versus subproject defaults, and build-tree/install-tree package
    smoke tests that configure, build, and run downstream consumers and the
-   installed CLI, including a source dependency guard for removed legacy
+   installed CLI; unavailable `runtime`, `config_io`, and `cli` components
+   fail clearly when requested; source dependency guard covers removed legacy
    dependencies.
 2. Core/runtime split: core owns config validation, namespace rules, catalog
    merging, and route decisions; runtime owns SDK peer/service and upstream
    process/network execution.
 3. Upstream config validation: empty ids, invalid id grammar, duplicate ids
    from direct config construction and JSON config loading, missing enabled
-   transport parameters, and invalid HTTP timeouts.
+   transport parameters, invalid HTTP timeouts, structured field type
+   mismatches, config file open failures, and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
@@ -566,9 +568,10 @@ The current MVP baseline has verified coverage for:
    initialized upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
    to one upstream, concurrent calls to multiple upstreams, idle shutdown,
-   active-call shutdown, downstream session close during an active upstream
-   call, observable initialized state during active upstream calls,
-   post-stop rejection for side-effecting runtime operations,
+   active-call shutdown with observable `stopping` state, downstream session
+   close during an active upstream call, observable initialized state during
+   active upstream calls, post-stop rejection for side-effecting runtime
+   operations,
    hosted endpoint option validation, wait-before-start rejection,
    cancellation/progress notification no-ops, and stdio child cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
@@ -585,8 +588,9 @@ The current MVP baseline has verified coverage for:
     `tools/call`, excluded from the default build and release-blocking CI.
 13. Capability-aware advertisement refinement: `server_capabilities()` remains
     side-effect-free, uses config-based MVP advertisement before upstream
-    discovery, and narrows tools/resources/prompts plus completion
-    advertisement once all enabled upstream capability records are cached.
+    discovery, narrows tools/resources/prompts plus completion advertisement
+    once all enabled upstream capability records are cached, and unions
+    advertised capability families across multiple initialized upstream caches.
 14. Explicit capability refresh API: hosts can call
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
     initialize upstream capability caches without fetching catalogs or routing
