@@ -485,6 +485,19 @@ void require_runtime_stopping_error(const mcp::core::Error& error,
           "runtime stopping rejection should preserve operation context");
 }
 
+void require_gateway_unsupported_capability_error(
+    const mcp::core::Error& error, std::string_view upstream_id) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::MethodNotFound),
+          "unsupported upstream capability should map to MethodNotFound");
+  require(error.message.find("does not support") != std::string::npos,
+          "unsupported upstream capability should explain unsupported routing");
+  require(error.detail == upstream_id,
+          "unsupported upstream capability should preserve upstream context");
+  require(error.category == "gateway",
+          "unsupported upstream capability should remain gateway-owned");
+}
+
 mcp::gateway::GatewayConfig make_stdio_config() {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
@@ -1157,6 +1170,31 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
   require(!after.tasks.has_value(),
           "runtime should not advertise tasks after discovery");
   require_mvp_server_capability_json_shape(after);
+
+  mcp::protocol::CompleteParams unsupported_completion;
+  unsupported_completion.ref =
+      mcp::protocol::prompt_completion_reference("tools_only.echo");
+  unsupported_completion.argument.name = "value";
+  unsupported_completion.argument.value = "fixture";
+  auto unsupported = runtime.complete(std::move(unsupported_completion));
+  require(!unsupported.has_value(),
+          "tools-only upstream completion should be rejected by gateway");
+  require_gateway_unsupported_capability_error(unsupported.error(),
+                                              "tools_only");
+
+  const auto after_unsupported =
+      require_upstream_state(runtime.upstream_states(), "tools_only");
+  require_status(after_unsupported, UpstreamRuntimeStatus::healthy,
+                 "unsupported completion should not degrade tools-only "
+                 "upstream");
+  require(after_unsupported.capabilities.has_value(),
+          "unsupported completion should retain initialized capabilities");
+  require(!after_unsupported.capabilities->completions.enabled,
+          "unsupported completion should retain completion-negative cache");
+  require(!after_unsupported.last_error.has_value(),
+          "unsupported completion should not record an upstream error");
+  require(after_unsupported.active_calls == 0,
+          "unsupported completion should not leave active calls");
 
   auto tools = runtime.list_tools();
   require(tools.has_value(), "tools-only upstream tools/list should succeed");

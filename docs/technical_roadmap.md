@@ -431,6 +431,8 @@ Current completion routing design:
 - completion advertisement requires initialized upstream capability records
   proving completion support; config alone never forces completion into
   downstream capabilities;
+- completion execution rejects initialized upstreams whose capability records do
+  not advertise completion support, without marking the upstream degraded;
 - completion has no list-change notification behavior.
 
 Exit criteria:
@@ -583,7 +585,8 @@ The current MVP baseline has verified coverage for:
 11. Completion data-plane integration: prompt completions and resource-template
     completions route through existing gateway namespaces for process stdio
     and Streamable HTTP upstreams, raw `completion/complete` requests route
-    through the JSON-RPC handler, and hosted advertisement is gated by refreshed
+    through the JSON-RPC handler, execution rejects completion-negative
+    upstream capability caches, and hosted advertisement is gated by refreshed
     upstream capabilities.
 12. Optional performance measurement tooling for stdio/HTTP `tools/list` and
     `tools/call`, excluded from the default build and release-blocking CI.

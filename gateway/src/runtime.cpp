@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -40,6 +41,10 @@ bool sdk_owned_request_method(std::string_view method) {
   return method == std::string_view(protocol::InitializeMethod) ||
          method == std::string_view(protocol::PingMethod) ||
          method == std::string_view(protocol::ServerDiscoverMethod);
+}
+
+bool gateway_owned_error(const core::Error& error) {
+  return error.category.rfind("gateway", 0) == 0;
 }
 
 protocol::ServerCapabilities gateway_server_capabilities(
@@ -326,9 +331,21 @@ struct GatewayRuntime::Impl final {
           annotate_gateway_upstream_error(notified.error(), upstream.id)));
     }
 
-    auto result = fn(running->peer());
+    auto result = [&]() -> core::Result<Result> {
+      if constexpr (std::is_invocable_v<
+                        Fn, ClientPeer&,
+                        const std::optional<protocol::ServerCapabilities>&>) {
+        return fn(running->peer(), capabilities);
+      } else {
+        return fn(running->peer());
+      }
+    }();
     (void)running->stop();
     if (!result) {
+      if (gateway_owned_error(result.error())) {
+        mark_upstream_healthy(upstream.id, std::move(capabilities));
+        return mcp::core::unexpected(result.error());
+      }
       return mcp::core::unexpected(mark_upstream_degraded(
           upstream.id, annotate_gateway_upstream_error(result.error(),
                                                        upstream.id),
@@ -620,7 +637,17 @@ struct GatewayRuntime::Impl final {
     }
 
     return with_initialized_upstream<protocol::CompleteResult>(
-        *upstream, [&](ClientPeer& peer) { return peer.complete(params); });
+        *upstream,
+        [&](ClientPeer& peer,
+            const std::optional<protocol::ServerCapabilities>& capabilities)
+            -> core::Result<protocol::CompleteResult> {
+          if (!capabilities.has_value() || !capabilities->completions.enabled) {
+            return mcp::core::unexpected(make_gateway_error(
+                protocol::ErrorCode::MethodNotFound,
+                "gateway upstream does not support completion", upstream->id));
+          }
+          return peer.complete(params);
+        });
   }
 
   std::optional<protocol::JsonRpcResponse> handle_request(
