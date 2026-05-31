@@ -1,6 +1,10 @@
 // Copyright (c) 2025 [caomengxuan666]
 
 #include <cxxmcp/gateway.hpp>
+#include <cxxmcp/gateway/catalog.hpp>
+#include <cxxmcp/gateway/config.hpp>
+#include <cxxmcp/gateway/error.hpp>
+#include <cxxmcp/gateway/router.hpp>
 
 #include <utility>
 

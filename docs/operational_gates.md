@@ -17,7 +17,9 @@ The current release-blocking jobs are:
 | `gateway-ubuntu-latest-static` | Linux static build, package smoke, and tests |
 | `gateway-ubuntu-latest-shared` | Linux shared-library build and tests |
 | `gateway-macos-latest-static` | macOS static build and tests |
+| `gateway-macos-latest-shared` | macOS shared-library build and tests |
 | `gateway-windows-latest-static` | Windows static build and tests |
+| `gateway-windows-latest-shared` | Windows shared-library build and tests |
 
 The workflow builds an HTTP-enabled C++23 `cxxmcp` SDK from
 `caomengxuan666/cxxmcp` at `CXXMCP_REF`, installs it, configures the gateway
@@ -52,8 +54,8 @@ marker reports are release-blocking.
 The current supported matrix is the CI matrix above:
 
 - Linux, static and shared gateway libraries;
-- macOS, static gateway libraries;
-- Windows, static gateway libraries;
+- macOS, static and shared gateway libraries;
+- Windows, static and shared gateway libraries;
 - C++23;
 - HTTP-enabled `cxxmcp` SDK.
 

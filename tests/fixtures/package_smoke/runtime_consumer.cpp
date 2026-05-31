@@ -1,6 +1,7 @@
 // Copyright (c) 2025 [caomengxuan666]
 
 #include <cxxmcp/gateway/runtime.hpp>
+#include <cxxmcp/gateway/config.hpp>
 
 #include <utility>
 

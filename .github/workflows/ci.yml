@@ -25,9 +25,15 @@ jobs:
           - os: macos-latest
             shared: static
             build_shared_libs: OFF
+          - os: macos-latest
+            shared: shared
+            build_shared_libs: ON
           - os: windows-latest
             shared: static
             build_shared_libs: OFF
+          - os: windows-latest
+            shared: shared
+            build_shared_libs: ON
 
     env:
       CXXMCP_REF: master

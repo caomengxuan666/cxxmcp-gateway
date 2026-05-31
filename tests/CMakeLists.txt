@@ -306,6 +306,17 @@ add_test(NAME gateway_package_component_install_smoke
 if(TARGET cxxmcp_gateway_runtime AND
    TARGET cxxmcp_gateway_config_io AND
    TARGET cxxmcp_gateway_cli)
+    add_test(NAME gateway_package_cli_dependency_component_fails
+        COMMAND "${CMAKE_COMMAND}"
+            -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+            -DCXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR=${CXXMCP_GATEWAY_PACKAGE_SMOKE_SOURCE_DIR}
+            -Dcxxmcp_DIR=${cxxmcp_DIR}
+            -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+            -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+            -DCXXMCP_GATEWAY_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}
+            -DCXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG=${CXXMCP_GATEWAY_PACKAGE_SMOKE_CONFIG}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/package_cli_dependency_component_fail.cmake")
+
     add_test(NAME gateway_package_full_build_core_component_fails
         COMMAND "${CMAKE_COMMAND}"
             -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}

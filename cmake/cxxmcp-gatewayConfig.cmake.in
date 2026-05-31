@@ -4,6 +4,7 @@ include(CMakeFindDependencyMacro)
 
 find_dependency(cxxmcp CONFIG REQUIRED)
 
+set(_cxxmcp_gateway_cli_requires_config_io @CXXMCP_GATEWAY_BUILD_CONFIG_IO@)
 set(_cxxmcp_gateway_runtime_targets
     "${CMAKE_CURRENT_LIST_DIR}/cxxmcp-gatewayRuntimeTargets.cmake")
 if(EXISTS "${_cxxmcp_gateway_runtime_targets}")
@@ -34,7 +35,9 @@ if(TARGET cxxmcp-gateway::config_io)
     set("cxxmcp-gateway_config_io_FOUND" TRUE)
 endif()
 set("cxxmcp-gateway_cli_FOUND" FALSE)
-if(TARGET cxxmcp-gateway::cli)
+if(TARGET cxxmcp-gateway::cli AND TARGET cxxmcp-gateway::runtime AND
+   (NOT _cxxmcp_gateway_cli_requires_config_io OR
+    TARGET cxxmcp-gateway::config_io))
     set("cxxmcp-gateway_cli_FOUND" TRUE)
 endif()
 
@@ -54,3 +57,4 @@ foreach(_cxxmcp_gateway_component IN LISTS cxxmcp-gateway_FIND_COMPONENTS)
 endforeach()
 
 unset(_cxxmcp_gateway_runtime_targets)
+unset(_cxxmcp_gateway_cli_requires_config_io)
