@@ -2030,6 +2030,19 @@ void test_runtime_stop_waits_for_active_http_call() {
   require(!post_stop_call.has_value(),
           "runtime should reject new upstream calls after stop");
 
+  auto post_stop_refresh = runtime.refresh_upstream_capabilities();
+  require(!post_stop_refresh.has_value(),
+          "runtime should reject capability refresh after stop");
+
+  mcp::protocol::CompleteParams post_stop_completion;
+  post_stop_completion.ref =
+      mcp::protocol::prompt_completion_reference("shutdown.slow");
+  post_stop_completion.argument.name = "value";
+  post_stop_completion.argument.value = "after-stop";
+  auto post_stop_complete = runtime.complete(std::move(post_stop_completion));
+  require(!post_stop_complete.has_value(),
+          "runtime should reject completions after stop");
+
   const auto stopped_server = running->stop();
   require(stopped_server.has_value(), "shutdown fixture should stop");
 }

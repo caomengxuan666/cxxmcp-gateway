@@ -567,6 +567,7 @@ The current MVP baseline has verified coverage for:
    to one upstream, concurrent calls to multiple upstreams, idle shutdown,
    active-call shutdown, downstream session close during an active upstream
    call, observable initialized state during active upstream calls,
+   post-stop rejection for side-effecting runtime operations,
    cancellation/progress notification no-ops, and stdio child cleanup on stop.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including unsupported request/notification
