@@ -590,9 +590,10 @@ The current MVP baseline has verified coverage for:
    cancellation/progress notification no-ops, stdio child cleanup after
    successful per-call sessions and on stop, persistent stdio session reuse,
    default same-upstream serialization, configured same-upstream pool
-   concurrency, active-call stop, failure invalidation, pool failure isolation,
-   reconnect, and cleanup on stop, plus persistent HTTP default same-upstream
-   serialization, pool queue draining, and timeout recovery.
+   concurrency, active-call stop, hostile-call timeout during pool shutdown,
+   failure invalidation, pool failure isolation, reconnect, and cleanup on
+   stop, plus persistent HTTP default same-upstream serialization, pool queue
+   draining, and timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
@@ -656,8 +657,8 @@ The current MVP baseline has verified coverage for:
 ## Remaining Near-Term Backlog
 
 1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks,
-   especially around slot-level pool health, transport-specific concurrency,
-   and shutdown behavior under hostile upstreams.
+   especially around slot-level pool health and transport-specific
+   concurrency.
 2. Refresh the performance baseline whenever the release-candidate SDK revision
    or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,

@@ -53,7 +53,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Persistent session pool concurrency | `test_persistent_stdio_session_pool_allows_same_upstream_concurrency`, `test_persistent_http_session_pool_handles_queued_calls`, perf `tools/call:persistent_pool2_pair` |
 | Persistent session pool failure isolation | `test_persistent_stdio_pool_failure_isolates_failed_slot` |
 | Persistent HTTP pool timeout recovery | `test_persistent_http_pool_timeout_recovers` |
-| Graceful stop and concurrent wait/stop | runtime stop, active-call stop, and wait/stop overlap tests |
+| Graceful stop and concurrent wait/stop | runtime stop, active-call stop, wait/stop overlap tests, `test_persistent_pool_stop_waits_for_timed_out_stdio_call` |
 | Unsupported methods and notifications | raw request routing and notification no-op tests |
 | Error mapping | router tests, runtime integration error assertions, and config IO tests |
 
