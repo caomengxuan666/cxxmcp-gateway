@@ -5651,6 +5651,120 @@ void test_downstream_close_during_active_upstream_call_clears_state() {
           "downstream-close hosted gateway should stop");
 }
 
+void test_downstream_close_during_active_http_upstream_call_clears_state() {
+  const auto kUpstreamPort = find_available_loopback_port();
+  const std::string upstream_uri =
+      "http://127.0.0.1:" + std::to_string(kUpstreamPort) + "/mcp";
+  std::atomic_bool slow_entered = false;
+
+  auto upstream_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-downstream-close-http-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kUpstreamPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            slow_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 800)});
+            return ToolResult::text("slow-done");
+          })
+          .build();
+  require(upstream_server.has_value(),
+          "downstream-close http upstream should build");
+  auto running_upstream = mcp::serve(std::move(*upstream_server));
+  require(running_upstream.has_value(),
+          "downstream-close http upstream should start");
+  running_upstream->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "http_close";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = upstream_uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  const auto kGatewayPort = find_available_loopback_port();
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kGatewayPort, .path = "/mcp"});
+  require(started.has_value(),
+          "downstream-close http hosted gateway should start");
+
+  auto client = mcp::ClientPeer::builder()
+                    .streamable_http("http://127.0.0.1:" +
+                                     std::to_string(kGatewayPort) + "/mcp")
+                    .build();
+  require(client.has_value(), "downstream-close http client should build");
+
+  auto running_client = mcp::serve(std::move(*client));
+  require(running_client.has_value(),
+          "downstream-close http client service should start");
+
+  auto initialized = running_client->peer().initialize(
+      "cxxmcp-gateway-downstream-close-http-client", "1.0.0");
+  require(initialized.has_value(),
+          "downstream-close http client should initialize");
+  auto notified = running_client->peer().notify_initialized();
+  require(notified.has_value(),
+          "downstream-close http initialized notification should work");
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = running_client->peer().call_tool(
+          "http_close.slow", Json{{"sleepMs", 800}});
+      if (called.has_value()) {
+        require_text_result(*called, "slow-done");
+      }
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_handler = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(gateway.upstream_states(), "http_close");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (slow_entered.load()) {
+      observed_handler = true;
+    }
+    if (observed_active && observed_handler) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "downstream-close http test should observe active upstream call");
+  require(observed_handler,
+          "downstream-close http test should observe upstream handler");
+
+  auto stopped_client = running_client->stop();
+  require(stopped_client.has_value(),
+          "downstream-close http client stop should succeed");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  const auto state =
+      require_upstream_state(gateway.upstream_states(), "http_close");
+  require(state.active_calls == 0,
+          "downstream http close should not leave active upstream calls");
+
+  auto stopped_gateway = gateway.stop();
+  require(stopped_gateway.has_value(),
+          "downstream-close http hosted gateway should stop");
+  auto stopped_upstream = running_upstream->stop();
+  require(stopped_upstream.has_value(),
+          "downstream-close http upstream should stop");
+}
+
 void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
   const auto kPort = find_available_loopback_port();
 
@@ -6276,6 +6390,8 @@ int main() {
         test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call);
     run("downstream close during active upstream call clears state",
         test_downstream_close_during_active_upstream_call_clears_state);
+    run("downstream close during active http upstream call clears state",
+        test_downstream_close_during_active_http_upstream_call_clears_state);
     run("hosted gateway without enabled upstreams advertises no tools",
         test_hosted_gateway_without_enabled_upstreams_advertises_no_tools);
     run("raw request routing surface", test_raw_request_routing_surface);

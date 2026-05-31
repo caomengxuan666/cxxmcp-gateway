@@ -580,13 +580,14 @@ The current MVP baseline has verified coverage for:
    to one upstream, concurrent calls to multiple upstreams, concurrent
    multi-upstream catalog list fan-out, idle shutdown,
    active-call shutdown with observable `stopping` state, downstream session
-   close during an active upstream call, observable initialized state during
-   active upstream calls, post-stop rejection for side-effecting runtime
-   operations, in-flight stopping rejection for data-plane operations and
-   capability refresh, raw JSON-RPC post-stop rejection for routed methods
-   while SDK-owned lifecycle and liveness methods remain delegated,
-   hosted endpoint option validation, wait-before-start rejection,
-   overlapping wait/stop handling, observer lifecycle reentry,
+   close during active process-stdio and Streamable HTTP upstream calls,
+   observable initialized state during active upstream calls, post-stop
+   rejection for side-effecting runtime operations, in-flight stopping
+   rejection for data-plane operations and capability refresh, raw JSON-RPC
+   post-stop rejection for routed methods while SDK-owned lifecycle and
+   liveness methods remain delegated, hosted endpoint option validation,
+   wait-before-start rejection, overlapping wait/stop handling, observer
+   lifecycle reentry,
    cancellation/progress notification no-ops for active process-stdio and
    Streamable HTTP upstream calls, stdio child cleanup after successful
    per-call sessions and on stop, persistent stdio session reuse, default

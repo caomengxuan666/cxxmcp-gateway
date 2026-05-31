@@ -58,6 +58,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Graceful stop and concurrent wait/stop | runtime stop, active-call stop, wait/stop overlap tests, `test_runtime_stop_timeout_bounds_active_stdio_call_wait`, `test_persistent_pool_stop_waits_for_timed_out_stdio_call` |
 | Stop drain timeout | `test_runtime_stop_timeout_bounds_active_stdio_call_wait`, `test_runtime_stop_timeout_bounds_active_http_call_wait`, config IO and CLI invalid-argument tests, package runtime/config consumers |
 | Cancellation/progress notification no-ops | `test_cancellation_and_progress_notifications_are_local_noops`, `test_hosted_cancellation_notifications_do_not_cancel_upstream_call`, `test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call` |
+| Downstream close during active upstream calls | `test_downstream_close_during_active_upstream_call_clears_state`, `test_downstream_close_during_active_http_upstream_call_clears_state` |
 | Unsupported methods and notifications | raw request routing and notification no-op tests |
 | Error mapping | router tests, runtime integration error assertions, and config IO tests |
 
