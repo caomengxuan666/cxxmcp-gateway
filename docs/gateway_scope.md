@@ -569,11 +569,17 @@ The first validated gateway surface is:
 - Streamable HTTP upstreams;
 - `tools/list` aggregation;
 - `tools/call` routing;
+- `resources/list`, `resources/templates/list`, and `resources/read` routing
+  through gateway-owned resource URIs;
+- `prompts/list` and `prompts/get` routing with gateway prompt names;
+- `completion/complete` routing when initialized upstream capabilities prove
+  support;
 - minimal CLI startup;
 - installable CMake package.
 
-Anything beyond this should be added only after tests demonstrate that the
-existing surface is stable.
+Subscriptions, task APIs, progress, cancellation forwarding, policy, auth,
+audit, and admin/control-plane APIs remain outside this surface until their
+ownership and routing contracts are specified and tested.
 
 ## Validation Matrix
 

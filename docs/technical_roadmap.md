@@ -185,7 +185,7 @@ Scope:
 - make `BUILD_SHARED_LIBS` behavior real, or explicitly document static-only;
 - add PIC/export-symbol strategy for static-as-dependency and future shared
   builds;
-- define CMake components: `core`, `runtime`, future `config_io`, and `cli`;
+- define CMake components: `core`, `runtime`, optional `config_io`, and `cli`;
 - make `find_package(cxxmcp-gateway COMPONENTS runtime)` fail clearly when the
   runtime component is unavailable;
 - split or document umbrella headers so core-only consumers do not accidentally
