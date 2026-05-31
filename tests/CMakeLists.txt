@@ -69,6 +69,12 @@ if(TARGET cxxmcp_gateway_runtime)
 endif()
 
 if(TARGET cxxmcp_gateway_cli)
+    add_test(NAME gateway_cli_no_args COMMAND cxxmcp_gateway_cli)
+    cxxmcp_gateway_prepend_target_dir_to_test(
+        gateway_cli_no_args cxxmcp_gateway_cli)
+    set_tests_properties(gateway_cli_no_args PROPERTIES
+        PASS_REGULAR_EXPRESSION "Usage:")
+
     add_test(NAME gateway_cli_help COMMAND cxxmcp_gateway_cli --help)
     cxxmcp_gateway_prepend_target_dir_to_test(
         gateway_cli_help cxxmcp_gateway_cli)

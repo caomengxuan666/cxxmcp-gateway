@@ -3,6 +3,12 @@ project(cxxmcp_gateway_package_smoke LANGUAGES CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(cxxmcp-gateway CONFIG REQUIRED)
+if(NOT TARGET cxxmcp-gateway::core)
+    message(FATAL_ERROR
+        "default package discovery did not export cxxmcp-gateway::core")
+endif()
+
 find_package(cxxmcp-gateway CONFIG REQUIRED COMPONENTS core)
 
 add_executable(cxxmcp_gateway_package_core core_consumer.cpp)
