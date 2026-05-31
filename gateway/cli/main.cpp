@@ -19,7 +19,11 @@ void print_usage(std::ostream& out) {
   out << "Usage:\n"
       << "  cxxmcp-gateway --help\n"
       << "  cxxmcp-gateway --version\n"
-      << "  cxxmcp-gateway serve [--config <file>] [--host <host>]\n"
+      << "  cxxmcp-gateway serve";
+#if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
+  out << " [--config <file>]";
+#endif
+  out << " [--host <host>]\n"
       << "      [--port <port>] [--path <path>]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";

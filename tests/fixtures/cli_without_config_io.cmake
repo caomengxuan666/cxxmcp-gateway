@@ -56,6 +56,24 @@ else()
 endif()
 
 execute_process(
+    COMMAND "${cli_path}" --help
+    RESULT_VARIABLE help_result
+    OUTPUT_VARIABLE help_stdout
+    ERROR_VARIABLE help_stderr)
+if(NOT help_result EQUAL 0)
+    message(FATAL_ERROR
+        "CLI without config_io help failed\n"
+        "stdout: ${help_stdout}\n"
+        "stderr: ${help_stderr}")
+endif()
+if(help_stdout MATCHES "--config")
+    message(FATAL_ERROR
+        "CLI without config_io advertised --config in help\n"
+        "stdout: ${help_stdout}\n"
+        "stderr: ${help_stderr}")
+endif()
+
+execute_process(
     COMMAND "${cli_path}" serve
         --config "${CXXMCP_GATEWAY_SOURCE_DIR}/tests/fixtures/gateway_config.json"
         --upstream-stdio fixture=fixture-server

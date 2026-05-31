@@ -535,14 +535,14 @@ protocol-level mapping for at least these cases:
 | Upstream transport failure | Gateway upstream error |
 | Upstream timeout | Gateway timeout error |
 | Upstream protocol parse failure | Gateway upstream protocol error |
-| Upstream MCP error | Preserve upstream code/message/data when possible |
+| Upstream MCP error | Preserve upstream code/message/detail text when possible |
 
-Error data should preserve gateway context where possible: upstream id,
+Error details should preserve gateway context where possible: upstream id,
 transport kind, exposed name, upstream method, upstream error code, upstream
-message, and upstream data.
+message, and upstream detail text.
 
 Current Phase 1 behavior preserves upstream SDK error code and message, prefixes
-diagnostic detail with the upstream id, and maps SDK categories under
+diagnostic detail text with the upstream id, and maps SDK categories under
 `gateway.upstream.*` such as `gateway.upstream.transport`,
 `gateway.upstream.timeout`, or `gateway.upstream.tool`.
 

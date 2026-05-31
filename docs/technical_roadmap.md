@@ -544,9 +544,10 @@ The current MVP baseline has verified coverage for:
 1. Library packaging contract: shared/static builds, package components,
    top-level versus subproject defaults, and build-tree/install-tree package
    smoke tests that configure, build, and run downstream consumers and the
-   installed CLI; unavailable `runtime`, `config_io`, and `cli` components
-   fail clearly when requested; source dependency and hygiene guards cover
-   removed legacy dependencies, conflict markers, and trailing whitespace.
+   build-tree and installed CLI; unavailable `runtime`, `config_io`, and
+   `cli` components fail clearly when requested; source dependency and hygiene
+   guards cover removed legacy dependencies, forbidden legacy paths, conflict
+   markers, and trailing whitespace.
 2. Core/runtime split: core owns config validation, namespace rules, catalog
    merging, and route decisions; runtime owns SDK peer/service and upstream
    process/network execution.
