@@ -3667,22 +3667,67 @@ void test_raw_request_lifecycle_after_stop() {
           "stopped runtime raw tools/list should respond");
   require_raw_runtime_stopped_error(*tools_list_response, "tools/list");
 
+  mcp::protocol::JsonRpcRequest tools_call;
+  tools_call.method = mcp::protocol::ToolsCallMethod;
+  tools_call.id = std::int64_t{111};
+  tools_call.params =
+      Json{{"name", "stdio.echo"}, {"arguments", Json{{"value", "stopped"}}}};
+  auto tools_call_response = runtime.handle_request(tools_call);
+  require(tools_call_response.has_value(),
+          "stopped runtime raw tools/call should respond");
+  require_raw_runtime_stopped_error(*tools_call_response, "tools/call");
+
   mcp::protocol::JsonRpcRequest resources_list;
   resources_list.method = mcp::protocol::ResourcesListMethod;
-  resources_list.id = std::int64_t{111};
+  resources_list.id = std::int64_t{112};
   auto resources_list_response = runtime.handle_request(resources_list);
   require(resources_list_response.has_value(),
           "stopped runtime raw resources/list should respond");
   require_raw_runtime_stopped_error(*resources_list_response,
                                     "resources/list");
 
+  mcp::protocol::JsonRpcRequest resources_read;
+  resources_read.method = mcp::protocol::ResourcesReadMethod;
+  resources_read.id = std::int64_t{113};
+  resources_read.params = Json{{"uri",
+                                mcp::gateway::GatewayRouter::expose_resource_uri(
+                                    "stdio",
+                                    "file:///fixture/readme.txt")}};
+  auto resources_read_response = runtime.handle_request(resources_read);
+  require(resources_read_response.has_value(),
+          "stopped runtime raw resources/read should respond");
+  require_raw_runtime_stopped_error(*resources_read_response,
+                                    "resources/read");
+
+  mcp::protocol::JsonRpcRequest resource_templates_list;
+  resource_templates_list.method =
+      mcp::protocol::ResourcesTemplatesListMethod;
+  resource_templates_list.id = std::int64_t{114};
+  auto resource_templates_response =
+      runtime.handle_request(resource_templates_list);
+  require(resource_templates_response.has_value(),
+          "stopped runtime raw resources/templates/list should respond");
+  require_raw_runtime_stopped_error(*resource_templates_response,
+                                    "resources/templates/list");
+
   mcp::protocol::JsonRpcRequest prompts_list;
   prompts_list.method = mcp::protocol::PromptsListMethod;
-  prompts_list.id = std::int64_t{112};
+  prompts_list.id = std::int64_t{115};
   auto prompts_list_response = runtime.handle_request(prompts_list);
   require(prompts_list_response.has_value(),
           "stopped runtime raw prompts/list should respond");
   require_raw_runtime_stopped_error(*prompts_list_response, "prompts/list");
+
+  mcp::protocol::JsonRpcRequest prompts_get;
+  prompts_get.method = mcp::protocol::PromptsGetMethod;
+  prompts_get.id = std::int64_t{116};
+  prompts_get.params =
+      Json{{"name", "stdio.summarize"},
+           {"arguments", Json{{"text", "after-stop"}}}};
+  auto prompts_get_response = runtime.handle_request(prompts_get);
+  require(prompts_get_response.has_value(),
+          "stopped runtime raw prompts/get should respond");
+  require_raw_runtime_stopped_error(*prompts_get_response, "prompts/get");
 
   mcp::protocol::CompleteParams completion;
   completion.ref = mcp::protocol::prompt_completion_reference(
@@ -3691,7 +3736,7 @@ void test_raw_request_lifecycle_after_stop() {
   completion.argument.value = "after-stop";
   mcp::protocol::JsonRpcRequest complete;
   complete.method = mcp::protocol::CompletionCompleteMethod;
-  complete.id = std::int64_t{113};
+  complete.id = std::int64_t{117};
   complete.params = mcp::protocol::complete_params_to_json(completion);
   auto complete_response = runtime.handle_request(complete);
   require(complete_response.has_value(),
