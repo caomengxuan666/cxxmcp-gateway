@@ -2302,6 +2302,35 @@ void test_start_http_invalid_config_fails_before_binding_port() {
   require(stopped.has_value(), "port reuse gateway should stop");
 }
 
+void test_hosted_gateway_rejects_invalid_endpoint_options() {
+  constexpr auto kPort = 39973;
+
+  mcp::gateway::GatewayRuntime runtime(make_disabled_config("endpoint"));
+
+  auto wait_before_start = runtime.wait();
+  require(!wait_before_start.has_value(),
+          "wait should fail before hosted endpoint startup");
+  require(wait_before_start.error().message ==
+              "gateway http endpoint is not running",
+          "wait-before-start should report stable lifecycle error");
+
+  auto empty_host =
+      runtime.start_http({.host = "", .port = kPort, .path = "/mcp"});
+  require(!empty_host.has_value(), "empty host should fail endpoint startup");
+  require(empty_host.error().message == "gateway http host must not be empty",
+          "empty host should report stable validation error");
+
+  auto zero_port =
+      runtime.start_http({.host = "127.0.0.1", .port = 0, .path = "/mcp"});
+  require(!zero_port.has_value(), "zero port should fail endpoint startup");
+  require(zero_port.error().message == "gateway http port must not be zero",
+          "zero port should report stable validation error");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "runtime should stop after rejected endpoint options");
+}
+
 void test_hosted_gateway_http_endpoint_stops_while_idle() {
   constexpr auto kPort = 39957;
 
@@ -3175,6 +3204,7 @@ int main() {
     test_http_unavailable();
     test_http_malformed_response_before_initialize();
     test_start_http_invalid_config_fails_before_binding_port();
+    test_hosted_gateway_rejects_invalid_endpoint_options();
     test_hosted_gateway_http_endpoint_stops_while_idle();
     test_hosted_gateway_rejects_invalid_json_rpc_request();
     test_runtime_move_assignment_stops_existing_endpoint();
