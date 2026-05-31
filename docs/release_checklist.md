@@ -4,6 +4,9 @@ This checklist is the release-candidate gate for the library-first gateway
 package. It does not add product packaging, GUI, daemon, policy, auth, or admin
 API requirements.
 
+Use [`release_evidence.md`](release_evidence.md) as the evidence index for the
+checks below.
+
 ## Branch And Scope
 
 - The release branch is based on the repository default branch.
