@@ -647,7 +647,8 @@ The current MVP baseline has verified coverage for:
     compiles behind `CXXMCP_GATEWAY_BUILD_EXAMPLES=ON` and demonstrates
     host-owned config construction, observer callbacks, capability prewarm,
     hosted startup, and opt-in persistent upstream sessions without changing
-    default package components.
+    default package components; `gateway_examples_build` covers the optional
+    example build in CTest.
 
 ## Remaining Near-Term Backlog
 

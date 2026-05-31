@@ -337,3 +337,15 @@ add_test(NAME gateway_subproject_defaults
         -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
         -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/subproject_defaults.cmake")
+
+if(TARGET cxxmcp_gateway_runtime)
+    add_test(NAME gateway_examples_build
+        COMMAND "${CMAKE_COMMAND}"
+            -DCXXMCP_GATEWAY_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DCXXMCP_GATEWAY_BINARY_DIR=${PROJECT_BINARY_DIR}
+            -Dcxxmcp_DIR=${cxxmcp_DIR}
+            -DCXXMCP_GATEWAY_GENERATOR=${CMAKE_GENERATOR}
+            -DCXXMCP_GATEWAY_GENERATOR_ID=${CXXMCP_GATEWAY_GENERATOR_ID}
+            -DCXXMCP_GATEWAY_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/examples_build.cmake")
+endif()
