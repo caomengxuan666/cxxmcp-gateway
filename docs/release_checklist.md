@@ -48,7 +48,8 @@ checks below.
 - Refresh `docs/release_baseline.md` when the SDK revision or gateway
   routing/runtime implementation changes materially.
 - Performance evidence includes Release-build stdio and Streamable HTTP
-  timings for `tools/list` and `tools/call`.
+  timings for `tools/list`, per-call and persistent-session `tools/call`, and
+  the persistent HTTP pool pair scenario.
 
 ## Public Contract
 

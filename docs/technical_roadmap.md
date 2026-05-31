@@ -656,7 +656,8 @@ The current MVP baseline has verified coverage for:
 ## Remaining Near-Term Backlog
 
 1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks,
-   especially around persistent pool shutdown, timeout, and reconnect behavior.
+   especially around slot-level pool health, transport-specific concurrency,
+   and shutdown behavior under hostile upstreams.
 2. Refresh the performance baseline whenever the release-candidate SDK revision
    or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,
