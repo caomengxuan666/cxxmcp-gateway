@@ -2955,12 +2955,18 @@ void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
 void test_raw_request_routing_surface() {
   mcp::gateway::GatewayRuntime runtime(make_stdio_config());
 
-  mcp::protocol::JsonRpcRequest sdk_owned;
-  sdk_owned.method = mcp::protocol::PingMethod;
-  sdk_owned.id = std::int64_t{1};
-  auto sdk_owned_response = runtime.handle_request(sdk_owned);
-  require(!sdk_owned_response.has_value(),
-          "SDK-owned methods should remain SDK-owned/nullopt");
+  const std::vector<std::string> sdk_owned_methods{
+      mcp::protocol::PingMethod,
+      mcp::protocol::ServerDiscoverMethod,
+  };
+  for (std::size_t i = 0; i < sdk_owned_methods.size(); ++i) {
+    mcp::protocol::JsonRpcRequest sdk_owned;
+    sdk_owned.method = sdk_owned_methods[i];
+    sdk_owned.id = static_cast<std::int64_t>(1 + i);
+    auto sdk_owned_response = runtime.handle_request(sdk_owned);
+    require(!sdk_owned_response.has_value(),
+            "SDK-owned methods should remain SDK-owned/nullopt");
+  }
 
   mcp::protocol::JsonRpcRequest first_initialize;
   first_initialize.method = mcp::protocol::InitializeMethod;

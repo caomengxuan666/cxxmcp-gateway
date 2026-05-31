@@ -110,6 +110,19 @@ int main() {
   require(invalid_id.error().category == "gateway",
           "upstream id validation should use gateway error category");
 
+  const auto dotted_id = mcp::gateway::validate_upstream_id("bad.id");
+  require(!dotted_id.has_value(), "dot in upstream id should fail");
+
+  const auto whitespace_id =
+      mcp::gateway::validate_upstream_id("bad id");
+  require(!whitespace_id.has_value(),
+          "whitespace in upstream id should fail");
+
+  const auto backslash_id =
+      mcp::gateway::validate_upstream_id("bad\\id");
+  require(!backslash_id.has_value(),
+          "backslash path separator in upstream id should fail");
+
   const auto non_ascii_id =
       mcp::gateway::validate_upstream_id("bad\xff");
   require(!non_ascii_id.has_value(), "non-ASCII upstream id should fail");
