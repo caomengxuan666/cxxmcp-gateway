@@ -56,6 +56,7 @@ struct GatewayRuntimeConfig {
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
   std::size_t persistent_session_pool_size = 1;
   std::chrono::milliseconds persistent_session_acquire_timeout{0};
+  std::chrono::milliseconds active_call_drain_timeout{0};
   bool prewarm_capabilities = false;
 };
 

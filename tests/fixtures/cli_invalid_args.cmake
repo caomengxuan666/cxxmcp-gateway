@@ -54,6 +54,18 @@ expect_cli_failure(missing_session_acquire_timeout
     "unknown or incomplete option: --session-acquire-timeout-ms"
     serve --session-acquire-timeout-ms)
 
+expect_cli_failure(invalid_active_call_drain_timeout
+    "invalid --active-call-drain-timeout-ms value"
+    serve --active-call-drain-timeout-ms -1 --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(nonnumeric_active_call_drain_timeout
+    "invalid --active-call-drain-timeout-ms value"
+    serve --active-call-drain-timeout-ms many --upstream-stdio fixture=fixture-server)
+
+expect_cli_failure(missing_active_call_drain_timeout
+    "unknown or incomplete option: --active-call-drain-timeout-ms"
+    serve --active-call-drain-timeout-ms)
+
 expect_cli_failure(malformed_http_upstream
     "--upstream-http expects <id=url>"
     serve --upstream-http missing-assignment)

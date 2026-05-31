@@ -82,7 +82,9 @@ completion routes.
   `--session-pool-size <n>` to `GatewayRuntimeOptions`. It also maps
   `--session-acquire-timeout-ms <ms>` and JSON
   `runtime.persistentSessionAcquireTimeoutMs` to the persistent pool wait
-  bound. It maps `--prewarm` or
+  bound, and `--active-call-drain-timeout-ms <ms>` plus JSON
+  `runtime.activeCallDrainTimeoutMs` to the shutdown active-call drain bound.
+  It maps `--prewarm` or
   JSON `runtime.prewarmCapabilities` to a startup
   `refresh_upstream_capabilities()` call before binding the hosted endpoint.
   In per-call mode this refresh opens and closes upstream sessions; in

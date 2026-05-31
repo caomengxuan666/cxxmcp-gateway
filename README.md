@@ -117,12 +117,15 @@ Use `--session-mode persistent` to keep initialized upstream sessions and
 `--session-pool-size <n>` to allow up to `<n>` concurrent initialized sessions
 per upstream. `--session-acquire-timeout-ms <ms>` bounds how long a persistent
 call waits for a busy pool slot; the default `0` keeps the existing unbounded
-wait. `--prewarm` refreshes upstream capabilities before the hosted
+wait. `--active-call-drain-timeout-ms <ms>` bounds shutdown waiting for active
+upstream calls; the default `0` keeps the existing unbounded wait. `--prewarm`
+refreshes upstream capabilities before the hosted
 endpoint starts and initializes the configured persistent pool. This is the
 reference runner form of the library
 `GatewayRuntimeOptions::upstream_session_mode`,
 `GatewayRuntimeOptions::persistent_session_pool_size`, and
-`GatewayRuntimeOptions::persistent_session_acquire_timeout`, plus the
+`GatewayRuntimeOptions::persistent_session_acquire_timeout`,
+`GatewayRuntimeOptions::active_call_drain_timeout`, plus the
 `GatewayRuntime::refresh_upstream_capabilities()` path; it reduces repeated-call
 setup cost but remains a bounded per-upstream pool, not adaptive multiplexing.
 Library hosts can also set `GatewayRuntimeOptions::active_call_drain_timeout`

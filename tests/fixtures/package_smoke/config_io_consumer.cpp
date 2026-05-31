@@ -17,6 +17,7 @@ int main() {
        mcp::protocol::Json{{"upstreamSessionMode", "persistent"},
                            {"persistentSessionPoolSize", 2},
                            {"persistentSessionAcquireTimeoutMs", 150},
+                           {"activeCallDrainTimeoutMs", 5000},
                            {"prewarmCapabilities", true}}},
       {"upstreams",
        mcp::protocol::Json::array(
@@ -32,6 +33,7 @@ int main() {
           mcp::gateway::UpstreamSessionMode::persistent ||
       document->runtime.persistent_session_pool_size != 2 ||
       document->runtime.persistent_session_acquire_timeout.count() != 150 ||
+      document->runtime.active_call_drain_timeout.count() != 5000 ||
       !document->runtime.prewarm_capabilities) {
     return 1;
   }

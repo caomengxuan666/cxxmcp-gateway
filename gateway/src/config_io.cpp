@@ -132,6 +132,17 @@ core::Result<GatewayRuntimeConfig> runtime_config_from_json(
             runtime_json.at("persistentSessionAcquireTimeoutMs")
                 .get<std::int64_t>()};
   }
+  if (runtime_json.contains("activeCallDrainTimeoutMs")) {
+    if (!runtime_json.at("activeCallDrainTimeoutMs").is_number_integer() ||
+        runtime_json.at("activeCallDrainTimeoutMs").get<std::int64_t>() < 0) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a non-negative integer",
+          "$.runtime.activeCallDrainTimeoutMs"));
+    }
+    runtime.active_call_drain_timeout =
+        std::chrono::milliseconds{
+            runtime_json.at("activeCallDrainTimeoutMs").get<std::int64_t>()};
+  }
   if (runtime_json.contains("prewarmCapabilities")) {
     if (!runtime_json.at("prewarmCapabilities").is_boolean()) {
       return mcp::core::unexpected(make_gateway_config_error(

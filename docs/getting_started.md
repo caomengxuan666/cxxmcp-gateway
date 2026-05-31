@@ -158,6 +158,7 @@ When config IO is built, JSON config files can carry the same runtime choices:
     "upstreamSessionMode": "persistent",
     "persistentSessionPoolSize": 2,
     "persistentSessionAcquireTimeoutMs": 100,
+    "activeCallDrainTimeoutMs": 5000,
     "prewarmCapabilities": true
   },
   "upstreams": [

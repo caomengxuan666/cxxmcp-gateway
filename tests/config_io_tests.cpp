@@ -106,6 +106,7 @@ void test_parse_json_config_document() {
        Json{{"upstreamSessionMode", "persistent"},
             {"persistentSessionPoolSize", 3},
             {"persistentSessionAcquireTimeoutMs", 250},
+            {"activeCallDrainTimeoutMs", 5000},
             {"prewarmCapabilities", true}}},
       {"upstreams",
        Json::array({Json{{"id", "stdio"},
@@ -124,6 +125,8 @@ void test_parse_json_config_document() {
           "document persistent session pool size should parse");
   require(parsed->runtime.persistent_session_acquire_timeout.count() == 250,
           "document persistent session acquire timeout should parse");
+  require(parsed->runtime.active_call_drain_timeout.count() == 5000,
+          "document active call drain timeout should parse");
   require(parsed->runtime.prewarm_capabilities,
           "document prewarm flag should parse");
 
@@ -155,6 +158,8 @@ void test_parse_json_config_document() {
           "default persistent session pool size should be one");
   require(parsed->runtime.persistent_session_acquire_timeout.count() == 0,
           "default persistent session acquire timeout should be disabled");
+  require(parsed->runtime.active_call_drain_timeout.count() == 0,
+          "default active call drain timeout should be disabled");
   require(!parsed->runtime.prewarm_capabilities,
           "default runtime prewarm should be false");
 }
@@ -413,6 +418,24 @@ void test_reject_structured_field_type_mismatches() {
                               {"command", "fixture"}}})}},
       "$.runtime.persistentSessionAcquireTimeoutMs",
       "non-integer persistent session acquire timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"activeCallDrainTimeoutMs", -1}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.activeCallDrainTimeoutMs",
+      "negative active call drain timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"activeCallDrainTimeoutMs", "100"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.activeCallDrainTimeoutMs",
+      "non-integer active call drain timeout should fail");
 }
 
 void test_reject_endpoint_fields() {

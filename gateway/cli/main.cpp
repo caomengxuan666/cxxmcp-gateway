@@ -28,7 +28,8 @@ void print_usage(std::ostream& out) {
       << "      [--port <port>] [--path <path>]\n"
       << "      [--session-mode <per-call|persistent>]\n"
       << "      [--session-pool-size <n>]\n"
-      << "      [--session-acquire-timeout-ms <ms>] [--prewarm]\n"
+      << "      [--session-acquire-timeout-ms <ms>]\n"
+      << "      [--active-call-drain-timeout-ms <ms>] [--prewarm]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";
 }
@@ -125,6 +126,7 @@ int main(int argc, char** argv) {
   std::optional<mcp::gateway::UpstreamSessionMode> session_mode_override;
   std::optional<std::size_t> session_pool_size_override;
   std::optional<std::chrono::milliseconds> session_acquire_timeout_override;
+  std::optional<std::chrono::milliseconds> active_call_drain_timeout_override;
   bool prewarm_flag = false;
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   std::optional<std::string> config_file;
@@ -177,6 +179,15 @@ int main(int argc, char** argv) {
         return 2;
       }
       session_acquire_timeout_override = timeout;
+      continue;
+    }
+    if (arg == "--active-call-drain-timeout-ms" && i + 1 < args.size()) {
+      std::chrono::milliseconds timeout{0};
+      if (!parse_nonnegative_milliseconds(args[++i], timeout)) {
+        std::cerr << "invalid --active-call-drain-timeout-ms value\n";
+        return 2;
+      }
+      active_call_drain_timeout_override = timeout;
       continue;
     }
     if (arg == "--prewarm") {
@@ -261,6 +272,10 @@ int main(int argc, char** argv) {
     runtime_config.persistent_session_acquire_timeout =
         *session_acquire_timeout_override;
   }
+  if (active_call_drain_timeout_override.has_value()) {
+    runtime_config.active_call_drain_timeout =
+        *active_call_drain_timeout_override;
+  }
   if (prewarm_flag) {
     runtime_config.prewarm_capabilities = true;
   }
@@ -276,6 +291,8 @@ int main(int argc, char** argv) {
       runtime_config.persistent_session_pool_size;
   runtime_options.persistent_session_acquire_timeout =
       runtime_config.persistent_session_acquire_timeout;
+  runtime_options.active_call_drain_timeout =
+      runtime_config.active_call_drain_timeout;
   mcp::gateway::GatewayRuntime runtime(std::move(config),
                                        std::move(runtime_options));
   if (runtime_config.prewarm_capabilities) {

@@ -668,7 +668,8 @@ The current MVP baseline has verified coverage for:
     active upstream calls instead of relying only on an outer test runner or
     supervisor timeout. Active calls are still not cancelled by the gateway.
     Integration coverage verifies this contract for both process stdio and
-    Streamable HTTP upstreams.
+    Streamable HTTP upstreams, and config/CLI coverage exposes the same bound
+    through `activeCallDrainTimeoutMs` and `--active-call-drain-timeout-ms`.
 
 ## Remaining Near-Term Backlog
 
