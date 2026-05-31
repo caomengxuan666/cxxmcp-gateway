@@ -282,7 +282,9 @@ management state.
 File-based configuration lives in the separate `cxxmcp_gateway_config_io`
 layer. The initial format is JSON and loads into `GatewayConfig`; YAML, TOML,
 or environment substitution are not supported until their rules are explicit.
-The core remains independent from the chosen file format.
+Hosted endpoint fields are not part of the file format yet, so root-level
+`host`, `port`, and `path` fields are rejected rather than ignored. The core
+remains independent from the chosen file format.
 
 Library consumers must be able to construct `GatewayConfig` directly without
 pulling in a file parser. Config IO is an optional adapter for runners and

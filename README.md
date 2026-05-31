@@ -88,7 +88,8 @@ When `cxxmcp_gateway_config_io` is built, the reference runner also accepts
 upstreams to the loaded config. File config and command-line upstreams are
 validated together before the HTTP endpoint is started; duplicate upstream ids
 are rejected. The hosted endpoint remains CLI-owned through `--host`, `--port`,
-and `--path`.
+and `--path`, and root-level `host`, `port`, or `path` fields in config files
+are rejected instead of being silently ignored.
 Endpoint defaults are `--host 127.0.0.1`, `--port 3000`, and `--path /mcp`.
 Disabled upstreams may omit transport connection fields such as `command` or
 `uri`; enabled upstreams must provide the fields required by their transport.

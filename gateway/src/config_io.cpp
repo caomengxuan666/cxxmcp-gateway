@@ -56,6 +56,19 @@ core::Result<std::string> optional_string(const protocol::Json& json,
   return json.at(key).get<std::string>();
 }
 
+core::Result<core::Unit> reject_endpoint_fields(
+    const protocol::Json& json) {
+  const std::string fields[] = {"host", "port", "path"};
+  for (const auto& field : fields) {
+    if (json.contains(field)) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway endpoint fields are not supported in config files",
+          "$." + field));
+    }
+  }
+  return core::Unit{};
+}
+
 core::Result<std::vector<std::string>> optional_string_array(
     const protocol::Json& json, std::string_view field,
     std::string_view path) {
@@ -200,6 +213,10 @@ core::Result<GatewayConfig> gateway_config_from_json(
   if (!json.is_object()) {
     return mcp::core::unexpected(
         make_gateway_config_error("gateway config root must be an object"));
+  }
+  auto endpoint_fields = reject_endpoint_fields(json);
+  if (!endpoint_fields) {
+    return mcp::core::unexpected(endpoint_fields.error());
   }
 
   GatewayConfig config;

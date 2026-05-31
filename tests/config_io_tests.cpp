@@ -250,6 +250,22 @@ void test_reject_structured_field_type_mismatches() {
       "upstreams[0].timeoutMs", "non-integer HTTP timeout should fail");
 }
 
+void test_reject_endpoint_fields() {
+  const Json upstream = Json{{"id", "stdio"},
+                             {"transport", "stdio"},
+                             {"command", "fixture"}};
+  require_config_error(
+      Json{{"host", "127.0.0.1"},
+           {"upstreams", Json::array({upstream})}},
+      "$.host", "config host endpoint field should fail");
+  require_config_error(
+      Json{{"port", 3000}, {"upstreams", Json::array({upstream})}},
+      "$.port", "config port endpoint field should fail");
+  require_config_error(
+      Json{{"path", "/mcp"}, {"upstreams", Json::array({upstream})}},
+      "$.path", "config path endpoint field should fail");
+}
+
 void test_parse_disabled_upstreams_without_connection_fields() {
   const Json json = {
       {"upstreams",
@@ -314,6 +330,7 @@ int main() {
     test_reject_invalid_config();
     test_reject_optional_string_type_mismatches();
     test_reject_structured_field_type_mismatches();
+    test_reject_endpoint_fields();
     test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
     return 0;

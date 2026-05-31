@@ -461,7 +461,8 @@ Current implementation status:
 - command-line upstream flags are appended to the loaded config and the merged
   config is validated before runtime startup;
 - CLI endpoint flags (`--host`, `--port`, and `--path`) are not part of the
-  config file format yet;
+  config file format yet, and root-level endpoint fields with those names are
+  rejected rather than silently ignored;
 - environment-variable substitution is intentionally not implemented yet.
 
 Exit criteria:
@@ -552,7 +553,8 @@ The current MVP baseline has verified coverage for:
 3. Upstream config validation: empty ids, invalid id grammar, duplicate ids
    from direct config construction and JSON config loading, missing enabled
    transport parameters, invalid HTTP timeouts, structured field type
-   mismatches, config file open failures, and malformed config JSON.
+   mismatches, unsupported root-level endpoint fields, config file open
+   failures, and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
