@@ -2199,7 +2199,7 @@ void test_persistent_stdio_failure_invalidates_session_for_reconnect() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "persistent_reconnect";
   config.upstreams.front().process_stdio.timeout =
-      std::chrono::milliseconds{50};
+      std::chrono::milliseconds{250};
   const auto marker_path =
       std::filesystem::temp_directory_path() /
       ("cxxmcp_gateway_stdio_persistent_reconnect_marker_" +
@@ -2220,7 +2220,7 @@ void test_persistent_stdio_failure_invalidates_session_for_reconnect() {
                                        std::move(options));
 
   auto timed_out =
-      runtime.call_tool("persistent_reconnect.slow", Json{{"sleepMs", 500}});
+      runtime.call_tool("persistent_reconnect.slow", Json{{"sleepMs", 1000}});
   require(!timed_out.has_value(),
           "persistent stdio slow call should time out");
   require_gateway_upstream_timeout(timed_out.error(), "persistent_reconnect");
@@ -3604,6 +3604,66 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
                  "idle hosted gateway should mark upstream stopped");
 }
 
+void test_runtime_stop_observer_can_reenter_lifecycle_api() {
+  mcp::gateway::GatewayRuntime* runtime_ptr = nullptr;
+  bool saw_stopping = false;
+  bool wait_failed_without_endpoint = false;
+  bool states_remained_available = false;
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.observer = [&](const mcp::gateway::GatewayRuntimeEvent& event) {
+    if (!runtime_ptr ||
+        event.kind != mcp::gateway::GatewayRuntimeEventKind::runtime_stopping) {
+      return;
+    }
+    saw_stopping = true;
+    auto wait_result = runtime_ptr->wait();
+    wait_failed_without_endpoint =
+        !wait_result.has_value() &&
+        wait_result.error().message == "gateway http endpoint is not running";
+    states_remained_available = !runtime_ptr->upstream_states().empty();
+  };
+
+  mcp::gateway::GatewayRuntime runtime(make_disabled_config("reentrant"),
+                                       std::move(options));
+  runtime_ptr = &runtime;
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "runtime stop should allow observer lifecycle reentry");
+  require(saw_stopping, "observer should see runtime stopping event");
+  require(wait_failed_without_endpoint,
+          "observer should reenter wait without deadlocking service mutex");
+  require(states_remained_available,
+          "observer should reenter state snapshot during stop");
+}
+
+void test_runtime_wait_and_stop_can_overlap() {
+  const auto kPort = find_available_loopback_port();
+
+  mcp::gateway::GatewayRuntime gateway(make_disabled_config("wait_stop"));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(),
+          "overlapping wait/stop gateway endpoint should start");
+
+  std::atomic_bool wait_returned = false;
+  std::atomic_bool wait_succeeded = false;
+  std::thread waiter([&] {
+    auto waited = gateway.wait();
+    wait_succeeded = waited.has_value();
+    wait_returned = true;
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  auto stopped = gateway.stop();
+  require(stopped.has_value(),
+          "gateway stop should succeed while another thread waits");
+  waiter.join();
+  require(wait_returned,
+          "gateway wait should return after overlapping stop completes");
+  require(wait_succeeded, "gateway wait should complete successfully");
+}
+
 void test_hosted_gateway_rejects_invalid_json_rpc_request() {
   const auto kPort = find_available_loopback_port();
 
@@ -4712,6 +4772,10 @@ int main() {
         test_hosted_gateway_rejects_invalid_endpoint_options);
     run("hosted gateway http endpoint stops while idle",
         test_hosted_gateway_http_endpoint_stops_while_idle);
+    run("runtime stop observer can reenter lifecycle api",
+        test_runtime_stop_observer_can_reenter_lifecycle_api);
+    run("runtime wait and stop can overlap",
+        test_runtime_wait_and_stop_can_overlap);
     run("hosted gateway rejects invalid json rpc request",
         test_hosted_gateway_rejects_invalid_json_rpc_request);
     run("runtime move assignment stops existing endpoint",

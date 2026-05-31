@@ -188,7 +188,7 @@ struct GatewayRuntime::Impl final {
 
   GatewayRouter router;
   std::mutex service_mutex;
-  std::optional<RunningService<RoleServer>> service;
+  std::shared_ptr<RunningService<RoleServer>> service;
   mutable std::mutex upstream_state_mutex;
   std::condition_variable upstream_idle_cv;
   std::unordered_map<std::string, UpstreamRuntimeState> upstream_states;
@@ -1358,7 +1358,7 @@ core::Result<core::Unit> GatewayRuntime::start_http(HttpEndpoint endpoint) {
   if (!accepting) {
     return mcp::core::unexpected(accepting.error());
   }
-  if (impl_->service.has_value() && impl_->service->running()) {
+  if (impl_->service && impl_->service->running()) {
     return mcp::core::unexpected(
         runtime_error("gateway http endpoint is already running"));
   }
@@ -1401,17 +1401,19 @@ core::Result<core::Unit> GatewayRuntime::start_http(HttpEndpoint endpoint) {
     return mcp::core::unexpected(running.error());
   }
   running->wait_until_ready();
-  impl_->service.emplace(std::move(*running));
+  impl_->service =
+      std::make_shared<RunningService<RoleServer>>(std::move(*running));
   return core::Unit{};
 }
 
 core::Result<core::Unit> GatewayRuntime::wait() {
+  std::shared_ptr<RunningService<RoleServer>> service;
   std::unique_lock lock(impl_->service_mutex);
-  if (!impl_->service.has_value()) {
+  if (!impl_->service) {
     return mcp::core::unexpected(
         runtime_error("gateway http endpoint is not running"));
   }
-  auto* service = &*impl_->service;
+  service = impl_->service;
   lock.unlock();
   return service->wait();
 }
@@ -1421,50 +1423,35 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
     return core::Unit{};
   }
 
-  std::unique_lock lock(impl_->service_mutex);
+  std::shared_ptr<RunningService<RoleServer>> service;
   {
-    std::lock_guard state_lock(impl_->upstream_state_mutex);
-    if (impl_->stopped) {
-      return core::Unit{};
+    std::lock_guard service_lock(impl_->service_mutex);
+    {
+      std::lock_guard state_lock(impl_->upstream_state_mutex);
+      if (impl_->stopped) {
+        return core::Unit{};
+      }
+      impl_->stopping = true;
+      for (const auto& upstream : impl_->router.config().upstreams) {
+        impl_->set_upstream_status_locked(upstream.id,
+                                          UpstreamRuntimeStatus::stopping);
+      }
     }
-    impl_->stopping = true;
-    for (const auto& upstream : impl_->router.config().upstreams) {
-      impl_->set_upstream_status_locked(upstream.id,
-                                        UpstreamRuntimeStatus::stopping);
-    }
+    service = impl_->service;
   }
   impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopping,
                                   UpstreamRuntimeStatus::stopping);
   impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopping);
 
-  if (!impl_ || !impl_->service.has_value()) {
-    std::unique_lock state_lock(impl_->upstream_state_mutex);
-    impl_->upstream_idle_cv.wait(state_lock, [&] {
-      return std::all_of(impl_->upstream_states.begin(),
-                         impl_->upstream_states.end(), [](const auto& entry) {
-                           return entry.second.active_calls == 0;
-                         });
-    });
-    state_lock.unlock();
-    impl_->stop_persistent_sessions();
-    state_lock.lock();
-    impl_->stopping = false;
-    impl_->stopped = true;
-    for (const auto& upstream : impl_->router.config().upstreams) {
-      impl_->set_upstream_status_locked(upstream.id,
-                                        UpstreamRuntimeStatus::stopped);
+  core::Result<core::Unit> service_stopped = core::Unit{};
+  if (service) {
+    service_stopped = service->stop();
+    std::lock_guard service_lock(impl_->service_mutex);
+    if (impl_->service == service) {
+      impl_->service.reset();
     }
-    state_lock.unlock();
-    impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopped);
-    impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopped,
-                                    UpstreamRuntimeStatus::stopped);
-    return core::Unit{};
   }
-  auto* service = &*impl_->service;
-  lock.unlock();
-  auto stopped = service->stop();
-  lock.lock();
-  impl_->service.reset();
+
   std::unique_lock state_lock(impl_->upstream_state_mutex);
   impl_->upstream_idle_cv.wait(state_lock, [&] {
     return std::all_of(impl_->upstream_states.begin(),
@@ -1485,8 +1472,8 @@ core::Result<core::Unit> GatewayRuntime::stop() noexcept {
   impl_->notify_all_upstream_statuses(UpstreamRuntimeStatus::stopped);
   impl_->notify_runtime_lifecycle(GatewayRuntimeEventKind::runtime_stopped,
                                   UpstreamRuntimeStatus::stopped);
-  if (!stopped) {
-    return mcp::core::unexpected(stopped.error());
+  if (!service_stopped) {
+    return mcp::core::unexpected(service_stopped.error());
   }
   return core::Unit{};
 }
