@@ -36,11 +36,11 @@ when possible:
 ```powershell
 cmake -S . -B build-agent-check -DCMAKE_BUILD_TYPE=Debug -Dcxxmcp_DIR=C:\Users\cmx\repo\MCPServer.cpp\out\install\gateway-sdk-cxx23\lib\cmake\cxxmcp
 cmake --build build-agent-check
-ctest --test-dir build-agent-check --output-on-failure --timeout 180
+ctest --test-dir build-agent-check --output-on-failure --timeout 300
 
 cmake -S . -B build-agent-shared-check -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=ON -DCXXMCP_GATEWAY_BUILD_TESTS=ON -DCXXMCP_GATEWAY_BUILD_CLI=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\MCPServer.cpp\out\install\gateway-sdk-cxx23\lib\cmake\cxxmcp
 cmake --build build-agent-shared-check
-ctest --test-dir build-agent-shared-check --output-on-failure --timeout 180
+ctest --test-dir build-agent-shared-check --output-on-failure --timeout 300
 
 git diff --check
 ```

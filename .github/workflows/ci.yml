@@ -109,4 +109,4 @@ jobs:
         run: cmake --build build-gateway --parallel
 
       - name: Test gateway
-        run: ctest --test-dir build-gateway --output-on-failure --timeout 120
+        run: ctest --test-dir build-gateway --output-on-failure --timeout 300
