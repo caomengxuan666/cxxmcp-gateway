@@ -163,6 +163,14 @@ void call_tool_or_throw(mcp::gateway::GatewayRuntime& runtime,
   require_result(called.has_value(), message);
 }
 
+mcp::core::Result<mcp::ClientPeer> make_direct_http_peer(std::uint16_t port) {
+  mcp::client::Client::StreamableHttpEndpoint endpoint;
+  endpoint.uri = "http://127.0.0.1:" + std::to_string(port) + "/mcp";
+  auto builder = mcp::ClientPeer::builder();
+  builder.capabilities(mcp::protocol::client_capabilities().build());
+  return builder.streamable_http(std::move(endpoint)).build();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -262,6 +270,34 @@ int main(int argc, char** argv) {
         call_tool_or_throw(runtime, "http.echo", Json{{"value", "perf"}},
                            "http persistent tools/call failed");
       }));
+    }
+
+    {
+      auto peer = make_direct_http_peer(options.http_port);
+      require_result(peer.has_value(), "direct HTTP SDK client should build");
+      auto running_direct = mcp::serve(std::move(*peer));
+      require_result(running_direct.has_value(),
+                     "direct HTTP SDK client should start");
+      auto initialized = running_direct->peer().initialize(
+          "cxxmcp-gateway-perf-direct-client", "1.0.0");
+      require_result(initialized.has_value(),
+                     "direct HTTP SDK client should initialize");
+      auto notified = running_direct->peer().notify_initialized();
+      require_result(notified.has_value(),
+                     "direct HTTP SDK client should notify initialized");
+      auto warmed =
+          running_direct->peer().call_tool("echo", Json{{"value", "warmup"}});
+      require_result(warmed.has_value(),
+                     "direct HTTP SDK tools/call warmup failed");
+      print_csv_row(measure("http", "tools/call:direct_sdk_persistent",
+                            options.iterations, [&] {
+        auto called =
+            running_direct->peer().call_tool("echo", Json{{"value", "perf"}});
+        require_result(called.has_value(),
+                       "direct HTTP SDK tools/call failed");
+      }));
+      auto stopped = running_direct->stop();
+      require_result(stopped.has_value(), "direct HTTP SDK client should stop");
     }
 
     {
