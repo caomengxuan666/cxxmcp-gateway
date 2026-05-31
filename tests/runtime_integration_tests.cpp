@@ -1153,6 +1153,102 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
           "tools-only upstream tool should still be exposed");
 }
 
+void test_capability_advertisement_unions_multiple_upstream_caches() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "full";
+
+  mcp::gateway::UpstreamServer tools_only;
+  tools_only.id = "tools_only";
+  tools_only.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+  tools_only.process_stdio.command = CXXMCP_GATEWAY_STDIO_FIXTURE;
+  tools_only.process_stdio.args = {"--tools-only"};
+  config.upstreams.push_back(std::move(tools_only));
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+
+  const auto before = runtime.server_capabilities();
+  require(before.tools.enabled,
+          "multi-upstream runtime should advertise configured tools before "
+          "discovery");
+  require(before.resources.enabled,
+          "multi-upstream runtime should advertise configured resources before "
+          "discovery");
+  require(before.prompts.enabled,
+          "multi-upstream runtime should advertise configured prompts before "
+          "discovery");
+  require(!before.completions.enabled,
+          "multi-upstream runtime should not advertise completions before "
+          "discovery");
+
+  for (const auto& state : runtime.upstream_states()) {
+    require(!state.capabilities.has_value(),
+            "server_capabilities should not initialize upstream caches");
+    require(state.active_calls == 0,
+            "server_capabilities should not create active upstream calls");
+    require_status(state, UpstreamRuntimeStatus::configured,
+                   "server_capabilities should leave upstreams configured");
+  }
+
+  auto refreshed = runtime.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "multi-upstream capability refresh should succeed");
+
+  const auto states = runtime.upstream_states();
+  const auto full = require_upstream_state(states, "full");
+  require(full.capabilities.has_value(),
+          "full upstream capability refresh should record capabilities");
+  require(full.capabilities->tools.enabled,
+          "full upstream should advertise tools upstream");
+  require(full.capabilities->resources.enabled,
+          "full upstream should advertise resources upstream");
+  require(full.capabilities->prompts.enabled,
+          "full upstream should advertise prompts upstream");
+  require(full.capabilities->completions.enabled,
+          "full upstream should advertise completions upstream");
+  require_status(full, UpstreamRuntimeStatus::healthy,
+                 "full upstream should be healthy after capability refresh");
+  require(full.active_calls == 0,
+          "full upstream capability refresh should leave no active calls");
+
+  const auto tools = require_upstream_state(states, "tools_only");
+  require(tools.capabilities.has_value(),
+          "tools-only upstream capability refresh should record capabilities");
+  require(tools.capabilities->tools.enabled,
+          "tools-only upstream should advertise tools upstream");
+  require(!tools.capabilities->resources.enabled,
+          "tools-only upstream should not advertise resources upstream");
+  require(!tools.capabilities->prompts.enabled,
+          "tools-only upstream should not advertise prompts upstream");
+  require(!tools.capabilities->completions.enabled,
+          "tools-only upstream should not advertise completions upstream");
+  require_status(tools, UpstreamRuntimeStatus::healthy,
+                 "tools-only upstream should be healthy after capability "
+                 "refresh");
+  require(tools.active_calls == 0,
+          "tools-only upstream capability refresh should leave no active calls");
+
+  const auto after = runtime.server_capabilities();
+  require(after.tools.enabled,
+          "runtime should advertise tools from multi-upstream capability "
+          "union");
+  require(after.resources.enabled,
+          "runtime should advertise resources when any upstream supports them");
+  require(!after.resources.list_changed,
+          "multi-upstream capability union should not add resources/listChanged");
+  require(!after.resources.subscribe,
+          "multi-upstream capability union should not add subscriptions");
+  require(after.prompts.enabled,
+          "runtime should advertise prompts when any upstream supports them");
+  require(!after.prompts.list_changed,
+          "multi-upstream capability union should not add prompts/listChanged");
+  require(after.completions.enabled,
+          "runtime should advertise completions when any upstream supports "
+          "them");
+  require(!after.tasks.has_value(),
+          "multi-upstream capability union should not advertise tasks");
+  require_mvp_server_capability_json_shape(after, true);
+}
+
 void test_hosted_capability_advertisement_uses_refresh_cache() {
   constexpr auto kPort = 39966;
 
@@ -3349,6 +3445,7 @@ int main() {
     test_stdio_upstream();
     test_upstream_client_capabilities_are_minimal();
     test_capability_advertisement_uses_initialized_upstream_cache();
+    test_capability_advertisement_unions_multiple_upstream_caches();
     test_hosted_capability_advertisement_uses_refresh_cache();
     test_completion_routes_to_stdio_upstream();
     test_hosted_completion_routes_after_capability_refresh();
