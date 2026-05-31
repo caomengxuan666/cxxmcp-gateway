@@ -3150,9 +3150,49 @@ void test_raw_request_routing_surface() {
           "prompts/get raw response should parse");
   require_text_prompt(*parsed_prompt, "Summarize from-raw");
 
+  mcp::protocol::CompleteParams raw_completion;
+  raw_completion.ref =
+      mcp::protocol::prompt_completion_reference("stdio.summarize");
+  raw_completion.argument.name = "text";
+  raw_completion.argument.value = "raw";
+  mcp::protocol::JsonRpcRequest completion_request;
+  completion_request.method = mcp::protocol::CompletionCompleteMethod;
+  completion_request.id = std::int64_t{15};
+  completion_request.params =
+      mcp::protocol::complete_params_to_json(raw_completion);
+  auto completion_response = runtime.handle_request(completion_request);
+  require(completion_response.has_value(),
+          "completion/complete raw request should respond");
+  require(completion_response->result.has_value(),
+          "completion/complete raw request should succeed");
+  const auto parsed_completion =
+      mcp::protocol::complete_result_from_json(*completion_response->result);
+  require(parsed_completion.has_value(),
+          "completion/complete raw response should parse");
+  require(parsed_completion->completion.values.size() == 2,
+          "completion/complete raw response should include candidates");
+  require(parsed_completion->completion.values.front() == "raw-summary",
+          "completion/complete raw response should route prompt ref");
+
+  mcp::protocol::JsonRpcRequest invalid_completion_params;
+  invalid_completion_params.method = mcp::protocol::CompletionCompleteMethod;
+  invalid_completion_params.id = std::int64_t{16};
+  invalid_completion_params.params =
+      Json{{"ref", Json{{"type", "ref/prompt"}, {"name", Json::array()}}},
+           {"argument", Json{{"name", "text"}, {"value", "raw"}}}};
+  auto invalid_completion_response =
+      runtime.handle_request(invalid_completion_params);
+  require(invalid_completion_response.has_value(),
+          "invalid completion/complete should respond");
+  require(invalid_completion_response->error.has_value(),
+          "invalid completion/complete should error");
+  require(invalid_completion_response->error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "invalid completion/complete params should map to invalid request");
+
   mcp::protocol::JsonRpcRequest invalid_prompt_params;
   invalid_prompt_params.method = mcp::protocol::PromptsGetMethod;
-  invalid_prompt_params.id = std::int64_t{13};
+  invalid_prompt_params.id = std::int64_t{17};
   invalid_prompt_params.params = Json{{"name", Json::array()}};
   auto invalid_prompt_response =
       runtime.handle_request(invalid_prompt_params);
@@ -3166,7 +3206,7 @@ void test_raw_request_routing_surface() {
 
   mcp::protocol::JsonRpcRequest invalid_prompt_name;
   invalid_prompt_name.method = mcp::protocol::PromptsGetMethod;
-  invalid_prompt_name.id = std::int64_t{14};
+  invalid_prompt_name.id = std::int64_t{18};
   invalid_prompt_name.params =
       Json{{"name", "bad"}, {"arguments", Json::object()}};
   auto invalid_prompt_name_response =
