@@ -12,6 +12,9 @@ API requirements.
 - `docs/getting_started.md` describes the supported C++ host integration path,
   including component selection, runtime startup, optional capability refresh,
   persistent session tradeoffs, and CLI scope.
+- `docs/api_contract.md` matches the public runtime behavior for lifecycle,
+  concurrency, session modes, catalog caching, capability advertisement,
+  observers, routing names, and error categories.
 - Future-only capabilities remain unadvertised unless their namespace,
   routing, notification, and integration-test contracts are implemented.
 

@@ -635,6 +635,11 @@ The current MVP baseline has verified coverage for:
     [`release_checklist.md`](release_checklist.md), including package
     consumption, component install, SDK revision, performance evidence, and
     public-contract gates.
+19. Library onboarding and public runtime API docs: C++ hosts have a minimal
+    integration guide in [`getting_started.md`](getting_started.md), and
+    lifecycle, concurrency, session, cache, capability, observer, routing, and
+    error-shape contracts are summarized in
+    [`api_contract.md`](api_contract.md).
 
 ## Remaining Near-Term Backlog
 

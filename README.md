@@ -28,6 +28,8 @@ See [Gateway Scope and Boundaries](docs/gateway_scope.md) for the current
 responsibility split and validation plan.
 See [Getting Started](docs/getting_started.md) for a minimal C++ host
 integration path.
+See [Runtime API Contract](docs/api_contract.md) for lifecycle, threading,
+session, cache, capability, and error-shape semantics.
 See [Gateway Technical Roadmap](docs/technical_roadmap.md) for the phased
 implementation path.
 See [Operational Gates](docs/operational_gates.md) for release-blocking checks,
