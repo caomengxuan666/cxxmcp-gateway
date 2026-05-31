@@ -104,6 +104,19 @@ int main() {
               "cxxmcp-gateway-resource://fs/"
               "file%3A%2F%2F%2Fworkspace%2F{path}",
           "exposed resource template URI should preserve template variables");
+  auto expanded_template = exposed_template;
+  expanded_template.replace(expanded_template.find("{path}"),
+                            std::string_view{"{path}"}.size(),
+                            "docs%2Freadme.md");
+  const auto resolved_template_resource =
+      mcp::gateway::GatewayRouter::resolve_resource_uri(expanded_template);
+  require(resolved_template_resource.has_value(),
+          "expanded gateway resource template URI should resolve");
+  require(resolved_template_resource->upstream_id == "fs",
+          "expanded resource template upstream id mismatch");
+  require(resolved_template_resource->upstream_uri ==
+              "file:///workspace/docs/readme.md",
+          "expanded resource template should decode routed resource URI");
 
   const auto invalid_resource_scheme =
       mcp::gateway::GatewayRouter::resolve_resource_uri("file:///tmp/a.txt");
