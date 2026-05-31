@@ -2603,6 +2603,187 @@ void test_http_timeout() {
   require(stopped.has_value(), "http timeout fixture should stop");
 }
 
+void test_persistent_http_calls_to_one_upstream_are_serialized() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-busy")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 250)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(), "persistent http busy fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(), "persistent http busy fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_busy";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_busy.slow",
+                                     Json{{"sleepMs", 250}});
+      require(first.has_value(),
+              "first persistent http same-upstream call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.call_tool("persistent_http_busy.slow",
+                                      Json{{"sleepMs", 250}});
+      require(second.has_value(),
+              "second persistent http same-upstream call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_two_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_busy");
+    if (state.active_calls >= 2) {
+      observed_two_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_two_active,
+          "persistent http same-upstream calls should report both active calls");
+  require(elapsed >= std::chrono::milliseconds{450},
+          "persistent http same-upstream calls should be serialized by the "
+          "per-upstream session mutex");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_http_busy");
+  require(state.active_calls == 0,
+          "persistent http serialized calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent http serialized calls should leave upstream "
+                 "healthy");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http busy runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http busy fixture should stop");
+}
+
+void test_persistent_http_failure_invalidates_session_for_reconnect() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-reconnect")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 1000)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http reconnect fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http reconnect fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_reconnect";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::milliseconds{250};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto timed_out = runtime.call_tool("persistent_http_reconnect.slow",
+                                     Json{{"sleepMs", 1000}});
+  require(!timed_out.has_value(),
+          "persistent http slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(),
+                                   "persistent_http_reconnect");
+
+  const auto degraded = require_upstream_state(runtime.upstream_states(),
+                                              "persistent_http_reconnect");
+  require_status(degraded, UpstreamRuntimeStatus::degraded,
+                 "persistent http timeout should mark upstream degraded");
+  require(degraded.active_calls == 0,
+          "persistent http timeout should clear active calls");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{1000});
+  auto recovered = runtime.call_tool("persistent_http_reconnect.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent http call should reconnect after failed session");
+  require_text_result(*recovered, "recovered");
+
+  const auto recovered_state = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_reconnect");
+  require(recovered_state.active_calls == 0,
+          "persistent http reconnect should clear active calls");
+  require_status(recovered_state, UpstreamRuntimeStatus::healthy,
+                 "persistent http reconnect should restore upstream health");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http reconnect runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http reconnect fixture should stop");
+}
+
 void test_stdio_timeout() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "slow_stdio";
@@ -4781,6 +4962,10 @@ int main() {
     run("runtime move assignment stops existing endpoint",
         test_runtime_move_assignment_stops_existing_endpoint);
     run("http timeout", test_http_timeout);
+    run("persistent http calls to one upstream are serialized",
+        test_persistent_http_calls_to_one_upstream_are_serialized);
+    run("persistent http failure invalidates session for reconnect",
+        test_persistent_http_failure_invalidates_session_for_reconnect);
     run("stdio timeout", test_stdio_timeout);
     run("concurrent http calls update active state",
         test_concurrent_http_calls_update_active_state);

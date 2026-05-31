@@ -586,10 +586,12 @@ The current MVP baseline has verified coverage for:
    capability refresh, raw JSON-RPC post-stop rejection for routed methods
    while SDK-owned lifecycle and liveness methods remain delegated,
    hosted endpoint option validation, wait-before-start rejection,
+   overlapping wait/stop handling, observer lifecycle reentry,
    cancellation/progress notification no-ops, stdio child cleanup after
-   successful per-call sessions and on stop, and persistent stdio session
-   reuse, same-upstream serialization, active-call stop, failure invalidation,
-   reconnect, and cleanup on stop.
+   successful per-call sessions and on stop, persistent stdio session reuse,
+   same-upstream serialization, active-call stop, failure invalidation,
+   reconnect, and cleanup on stop, plus persistent HTTP same-upstream
+   serialization and timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
