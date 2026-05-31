@@ -6459,6 +6459,43 @@ void test_raw_request_lifecycle_after_stop() {
                                     "completion/complete");
 }
 
+void test_notification_lifecycle_after_stop() {
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "notification lifecycle runtime should stop");
+
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesUpdatedNotificationMethod),
+       Json{{"uri", "file:///fixture/readme.txt"}}},
+      {std::string(mcp::protocol::PromptsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "downstream cancelled after stop"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "after-stop"}, {"progress", 1.0}}},
+      {"gateway/unknownNotification", Json::object()},
+  };
+
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "stopped runtime notifications should remain local no-ops");
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "stdio");
+  require(state.active_calls == 0,
+          "stopped notification no-ops should not create active calls");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "stopped notification no-ops should not restart upstreams");
+}
+
 }  // namespace
 
 int main() {
@@ -6599,6 +6636,8 @@ int main() {
     run("raw request routing surface", test_raw_request_routing_surface);
     run("raw request lifecycle after stop",
         test_raw_request_lifecycle_after_stop);
+    run("notification lifecycle after stop",
+        test_notification_lifecycle_after_stop);
     return 0;
   } catch (const std::exception& ex) {
     std::cerr << "gateway runtime integration failed: " << ex.what() << "\n";

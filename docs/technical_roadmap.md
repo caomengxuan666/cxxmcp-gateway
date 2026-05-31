@@ -600,8 +600,8 @@ The current MVP baseline has verified coverage for:
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
-   notification no-op coverage, and serialized JSON shape for non-advertised
-   sub-capabilities.
+   notification no-op coverage during active calls and after stop, and
+   serialized JSON shape for non-advertised sub-capabilities.
 11. Completion data-plane integration: prompt completions and resource-template
     completions route through existing gateway namespaces for process stdio
     and Streamable HTTP upstreams, raw `completion/complete` requests route

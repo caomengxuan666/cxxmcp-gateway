@@ -60,7 +60,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Hosted multi-client routing | `test_hosted_gateway_multiple_downstream_clients`, `test_hosted_gateway_multiple_downstream_clients_to_http_upstreams` |
 | Cancellation/progress notification no-ops | `test_cancellation_and_progress_notifications_are_local_noops`, `test_hosted_cancellation_notifications_do_not_cancel_upstream_call`, `test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call` |
 | Downstream close during active upstream calls | `test_downstream_close_during_active_upstream_call_clears_state`, `test_downstream_close_during_active_http_upstream_call_clears_state` |
-| Unsupported methods and notifications | raw request routing and notification no-op tests |
+| Unsupported methods and notifications | raw request routing tests, notification no-op tests, and `test_notification_lifecycle_after_stop` |
 | Error mapping | router tests, runtime integration error assertions, and config IO tests |
 
 ## SDK and Performance Evidence
