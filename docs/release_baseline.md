@@ -9,7 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-60e46964a11a26beaf807ba0342589e80df1ec55
+30254ae7f5a368b5c38d2cb932542c194da73fb8
 ```
 
 SDK source revision:
@@ -46,21 +46,22 @@ Gateway perf configure and run:
 ```powershell
 cmake -S . -B build-agent-perf-release-current -G Ninja -DCMAKE_BUILD_TYPE=Release -DCXXMCP_GATEWAY_BUILD_PERF=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\cxxmcp-sdk-perf-install\lib\cmake\cxxmcp
 cmake --build build-agent-perf-release-current --target cxxmcp_gateway_perf
-build-agent-perf-release-current\cxxmcp-gateway-perf.exe --iterations 50 --http-port 39974
+build-agent-perf-release-current\cxxmcp-gateway-perf.exe --iterations 50 --http-port 39976
 ```
 
 Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list:cold,50,39412,82232
-stdio,tools/list:cached,50,9,32
-stdio,tools/call:per_call,50,50651,79504
-stdio,tools/call:persistent,50,138,303
-http,tools/list:cold,50,33071,62325
-http,tools/list:cached,50,3,3
-http,tools/call:per_call,50,44484,62240
-http,tools/call:persistent,50,14891,16416
+stdio,tools/list:cold,50,39427,53219
+stdio,tools/list:cached,50,8,9
+stdio,tools/call:per_call,50,38661,49494
+stdio,tools/call:persistent,50,135,270
+http,tools/list:cold,50,46750,63753
+http,tools/list:cached,50,4,4
+http,tools/call:per_call,50,47015,63736
+http,tools/call:persistent,50,14407,16784
+http,tools/call:persistent_pool2_pair,50,219157,234966
 ```
 
 Notes:
@@ -78,3 +79,7 @@ Notes:
   timeouts, opt-in persistent upstream sessions, expanded performance
   measurement, lifecycle hardening, persistent lifecycle coverage, and
   example-gate work landed in the PR branch.
+- The `persistent_pool2_pair` row measures two concurrent HTTP slow tool calls
+  through a persistent pool of size two. It is a regression baseline for the
+  pool path, not a latency guarantee; the current Streamable HTTP fixture path
+  still dominates end-to-end timing.
