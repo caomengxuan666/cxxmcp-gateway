@@ -22,6 +22,7 @@ int main() {
   mcp::gateway::GatewayRuntimeOptions options;
   options.upstream_session_mode =
       mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
   options.observer =
       [&](const mcp::gateway::GatewayRuntimeEvent&) { ++observed_events; };
 
