@@ -45,6 +45,15 @@ int main() {
   require(resolved->upstream_tool_name == "read_file",
           "upstream tool name mismatch");
 
+  const auto dotted_tool =
+      mcp::gateway::GatewayRouter::resolve_tool_name("fs.package.read_file");
+  require(dotted_tool.has_value(),
+          "gateway tool name should preserve dots after upstream id");
+  require(dotted_tool->upstream_id == "fs",
+          "dotted tool upstream id mismatch");
+  require(dotted_tool->upstream_tool_name == "package.read_file",
+          "dotted upstream tool name should preserve suffix");
+
   const auto invalid = mcp::gateway::GatewayRouter::resolve_tool_name("broken");
   require(!invalid.has_value(), "invalid gateway tool name should fail");
 
@@ -60,6 +69,14 @@ int main() {
           "prompt upstream id mismatch");
   require(resolved_prompt->upstream_prompt_name == "summarize",
           "upstream prompt name mismatch");
+  const auto dotted_prompt =
+      mcp::gateway::GatewayRouter::resolve_prompt_name("fs.team.summarize");
+  require(dotted_prompt.has_value(),
+          "gateway prompt name should preserve dots after upstream id");
+  require(dotted_prompt->upstream_id == "fs",
+          "dotted prompt upstream id mismatch");
+  require(dotted_prompt->upstream_prompt_name == "team.summarize",
+          "dotted upstream prompt name should preserve suffix");
   const auto invalid_prompt =
       mcp::gateway::GatewayRouter::resolve_prompt_name("broken");
   require(!invalid_prompt.has_value(),
