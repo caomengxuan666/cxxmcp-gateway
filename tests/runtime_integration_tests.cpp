@@ -85,6 +85,56 @@ void close_socket(SocketHandle socket) { close(socket); }
 bool socket_failed(int result) { return result < 0; }
 #endif
 
+std::uint16_t find_available_loopback_port() {
+  SocketRuntime sockets;
+  SocketHandle socket = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (socket == kInvalidSocket) {
+    throw std::runtime_error("failed to create loopback port probe socket");
+  }
+
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(0);
+  if (inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) != 1) {
+    close_socket(socket);
+    throw std::runtime_error("failed to parse loopback address");
+  }
+
+  if (socket_failed(::bind(socket, reinterpret_cast<sockaddr*>(&address),
+                           sizeof(address)))) {
+    close_socket(socket);
+    throw std::runtime_error("failed to bind loopback port probe socket");
+  }
+
+  sockaddr_in bound_address{};
+#ifdef _WIN32
+  int bound_address_length = sizeof(bound_address);
+#else
+  socklen_t bound_address_length = sizeof(bound_address);
+#endif
+  if (socket_failed(::getsockname(
+          socket, reinterpret_cast<sockaddr*>(&bound_address),
+          &bound_address_length))) {
+    close_socket(socket);
+    throw std::runtime_error("failed to inspect available loopback port");
+  }
+
+  const auto port = ntohs(bound_address.sin_port);
+  close_socket(socket);
+  return port;
+}
+
+std::pair<std::uint16_t, std::uint16_t> find_two_distinct_loopback_ports() {
+  const auto first = find_available_loopback_port();
+  for (int attempt = 0; attempt < 100; ++attempt) {
+    const auto second = find_available_loopback_port();
+    if (second != first) {
+      return {first, second};
+    }
+  }
+  throw std::runtime_error("failed to find distinct loopback ports");
+}
+
 void serve_one_raw_http_response(std::uint16_t port, std::string_view body,
                                  std::atomic_bool& ready) {
   SocketHandle server = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1351,7 +1401,7 @@ void test_capability_advertisement_unions_multiple_upstream_caches() {
 }
 
 void test_hosted_capability_advertisement_uses_refresh_cache() {
-  constexpr auto kPort = 39966;
+  const auto kPort = find_available_loopback_port();
 
   auto config = make_stdio_config();
   config.upstreams.front().id = "tools_only";
@@ -1406,7 +1456,7 @@ void test_hosted_capability_advertisement_uses_refresh_cache() {
 }
 
 void test_hosted_capability_advertisement_snapshots_at_start() {
-  constexpr auto kPort = 39968;
+  const auto kPort = find_available_loopback_port();
 
   auto config = make_stdio_config();
   config.upstreams.front().id = "tools_only";
@@ -1588,7 +1638,7 @@ void test_completion_routes_to_stdio_upstream() {
 }
 
 void test_hosted_completion_routes_after_capability_refresh() {
-  constexpr auto kPort = 39967;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_stdio_config());
   auto refreshed = gateway.refresh_upstream_capabilities();
@@ -1752,7 +1802,7 @@ void test_repeated_stdio_calls_to_one_upstream() {
 }
 
 void test_http_upstream() {
-  constexpr auto kPort = 39947;
+  const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
 
   auto server = mcp::ServerPeer::builder()
@@ -2067,7 +2117,7 @@ void test_http_upstream() {
 }
 
 void test_http_timeout() {
-  constexpr auto kPort = 39949;
+  const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
 
   auto server = mcp::ServerPeer::builder()
@@ -2107,7 +2157,7 @@ void test_http_timeout() {
 }
 
 void test_concurrent_http_calls_update_active_state() {
-  constexpr auto kPort = 39951;
+  const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
 
   auto server = mcp::ServerPeer::builder()
@@ -2531,7 +2581,7 @@ void test_runtime_stop_waits_for_active_stdio_call() {
 }
 
 void test_runtime_stop_waits_for_active_http_call() {
-  constexpr auto kPort = 39952;
+  const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
 
   auto server = mcp::ServerPeer::builder()
@@ -2651,8 +2701,7 @@ void test_runtime_stop_waits_for_active_http_call() {
 }
 
 void test_concurrent_calls_to_multiple_upstreams() {
-  constexpr auto kFirstPort = 39953;
-  constexpr auto kSecondPort = 39954;
+  const auto [kFirstPort, kSecondPort] = find_two_distinct_loopback_ports();
   const std::string first_uri =
       "http://127.0.0.1:" + std::to_string(kFirstPort) + "/mcp";
   const std::string second_uri =
@@ -2773,11 +2822,14 @@ void test_concurrent_calls_to_multiple_upstreams() {
 }
 
 void test_http_unavailable() {
+  const auto kPort = find_available_loopback_port();
+
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
   upstream.id = "down";
   upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
-  upstream.streamable_http.uri = "http://127.0.0.1:39948/mcp";
+  upstream.streamable_http.uri =
+      "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
   upstream.streamable_http.timeout = std::chrono::milliseconds{250};
   config.upstreams.push_back(std::move(upstream));
 
@@ -2788,7 +2840,7 @@ void test_http_unavailable() {
 }
 
 void test_http_malformed_response_before_initialize() {
-  constexpr auto kPort = 39969;
+  const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
 
   SocketRuntime sockets;
@@ -2837,7 +2889,7 @@ void test_http_malformed_response_before_initialize() {
 }
 
 void test_start_http_invalid_config_fails_before_binding_port() {
-  constexpr auto kPort = 39956;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
@@ -2882,7 +2934,7 @@ void test_start_http_invalid_config_fails_before_binding_port() {
 }
 
 void test_hosted_gateway_rejects_invalid_endpoint_options() {
-  constexpr auto kPort = 39973;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime runtime(make_disabled_config("endpoint"));
 
@@ -2911,7 +2963,7 @@ void test_hosted_gateway_rejects_invalid_endpoint_options() {
 }
 
 void test_hosted_gateway_http_endpoint_stops_while_idle() {
-  constexpr auto kPort = 39957;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_disabled_config());
   auto started = gateway.start_http(
@@ -2934,7 +2986,7 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
 }
 
 void test_hosted_gateway_rejects_invalid_json_rpc_request() {
-  constexpr auto kPort = 39964;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_disabled_config());
   auto started = gateway.start_http(
@@ -2952,8 +3004,7 @@ void test_hosted_gateway_rejects_invalid_json_rpc_request() {
 }
 
 void test_runtime_move_assignment_stops_existing_endpoint() {
-  constexpr auto kOldPort = 39961;
-  constexpr auto kMovedPort = 39962;
+  const auto [kOldPort, kMovedPort] = find_two_distinct_loopback_ports();
 
   mcp::gateway::GatewayRuntime gateway(make_disabled_config("old"));
   auto started = gateway.start_http(
@@ -2982,7 +3033,7 @@ void test_runtime_move_assignment_stops_existing_endpoint() {
 }
 
 void test_hosted_gateway_http_endpoint() {
-  constexpr auto kPort = 39950;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_stdio_config());
   auto started = gateway.start_http(
@@ -3100,7 +3151,7 @@ void test_hosted_gateway_http_endpoint() {
 }
 
 void test_hosted_gateway_rejects_request_before_initialized_notification() {
-  constexpr auto kPort = 39960;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_stdio_config());
   auto started = gateway.start_http(
@@ -3151,7 +3202,7 @@ void test_hosted_gateway_rejects_request_before_initialized_notification() {
 }
 
 void test_hosted_gateway_multiple_downstream_clients() {
-  constexpr auto kPort = 39958;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_stdio_config());
   auto started = gateway.start_http(
@@ -3159,9 +3210,9 @@ void test_hosted_gateway_multiple_downstream_clients() {
   require(started.has_value(),
           "multi-client hosted gateway endpoint should start");
 
-  auto make_client = [] {
+  auto make_client = [kPort] {
     return mcp::ClientPeer::builder()
-        .streamable_http("http://127.0.0.1:39958/mcp")
+        .streamable_http("http://127.0.0.1:" + std::to_string(kPort) + "/mcp")
         .build();
   };
 
@@ -3251,7 +3302,7 @@ void test_hosted_gateway_multiple_downstream_clients() {
 }
 
 void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
-  constexpr auto kPort = 39965;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_stdio_config());
   auto started = gateway.start_http(
@@ -3259,9 +3310,9 @@ void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
   require(started.has_value(),
           "hosted notification no-op gateway should start");
 
-  auto make_client = [] {
+  auto make_client = [kPort] {
     return mcp::ClientPeer::builder()
-        .streamable_http("http://127.0.0.1:39965/mcp")
+        .streamable_http("http://127.0.0.1:" + std::to_string(kPort) + "/mcp")
         .build();
   };
 
@@ -3378,7 +3429,7 @@ void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
 }
 
 void test_downstream_close_during_active_upstream_call_clears_state() {
-  constexpr auto kPort = 39963;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayRuntime gateway(make_stdio_config());
   auto started = gateway.start_http(
@@ -3449,7 +3500,7 @@ void test_downstream_close_during_active_upstream_call_clears_state() {
 }
 
 void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
-  constexpr auto kPort = 39955;
+  const auto kPort = find_available_loopback_port();
 
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
