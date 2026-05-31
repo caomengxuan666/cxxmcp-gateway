@@ -607,8 +607,9 @@ The current MVP baseline has verified coverage for:
     types are rejected, and hosted advertisement is gated by refreshed upstream
     capabilities.
 12. Optional performance measurement tooling for stdio/HTTP cold and cached
-    `tools/list`, per-call `tools/call`, and opt-in persistent-session
-    `tools/call`, excluded from the default build and release-blocking CI.
+    `tools/list`, per-call `tools/call`, opt-in persistent-session
+    `tools/call`, and persistent HTTP pool pair calls, excluded from the
+    default build and release-blocking CI.
 13. Capability-aware advertisement refinement: `server_capabilities()` remains
     side-effect-free, uses config-based MVP advertisement before upstream
     discovery, narrows tools/resources/prompts plus completion advertisement

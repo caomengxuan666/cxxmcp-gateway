@@ -95,6 +95,8 @@ Measure at least:
 - cold and cached `tools/list` through one Streamable HTTP upstream;
 - per-call and persistent-session `tools/call` through one stdio upstream;
 - per-call and persistent-session `tools/call` through one Streamable HTTP
+  upstream;
+- persistent-session pool pair `tools/call` through one Streamable HTTP
   upstream.
 
 Record the gateway commit, SDK commit, OS, compiler, build type, transport,

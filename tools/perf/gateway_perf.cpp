@@ -5,10 +5,12 @@
 #include <cstdlib>
 #include <cstdint>
 #include <exception>
+#include <future>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -131,6 +133,13 @@ mcp::gateway::GatewayRuntimeOptions persistent_options() {
   return options;
 }
 
+mcp::gateway::GatewayRuntimeOptions persistent_pool_options(
+    std::size_t pool_size) {
+  auto options = persistent_options();
+  options.persistent_session_pool_size = pool_size;
+  return options;
+}
+
 void require_result(bool ok, std::string_view message) {
   if (!ok) {
     throw std::runtime_error(std::string(message));
@@ -147,6 +156,13 @@ void print_csv_row(const Measurement& measurement) {
             << measurement.p95_us << '\n';
 }
 
+void call_tool_or_throw(mcp::gateway::GatewayRuntime& runtime,
+                        std::string_view name, Json arguments,
+                        std::string_view message) {
+  auto called = runtime.call_tool(name, std::move(arguments));
+  require_result(called.has_value(), message);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -160,6 +176,11 @@ int main(int argc, char** argv) {
             .streamable_http("127.0.0.1", options.http_port, "/mcp")
             .tool<Json, ToolResult>("echo", [](const Json& input) {
               return ToolResult::text(input.value("value", std::string{}));
+            })
+            .tool<Json, ToolResult>("slow", [](const Json& input) {
+              std::this_thread::sleep_for(std::chrono::milliseconds{
+                  input.value("sleepMs", 100)});
+              return ToolResult::text("slow-done");
             })
             .build();
     require_result(http_server.has_value(), "HTTP fixture should build");
@@ -187,9 +208,8 @@ int main(int argc, char** argv) {
       }));
       print_csv_row(measure("stdio", "tools/call:per_call",
                             options.iterations, [&] {
-        auto called =
-            runtime.call_tool("stdio.echo", Json{{"value", "perf"}});
-        require_result(called.has_value(), "stdio tools/call failed");
+        call_tool_or_throw(runtime, "stdio.echo", Json{{"value", "perf"}},
+                           "stdio tools/call failed");
       }));
     }
 
@@ -202,10 +222,8 @@ int main(int argc, char** argv) {
                      "stdio persistent tools/call warmup failed");
       print_csv_row(measure("stdio", "tools/call:persistent",
                             options.iterations, [&] {
-        auto called =
-            runtime.call_tool("stdio.echo", Json{{"value", "perf"}});
-        require_result(called.has_value(),
-                       "stdio persistent tools/call failed");
+        call_tool_or_throw(runtime, "stdio.echo", Json{{"value", "perf"}},
+                           "stdio persistent tools/call failed");
       }));
     }
 
@@ -228,8 +246,8 @@ int main(int argc, char** argv) {
       }));
       print_csv_row(measure("http", "tools/call:per_call",
                             options.iterations, [&] {
-        auto called = runtime.call_tool("http.echo", Json{{"value", "perf"}});
-        require_result(called.has_value(), "http tools/call failed");
+        call_tool_or_throw(runtime, "http.echo", Json{{"value", "perf"}},
+                           "http tools/call failed");
       }));
     }
 
@@ -241,9 +259,28 @@ int main(int argc, char** argv) {
                      "http persistent tools/call warmup failed");
       print_csv_row(measure("http", "tools/call:persistent",
                             options.iterations, [&] {
-        auto called = runtime.call_tool("http.echo", Json{{"value", "perf"}});
-        require_result(called.has_value(),
-                       "http persistent tools/call failed");
+        call_tool_or_throw(runtime, "http.echo", Json{{"value", "perf"}},
+                           "http persistent tools/call failed");
+      }));
+    }
+
+    {
+      mcp::gateway::GatewayRuntime runtime(
+          make_http_config(options.http_port), persistent_pool_options(2));
+      auto warmed = runtime.refresh_upstream_capabilities();
+      require_result(warmed.has_value(), "http persistent pool warmup failed");
+      print_csv_row(measure("http", "tools/call:persistent_pool2_pair",
+                            options.iterations, [&] {
+        auto first = std::async(std::launch::async, [&] {
+          call_tool_or_throw(runtime, "http.slow", Json{{"sleepMs", 100}},
+                             "first http persistent pool call failed");
+        });
+        auto second = std::async(std::launch::async, [&] {
+          call_tool_or_throw(runtime, "http.slow", Json{{"sleepMs", 100}},
+                             "second http persistent pool call failed");
+        });
+        first.get();
+        second.get();
       }));
     }
 

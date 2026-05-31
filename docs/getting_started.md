@@ -127,7 +127,8 @@ The default pool size is one, which preserves serialized same-upstream
 behavior. Increasing `persistent_session_pool_size` allows same-upstream calls
 to use separate initialized sessions up to that bound. It reduces repeated-call
 setup cost, but it is still a fixed per-upstream pool and should not be
-presented as adaptive high-QPS multiplexing.
+presented as adaptive high-QPS multiplexing. End-to-end concurrency can still
+be limited by the upstream transport or server.
 
 ## Reference CLI
 

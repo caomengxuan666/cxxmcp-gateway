@@ -49,6 +49,9 @@ session lifecycle.
 Persistent mode reduces repeated-call setup cost. It is a fixed per-upstream
 pool, not adaptive multiplexing, and should not be described as a hard
 real-time or ultra-low-latency mode.
+The pool permits the gateway to issue multiple same-upstream operations through
+separate initialized sessions, but end-to-end concurrency still depends on the
+selected upstream transport and server implementation.
 
 ## Catalogs and Capabilities
 

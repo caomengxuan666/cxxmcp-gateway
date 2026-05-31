@@ -2867,6 +2867,131 @@ void test_persistent_http_calls_to_one_upstream_are_serialized() {
           "persistent http busy fixture should stop");
 }
 
+void test_persistent_http_session_pool_handles_queued_calls() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-pool")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 400)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(), "persistent http pool fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(), "persistent http pool fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_pool";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent http session pool prewarm should initialize sessions");
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::exception_ptr third_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_pool.slow",
+                                     Json{{"sleepMs", 400}});
+      require(first.has_value(),
+              "first pooled persistent http slow call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.call_tool("persistent_http_pool.slow",
+                                      Json{{"sleepMs", 400}});
+      require(second.has_value(),
+              "second pooled persistent http slow call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+  std::thread third_worker([&] {
+    try {
+      auto third = runtime.call_tool("persistent_http_pool.slow",
+                                     Json{{"sleepMs", 400}});
+      require(third.has_value(),
+              "third pooled persistent http slow call should succeed");
+      require_text_result(*third, "slow-done");
+    } catch (...) {
+      third_error = std::current_exception();
+    }
+  });
+
+  bool observed_three_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_pool");
+    if (state.active_calls >= 3) {
+      observed_three_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  third_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  if (third_error) {
+    std::rethrow_exception(third_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_three_active,
+          "pooled persistent http calls should report accepted queued calls");
+  require(elapsed >= std::chrono::milliseconds{700},
+          "persistent http pool size two should bound three accepted calls");
+  require(elapsed < std::chrono::milliseconds{1800},
+          "persistent http pool queued calls should drain without hanging");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_http_pool");
+  require(state.active_calls == 0,
+          "pooled persistent http calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "pooled persistent http calls should leave upstream healthy");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http pool runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http pool fixture should stop");
+}
+
 void test_persistent_http_failure_invalidates_session_for_reconnect() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -5190,6 +5315,8 @@ int main() {
     run("http timeout", test_http_timeout);
     run("persistent http calls to one upstream are serialized",
         test_persistent_http_calls_to_one_upstream_are_serialized);
+    run("persistent http session pool handles queued calls",
+        test_persistent_http_session_pool_handles_queued_calls);
     run("persistent http failure invalidates session for reconnect",
         test_persistent_http_failure_invalidates_session_for_reconnect);
     run("stdio timeout", test_stdio_timeout);
