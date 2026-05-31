@@ -9,6 +9,9 @@ API requirements.
 - The release branch is based on the repository default branch.
 - `docs/technical_roadmap.md` and `docs/gateway_scope.md` match the shipped
   capability surface.
+- `docs/getting_started.md` describes the supported C++ host integration path,
+  including component selection, runtime startup, optional capability refresh,
+  persistent session tradeoffs, and CLI scope.
 - Future-only capabilities remain unadvertised unless their namespace,
   routing, notification, and integration-test contracts are implemented.
 
@@ -45,4 +48,3 @@ API requirements.
 - `<cxxmcp/gateway.hpp>` remains core-only.
 - Runtime observability hooks do not add a logging-framework dependency to
   core or runtime.
-
