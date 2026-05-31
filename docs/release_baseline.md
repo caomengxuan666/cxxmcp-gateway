@@ -9,8 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-gateway/roadmap-completion working tree immediately before the baseline
-document refresh commit
+60e46964a11a26beaf807ba0342589e80df1ec55
 ```
 
 SDK source revision:
@@ -54,14 +53,14 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list:cold,50,40470,54264
-stdio,tools/list:cached,50,9,13
-stdio,tools/call:per_call,50,38733,50436
-stdio,tools/call:persistent,50,166,479
-http,tools/list:cold,50,31235,61857
-http,tools/list:cached,50,6,7
-http,tools/call:per_call,50,46936,62520
-http,tools/call:persistent,50,12691,16390
+stdio,tools/list:cold,50,39412,82232
+stdio,tools/list:cached,50,9,32
+stdio,tools/call:per_call,50,50651,79504
+stdio,tools/call:persistent,50,138,303
+http,tools/list:cold,50,33071,62325
+http,tools/list:cached,50,3,3
+http,tools/call:per_call,50,44484,62240
+http,tools/call:persistent,50,14891,16416
 ```
 
 Notes:
@@ -69,14 +68,14 @@ Notes:
 - These numbers are a local Windows release-candidate baseline, not a
   cross-platform performance contract.
 - Debug-build timings are not comparable to this baseline.
-- The measured gateway code commit is the code state immediately before this
-  baseline document refresh; the refresh commit only updates this evidence
-  file.
+- The measured gateway code commit is exact. The follow-up baseline document
+  commit only updates this evidence file.
 - The initial Release perf build against the adjacent SDK install failed because
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.
-- This refreshed baseline supersedes the earlier local measurement at gateway
-  commit `c785ff784014a9f8dc9cdaace710b093d4cfdcae` after concurrent catalog
-  fan-out, aggregate catalog caching, process-stdio upstream timeouts, opt-in
-  persistent upstream sessions, and expanded performance measurement landed in
-  the PR branch.
+- This refreshed baseline supersedes the earlier local measurements at gateway
+  commits `c785ff784014a9f8dc9cdaace710b093d4cfdcae` and the previous
+  uncommitted refresh after concurrent catalog fan-out, aggregate catalog
+  caching, process-stdio upstream timeouts, opt-in persistent upstream
+  sessions, expanded performance measurement, lifecycle hardening, persistent
+  lifecycle coverage, and example-gate work landed in the PR branch.
