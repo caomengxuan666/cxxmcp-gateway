@@ -282,6 +282,28 @@ void test_load_config_file() {
   require(loaded->upstreams.size() == 1, "config fixture upstream should load");
   require(loaded->upstreams.front().id == "fixture",
           "config fixture upstream id should load");
+
+  const auto missing_path =
+      std::string(CXXMCP_GATEWAY_CONFIG_IO_FIXTURE) + ".missing";
+  auto missing = mcp::gateway::load_gateway_config_file(missing_path);
+  require(!missing.has_value(), "missing config file should fail");
+  require(missing.error().category == "gateway.config",
+          "missing config file should use gateway.config category");
+  require(missing.error().message == "failed to open gateway config file",
+          "missing config file should report stable open failure");
+  require(missing.error().detail == missing_path,
+          "missing config file should preserve path detail");
+
+  auto malformed = mcp::gateway::load_gateway_config_file(
+      CXXMCP_GATEWAY_MALFORMED_CONFIG_IO_FIXTURE);
+  require(!malformed.has_value(), "malformed config JSON should fail");
+  require(malformed.error().category == "gateway.config",
+          "malformed config JSON should use gateway.config category");
+  require(malformed.error().message == "failed to parse gateway config JSON",
+          "malformed config JSON should report stable parse failure");
+  require(malformed.error().detail ==
+              std::string(CXXMCP_GATEWAY_MALFORMED_CONFIG_IO_FIXTURE),
+          "malformed config JSON should preserve path detail");
 }
 
 }  // namespace
