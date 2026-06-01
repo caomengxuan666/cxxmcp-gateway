@@ -34,6 +34,27 @@ int main() {
   const auto valid_config = mcp::gateway::validate_gateway_config(config);
   require(valid_config.has_value(), "valid gateway config should validate");
 
+  auto empty_name_config = config;
+  empty_name_config.name.clear();
+  const auto empty_name =
+      mcp::gateway::validate_gateway_config(empty_name_config);
+  require(!empty_name.has_value(), "empty gateway name should fail validation");
+  require(empty_name.error().category == "gateway",
+          "empty gateway name should use gateway error category");
+  require(empty_name.error().message == "gateway name must not be empty",
+          "empty gateway name should report stable validation message");
+
+  auto empty_version_config = config;
+  empty_version_config.version.clear();
+  const auto empty_version =
+      mcp::gateway::validate_gateway_config(empty_version_config);
+  require(!empty_version.has_value(),
+          "empty gateway version should fail validation");
+  require(empty_version.error().category == "gateway",
+          "empty gateway version should use gateway error category");
+  require(empty_version.error().message == "gateway version must not be empty",
+          "empty gateway version should report stable validation message");
+
   mcp::gateway::GatewayRuntimeConfig runtime_config;
   runtime_config.upstream_session_mode =
       mcp::gateway::UpstreamSessionMode::persistent;
