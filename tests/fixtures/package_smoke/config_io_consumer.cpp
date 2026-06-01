@@ -68,6 +68,14 @@ int main() {
     std::filesystem::remove(config_path);
     return 1;
   }
+  auto missing_config = mcp::gateway::load_gateway_config_file(
+      (config_path.parent_path() / "cxxmcp_gateway_package_missing.json")
+          .string());
+  if (missing_config.has_value() ||
+      missing_config.error().category != "gateway.config") {
+    std::filesystem::remove(config_path);
+    return 1;
+  }
   {
     std::ofstream out(config_path, std::ios::binary | std::ios::trunc);
     out << document_json.dump();
@@ -81,6 +89,13 @@ int main() {
       loaded->runtime.upstream_session_mode !=
           mcp::gateway::UpstreamSessionMode::persistent ||
       loaded->runtime.active_call_drain_timeout.count() != 5000) {
+    return 1;
+  }
+  auto missing_document = mcp::gateway::load_gateway_config_document_file(
+      (config_path.parent_path() / "cxxmcp_gateway_package_missing.json")
+          .string());
+  if (missing_document.has_value() ||
+      missing_document.error().category != "gateway.config") {
     return 1;
   }
   return 0;
