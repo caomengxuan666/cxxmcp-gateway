@@ -3464,6 +3464,129 @@ void test_persistent_http_session_pool_handles_queued_calls() {
           "persistent http pool fixture should stop");
 }
 
+void test_persistent_http_stop_rejects_queued_session_pool_call() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-stop-queue")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 500)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http stop queue fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http stop queue fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_stop_queue";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_stop_queue.slow",
+                                     Json{{"sleepMs", 500}});
+      require(first.has_value(),
+              "active persistent http stop queue call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_first_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_stop_queue");
+    if (state.active_calls >= 1 && state.busy_persistent_sessions == 1) {
+      observed_first_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_first_active,
+          "persistent http stop queue test should observe busy slot");
+
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.call_tool("persistent_http_stop_queue.echo",
+                                      Json{{"value", "queued"}});
+      require(!second.has_value(),
+              "queued persistent http call should be rejected during stop");
+      require_runtime_stopping_error(second.error(),
+                                     "persistent_http_stop_queue");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_queued_call = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_stop_queue");
+    if (state.active_calls >= 2 && state.busy_persistent_sessions == 1) {
+      observed_queued_call = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_queued_call,
+          "persistent http stop queue test should observe queued call");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http stop queue runtime should stop after active call "
+          "drains");
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_http_stop_queue");
+  require(state.active_calls == 0,
+          "persistent http stop queue should clear active call counters");
+  require(state.busy_persistent_sessions == 0,
+          "persistent http stop queue should clear busy pool slots");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "persistent http stop queue should leave upstream stopped");
+
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http stop queue fixture should stop");
+}
+
 void test_persistent_http_pool_acquire_timeout_rejects_queued_call() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -6749,6 +6872,8 @@ int main() {
         test_persistent_http_calls_to_one_upstream_are_serialized);
     run("persistent http session pool handles queued calls",
         test_persistent_http_session_pool_handles_queued_calls);
+    run("persistent http stop rejects queued session pool call",
+        test_persistent_http_stop_rejects_queued_session_pool_call);
     run("persistent http pool acquire timeout rejects queued call",
         test_persistent_http_pool_acquire_timeout_rejects_queued_call);
     run("persistent http failure invalidates session for reconnect",

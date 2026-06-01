@@ -53,7 +53,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Catalog caching and invalidation | `test_tools_list_uses_cached_catalog_until_cleared`, `test_clear_cached_catalogs_keeps_persistent_session` |
 | Per-call default session behavior | repeated stdio call tests and stdio child-process cleanup assertions |
 | Opt-in persistent sessions | persistent stdio and HTTP lifecycle tests |
-| Persistent session pool concurrency | `test_persistent_stdio_session_pool_allows_same_upstream_concurrency`, `test_persistent_http_session_pool_handles_queued_calls`, perf `tools/call:persistent_pool2_pair` |
+| Persistent session pool concurrency | `test_persistent_stdio_session_pool_allows_same_upstream_concurrency`, `test_persistent_http_session_pool_handles_queued_calls`, `test_persistent_http_stop_rejects_queued_session_pool_call`, perf `tools/call:persistent_pool2_pair` |
 | Persistent session pool slot observability | `test_persistent_stdio_session_pool_allows_same_upstream_concurrency`, `test_persistent_stop_rejects_queued_session_pool_call`, package runtime consumer |
 | Persistent session pool wait timeout | `test_persistent_pool_acquire_timeout_rejects_queued_call`, `test_persistent_http_pool_acquire_timeout_rejects_queued_call`, config IO and CLI invalid-argument tests |
 | Persistent session pool failure isolation | `test_persistent_stdio_pool_failure_isolates_failed_slot` |
