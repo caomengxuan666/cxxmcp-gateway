@@ -206,6 +206,12 @@ file runtime values. `--prewarm` enables startup capability refresh even when
 the file leaves it disabled. Command-line upstream flags are appended to file
 upstreams, and duplicate ids fail validation before the endpoint starts.
 
+Library hosts that need environment-variable substitution can pass
+`GatewayConfigLoadOptions::environment` to the JSON object, JSON text, or file
+loading helpers. The config IO layer replaces `${NAME}` placeholders only in
+JSON string values, leaves object keys literal, and reports missing variables
+as `gateway.config` errors. The reference CLI does not enable substitution.
+
 ## Buildable Example
 
 The repository also includes a small embedding example that uses the runtime
