@@ -903,6 +903,43 @@ void test_invalid_config_advertises_no_tools() {
 }
 
 void test_runtime_options_normalize_invalid_direct_values() {
+  mcp::gateway::GatewayRuntimeConfig runtime_config;
+  runtime_config.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  runtime_config.persistent_session_pool_size = 2;
+  runtime_config.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  runtime_config.active_call_drain_timeout = std::chrono::milliseconds{5000};
+
+  bool observed = false;
+  auto options = mcp::gateway::make_gateway_runtime_options(
+      runtime_config, [&](const mcp::gateway::GatewayRuntimeEvent&) {
+        observed = true;
+      });
+  require(options.has_value(),
+          "valid runtime config should map to runtime options");
+  require(options->upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "runtime options factory should preserve session mode");
+  require(options->persistent_session_pool_size == 2,
+          "runtime options factory should preserve pool size");
+  require(options->persistent_session_acquire_timeout ==
+              std::chrono::milliseconds{100},
+          "runtime options factory should preserve acquire timeout");
+  require(options->active_call_drain_timeout == std::chrono::milliseconds{5000},
+          "runtime options factory should preserve drain timeout");
+  options->observer({});
+  require(observed, "runtime options factory should preserve observer");
+
+  runtime_config.persistent_session_pool_size = 0;
+  auto invalid_options =
+      mcp::gateway::make_gateway_runtime_options(runtime_config);
+  require(!invalid_options.has_value(),
+          "invalid runtime config should not map to runtime options");
+  require(invalid_options.error().message ==
+              "gateway persistent session pool size must be positive",
+          "runtime options factory should reuse core validation errors");
+
   mcp::gateway::GatewayRuntimeOptions invalid_mode_options;
   invalid_mode_options.upstream_session_mode =
       static_cast<mcp::gateway::UpstreamSessionMode>(999);

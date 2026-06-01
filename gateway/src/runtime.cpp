@@ -173,6 +173,25 @@ core::Result<ClientPeer> build_client_peer(const UpstreamServer& upstream) {
 
 }  // namespace
 
+core::Result<GatewayRuntimeOptions> make_gateway_runtime_options(
+    const GatewayRuntimeConfig& runtime,
+    GatewayRuntimeObserver observer) {
+  auto valid = validate_gateway_runtime_config(runtime);
+  if (!valid) {
+    return mcp::core::unexpected(valid.error());
+  }
+
+  GatewayRuntimeOptions options;
+  options.observer = std::move(observer);
+  options.upstream_session_mode = runtime.upstream_session_mode;
+  options.persistent_session_pool_size =
+      runtime.persistent_session_pool_size;
+  options.persistent_session_acquire_timeout =
+      runtime.persistent_session_acquire_timeout;
+  options.active_call_drain_timeout = runtime.active_call_drain_timeout;
+  return options;
+}
+
 struct GatewayRuntime::Impl final {
   struct CatalogCache {
     std::optional<std::vector<protocol::ToolDefinition>> tools;

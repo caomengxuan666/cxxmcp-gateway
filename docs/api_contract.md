@@ -15,8 +15,8 @@ the release checklist.
 - Include `<cxxmcp/gateway/runtime.hpp>` for `GatewayRuntime`.
 - Include `<cxxmcp/gateway/config.hpp>` for `GatewayConfig` and
   `validate_gateway_config()`. Hosts that construct `GatewayRuntimeConfig`
-  directly can also use `validate_gateway_runtime_config()` before mapping
-  those values into `GatewayRuntimeOptions`.
+  directly can use `make_gateway_runtime_options()` to validate and map those
+  values into `GatewayRuntimeOptions`.
 - `<cxxmcp/gateway.hpp>` is intentionally core-only and does not imply that the
   runtime component is available.
 
@@ -34,6 +34,12 @@ the release checklist.
   `GatewayRuntimeConfig` with `validate_gateway_runtime_config()`: persistent
   pool size must be positive, timeout values must be non-negative, and the
   session mode must be supported.
+- `make_gateway_runtime_options()` performs the same validation and returns a
+  `GatewayRuntimeOptions` value with the session mode, pool size, pool wait
+  timeout, active-call drain timeout, and optional observer copied into the
+  runtime constructor shape. `GatewayRuntimeConfig::prewarm_capabilities`
+  remains a host action: call `refresh_upstream_capabilities()` before
+  `start_http()` when that flag is enabled.
 - `GatewayRuntimeOptions` passed directly to the constructor are defensively
   normalized for runtime safety: unsupported session-mode enum values fall back
   to `per_call`, a zero persistent pool size becomes one, and negative timeout
