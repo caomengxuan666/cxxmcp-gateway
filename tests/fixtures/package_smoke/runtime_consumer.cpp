@@ -70,6 +70,22 @@ int main() {
     return 1;
   }
 
+  auto tools = assigned_runtime.list_tools();
+  auto resources = assigned_runtime.list_resources();
+  auto resource_templates = assigned_runtime.list_resource_templates();
+  auto prompts = assigned_runtime.list_prompts();
+  if (!tools || !tools->empty() || !resources || !resources->empty() ||
+      !resource_templates || !resource_templates->empty() || !prompts ||
+      !prompts->empty()) {
+    return 1;
+  }
+
+  auto disabled_tool = assigned_runtime.call_tool("disabled.echo");
+  auto disabled_prompt = assigned_runtime.get_prompt("disabled.summarize");
+  if (disabled_tool || disabled_prompt) {
+    return 1;
+  }
+
   auto invalid_start = assigned_runtime.start_http(
       {.host = "", .port = 3000, .path = "/mcp"});
   if (invalid_start) {
