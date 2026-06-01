@@ -617,74 +617,80 @@ ownership and routing contracts are specified and tested.
 
 ## Validation Matrix
 
-The gateway should not be considered mature until these paths are covered:
+The current maturity gate is scoped to the library-first MVP surface above.
+The concrete evidence index is maintained in
+[`release_evidence.md`](release_evidence.md); the broader verified baseline is
+summarized in [`technical_roadmap.md`](technical_roadmap.md).
 
 1. Protocol lifecycle
 
-   - downstream initialize;
-   - initialized notification;
-   - ping;
-   - invalid JSON-RPC requests.
-   - requests before initialization;
-   - repeated initialization;
-   - downstream session close with active upstream calls.
+   Covered for downstream initialize/initialized notification, ping,
+   malformed and invalid JSON-RPC requests, requests before initialization,
+   repeated initialization, unsupported methods and notifications, hosted
+   endpoint startup/shutdown, wait-before-start rejection, and downstream
+   session close while process-stdio or Streamable HTTP upstream calls are
+   active.
 
 2. Tool aggregation
 
-   - one upstream;
-   - multiple upstreams;
-   - duplicate upstream tool names;
-   - disabled upstreams;
-   - empty upstream ids;
-   - metadata preservation.
+   Covered for one upstream, multiple upstreams, duplicate exposed tool names,
+   disabled upstreams, invalid and duplicate upstream ids, fail-fast catalog
+   listing, cached catalog invalidation, capability-negative upstreams, and
+   metadata preservation.
 
 3. Tool calls
 
-   - successful call;
-   - unknown exposed tool name;
-   - unknown upstream;
-   - disabled upstream;
-   - invalid tool arguments;
-   - upstream-returned MCP error.
+   Covered for successful routing, unknown exposed names, unknown upstreams,
+   disabled upstreams, invalid arguments, upstream-returned MCP errors,
+   timeout normalization, transport failure mapping, stopped/stopping runtime
+   rejection, and raw JSON-RPC routed requests.
 
 4. Transport failure
 
-   - stdio command not found;
-   - stdio process exits early;
-   - HTTP upstream unavailable;
-   - upstream timeout;
-   - malformed upstream response.
+   Covered for process stdio command-not-found and early-exit paths,
+   Streamable HTTP upstream unavailability, upstream timeouts, malformed stdio
+   and HTTP upstream responses, per-call cleanup, persistent-session failure
+   invalidation, failure isolation, reconnect, and pool timeout recovery.
 
 5. Concurrency
 
-   - multiple downstream clients;
-   - concurrent calls to one upstream;
-   - concurrent calls to multiple upstreams;
-   - cancellation behavior.
+   Covered for multiple hosted downstream clients, concurrent calls to one
+   upstream, concurrent calls to multiple upstreams, concurrent aggregate
+   catalog fan-out, default same-upstream serialization, configured
+   same-upstream persistent pool concurrency, queued persistent pool calls,
+   pool acquire timeout, and observable active/busy runtime state.
 
 6. Shutdown
 
-   - stop while idle;
-   - stop with active upstream sessions;
-   - stdio process cleanup;
-   - HTTP service shutdown.
+   Covered for idle shutdown, active-call shutdown with observable `stopping`
+   state, active-call drain timeout, rejection of new routed work while
+   stopping or stopped, raw JSON-RPC stopped/stopping errors, stdio child
+   cleanup, persistent session cleanup, HTTP service shutdown, overlapping
+   wait/stop, and observer lifecycle reentry.
 
 7. Packaging
 
-   - build-tree consumption;
-   - install-tree `find_package`;
-   - static linking;
-   - Windows, Linux, and macOS.
+   Covered for build-tree consumption, install-tree `find_package`, versioned
+   package discovery, component discovery and missing-component failures,
+   static and shared library builds, component installs, subproject defaults,
+   optional example builds, and the GitHub Actions Linux/macOS/Windows static
+   and shared matrix.
 
 8. Additional MCP capabilities
 
-   Routed resource and prompt list/read, templates/list, or list/get flows are
-   part of the current MVP. Completion is also part of the MVP when initialized
-   upstream capabilities prove support. Resource subscriptions, tasks, and
-   other MCP capabilities should be added incrementally only after their
-   namespace, advertisement, notification behavior, and integration tests are
-   specified through the
+   Routed tools, resources, resource templates, prompts, and selected
+   completion flows are part of the current MVP. Capability advertisement is
+   owned by the runtime and is narrowed by initialized upstream capability
+   records when available. Resource subscriptions, task APIs, progress
+   forwarding, cancellation forwarding, and other MCP capabilities remain
+   unadvertised until their namespace, advertisement, notification, ownership,
+   and integration-test contracts are specified through the
    [`capability_extension_gate.md`](capability_extension_gate.md) checklist.
+
+Active upstream cancellation is intentionally not part of this MVP. The current
+contract is local cancellation/progress notification no-ops, downstream-close
+state cleanup, and host-configurable wait bounds for queued pool calls and
+shutdown drain.
 
 ## Design Rule
 
