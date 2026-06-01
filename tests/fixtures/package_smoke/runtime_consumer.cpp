@@ -6,7 +6,20 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <utility>
+
+static_assert(
+    std::is_move_constructible_v<mcp::gateway::GatewayRuntime>,
+    "GatewayRuntime should be move constructible for package consumers");
+static_assert(std::is_move_assignable_v<mcp::gateway::GatewayRuntime>,
+              "GatewayRuntime should be move assignable for package consumers");
+static_assert(
+    !std::is_copy_constructible_v<mcp::gateway::GatewayRuntime>,
+    "GatewayRuntime should not be copy constructible for package consumers");
+static_assert(!std::is_copy_assignable_v<mcp::gateway::GatewayRuntime>,
+              "GatewayRuntime should not be copy assignable for package "
+              "consumers");
 
 int main() {
   mcp::gateway::GatewayConfig config;
