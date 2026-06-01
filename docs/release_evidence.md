@@ -37,7 +37,7 @@ It is intentionally an index, not a replacement for running the gates.
 | --- | --- |
 | `find_package(cxxmcp-gateway CONFIG REQUIRED)` exports core | `tests/fixtures/package_smoke/CMakeLists.txt`, including versioned package discovery |
 | Core router, catalog merge, validation, and error helper APIs are consumable from packages | `tests/fixtures/package_smoke/core_consumer.cpp` exercises `cxxmcp-gateway::core` without runtime/config-IO linkage, including gateway and runtime config validation |
-| Runtime component is explicit | `tests/fixtures/package_smoke/runtime_consumer.cpp` runtime-config-to-options mapping, move construction/assignment, typed runtime, hosted endpoint, and observer coverage; missing-runtime component failure tests |
+| Runtime component is explicit | `tests/fixtures/package_smoke/runtime_consumer.cpp` runtime-config-to-options mapping, move construction/assignment, typed runtime, hosted endpoint option validation, and observer coverage; missing-runtime component failure tests |
 | Raw runtime request/notification APIs are consumable from packages | `tests/fixtures/package_smoke/runtime_consumer.cpp` calls `handle_request()` and `handle_notification()` through `cxxmcp-gateway::runtime` |
 | Direct runtime option normalization | `test_runtime_options_normalize_invalid_direct_values` |
 | Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp` JSON object, JSON text, opt-in environment substitution, file-load success/error consumer coverage, `gateway_config_io`, missing-config-IO component failure tests |
