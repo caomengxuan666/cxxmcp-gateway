@@ -59,6 +59,9 @@ checks below.
 ## Public Contract
 
 - `find_package(cxxmcp-gateway CONFIG REQUIRED)` exports `core`.
+- Core package consumers can use config validation, route/name helpers,
+  catalog merge helpers, and gateway error helpers without linking runtime or
+  config IO.
 - `find_package(... COMPONENTS runtime config_io cli)` resolves only for
   components that were built and installed.
 - `BUILD_SHARED_LIBS` remains honored by library targets.
