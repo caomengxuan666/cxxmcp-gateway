@@ -9,7 +9,7 @@ library-first routing MVP. It complements the release-blocking gates in
 Gateway code commit measured:
 
 ```text
-61fa350aa1933562e0ea563c75115c24e9c4b0f5
+3f62850ad6f7e003ec282af5e0130f850d06fb0a
 ```
 
 SDK source revision:
@@ -53,16 +53,16 @@ Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list:cold,50,38803,59551
-stdio,tools/list:cached,50,10,39
-stdio,tools/call:per_call,50,39296,50160
-stdio,tools/call:persistent,50,122,286
-http,tools/list:cold,50,46534,62665
-http,tools/list:cached,50,7,14
-http,tools/call:per_call,50,47955,63826
-http,tools/call:persistent,50,15483,16353
-http,tools/call:direct_sdk_persistent,50,15417,16577
-http,tools/call:persistent_pool2_pair,50,219133,236153
+stdio,tools/list:cold,50,46512,85691
+stdio,tools/list:cached,50,10,20
+stdio,tools/call:per_call,50,57071,100718
+stdio,tools/call:persistent,50,399,746
+http,tools/list:cold,50,32352,61053
+http,tools/list:cached,50,8,21
+http,tools/call:per_call,50,31871,55819
+http,tools/call:persistent,50,13024,16023
+http,tools/call:direct_sdk_persistent,50,14417,16102
+http,tools/call:persistent_pool2_pair,50,218335,231597
 ```
 
 Notes:
