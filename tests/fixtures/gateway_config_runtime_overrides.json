@@ -1,0 +1,18 @@
+{
+  "name": "runtime-override-gateway",
+  "version": "1.0.0",
+  "runtime": {
+    "upstreamSessionMode": "per_call",
+    "persistentSessionPoolSize": 1,
+    "persistentSessionAcquireTimeoutMs": 0,
+    "activeCallDrainTimeoutMs": 0,
+    "prewarmCapabilities": false
+  },
+  "upstreams": [
+    {
+      "id": "missing",
+      "transport": "stdio",
+      "command": "definitely-missing-gateway-upstream-executable"
+    }
+  ]
+}

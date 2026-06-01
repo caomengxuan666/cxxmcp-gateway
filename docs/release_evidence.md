@@ -42,7 +42,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Direct runtime option normalization | `test_runtime_options_normalize_invalid_direct_values` |
 | Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp` JSON object, JSON text, opt-in environment substitution, file-load success/error consumer coverage, `gateway_config_io`, missing-config-IO component failure tests |
 | CLI component is optional | CLI smoke tests, CLI component failure tests |
-| CLI/config runtime knobs | `gateway_cli_help`, `gateway_cli_invalid_args`, CLI merged runtime-config validation, `gateway_config_io`, `tests/fixtures/package_smoke/config_io_consumer.cpp` |
+| CLI/config runtime knobs | `gateway_cli_help`, `gateway_cli_invalid_args`, `gateway_cli_runtime_config_overrides`, CLI merged runtime-config validation, `gateway_config_io`, `tests/fixtures/package_smoke/config_io_consumer.cpp` |
 | `BUILD_SHARED_LIBS` is honored | static/shared CI matrix and local static/shared gates |
 | Umbrella header is core-only | package smoke core consumer and runtime component tests |
 | Runtime observer has no logging dependency | `test_runtime_observer_reports_status_without_logger_dependency` |
