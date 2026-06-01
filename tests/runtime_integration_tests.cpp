@@ -4793,6 +4793,12 @@ void test_runtime_stop_waits_for_active_http_call() {
           "runtime should reject new upstream calls after stop");
   require_runtime_stopped_error(post_stop_call.error(), "tools/call");
 
+  auto post_stop_clear = runtime.clear_cached_catalogs();
+  require(!post_stop_clear.has_value(),
+          "runtime should reject clear_cached_catalogs after stop");
+  require_runtime_stopped_error(post_stop_clear.error(),
+                                "clear_cached_catalogs");
+
   auto post_stop_resource_list = runtime.list_resources();
   require(!post_stop_resource_list.has_value(),
           "runtime should reject resources/list after stop");
