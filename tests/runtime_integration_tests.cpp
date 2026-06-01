@@ -565,6 +565,17 @@ void require_runtime_stopping_error(const mcp::core::Error& error,
           "runtime stopping rejection should preserve operation context");
 }
 
+void require_runtime_stopped_error(const mcp::core::Error& error,
+                                   std::string_view operation) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "runtime stopped rejection should use InvalidRequest");
+  require(error.message.find("stopped") != std::string::npos,
+          "runtime stopped rejection should mention stopped");
+  require(error.detail == operation,
+          "runtime stopped rejection should preserve operation context");
+}
+
 void require_raw_runtime_stopped_error(
     const mcp::protocol::JsonRpcResponse& response,
     std::string_view operation) {
@@ -4540,10 +4551,12 @@ void test_runtime_stop_waits_for_active_stdio_call() {
       runtime.call_tool("stdio_stop.echo", Json{{"value", "after-stop"}});
   require(!post_stop_call.has_value(),
           "runtime should reject stdio calls after stop");
+  require_runtime_stopped_error(post_stop_call.error(), "tools/call");
 
   auto post_stop_list = runtime.list_tools();
   require(!post_stop_list.has_value(),
           "runtime should reject tools/list after stop");
+  require_runtime_stopped_error(post_stop_list.error(), "tools/list");
 }
 
 void test_runtime_stop_timeout_bounds_active_stdio_call_wait() {
@@ -4731,14 +4744,19 @@ void test_runtime_stop_waits_for_active_http_call() {
       runtime.call_tool("shutdown.slow", Json{{"sleepMs", 1}});
   require(!post_stop_call.has_value(),
           "runtime should reject new upstream calls after stop");
+  require_runtime_stopped_error(post_stop_call.error(), "tools/call");
 
   auto post_stop_resource_list = runtime.list_resources();
   require(!post_stop_resource_list.has_value(),
           "runtime should reject resources/list after stop");
+  require_runtime_stopped_error(post_stop_resource_list.error(),
+                                "resources/list");
 
   auto post_stop_resource_templates = runtime.list_resource_templates();
   require(!post_stop_resource_templates.has_value(),
           "runtime should reject resources/templates/list after stop");
+  require_runtime_stopped_error(post_stop_resource_templates.error(),
+                                "resources/templates/list");
 
   const auto post_stop_resource_uri =
       mcp::gateway::GatewayRouter::expose_resource_uri(
@@ -4746,19 +4764,25 @@ void test_runtime_stop_waits_for_active_http_call() {
   auto post_stop_resource_read = runtime.read_resource(post_stop_resource_uri);
   require(!post_stop_resource_read.has_value(),
           "runtime should reject resources/read after stop");
+  require_runtime_stopped_error(post_stop_resource_read.error(),
+                                "resources/read");
 
   auto post_stop_prompt_list = runtime.list_prompts();
   require(!post_stop_prompt_list.has_value(),
           "runtime should reject prompts/list after stop");
+  require_runtime_stopped_error(post_stop_prompt_list.error(), "prompts/list");
 
   auto post_stop_prompt =
       runtime.get_prompt("shutdown.prompt", Json::object());
   require(!post_stop_prompt.has_value(),
           "runtime should reject prompts/get after stop");
+  require_runtime_stopped_error(post_stop_prompt.error(), "prompts/get");
 
   auto post_stop_refresh = runtime.refresh_upstream_capabilities();
   require(!post_stop_refresh.has_value(),
           "runtime should reject capability refresh after stop");
+  require_runtime_stopped_error(post_stop_refresh.error(),
+                                "refresh_upstream_capabilities");
 
   mcp::protocol::CompleteParams post_stop_completion;
   post_stop_completion.ref =
@@ -4768,6 +4792,8 @@ void test_runtime_stop_waits_for_active_http_call() {
   auto post_stop_complete = runtime.complete(std::move(post_stop_completion));
   require(!post_stop_complete.has_value(),
           "runtime should reject completions after stop");
+  require_runtime_stopped_error(post_stop_complete.error(),
+                                "completion/complete");
 
   const auto stopped_server = running->stop();
   require(stopped_server.has_value(), "shutdown fixture should stop");
@@ -5172,6 +5198,12 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
   const auto state = require_upstream_state(states, "disabled");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "idle hosted gateway should mark upstream stopped");
+
+  auto restarted = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(!restarted.has_value(),
+          "stopped hosted gateway endpoint should not restart");
+  require_runtime_stopped_error(restarted.error(), "start_http");
 }
 
 void test_runtime_stop_observer_can_reenter_lifecycle_api() {
