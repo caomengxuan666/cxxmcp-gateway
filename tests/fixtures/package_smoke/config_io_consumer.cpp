@@ -46,6 +46,18 @@ int main() {
       "cxxmcp_gateway_package_config_io_consumer.json";
   {
     std::ofstream out(config_path, std::ios::binary);
+    out << json.dump();
+  }
+  auto loaded_config =
+      mcp::gateway::load_gateway_config_file(config_path.string());
+  if (!loaded_config.has_value() ||
+      loaded_config->upstreams.size() != 1 ||
+      loaded_config->upstreams.front().id != "local") {
+    std::filesystem::remove(config_path);
+    return 1;
+  }
+  {
+    std::ofstream out(config_path, std::ios::binary | std::ios::trunc);
     out << document_json.dump();
   }
   auto loaded =
