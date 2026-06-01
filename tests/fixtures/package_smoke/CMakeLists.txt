@@ -22,6 +22,9 @@ if(CXXMCP_GATEWAY_PACKAGE_SMOKE_REQUIRE_RUNTIME)
     add_executable(cxxmcp_gateway_package_runtime runtime_consumer.cpp)
     target_link_libraries(cxxmcp_gateway_package_runtime
         PRIVATE cxxmcp-gateway::runtime)
+    if(WIN32)
+        target_link_libraries(cxxmcp_gateway_package_runtime PRIVATE ws2_32)
+    endif()
     target_compile_features(cxxmcp_gateway_package_runtime PRIVATE cxx_std_23)
 endif()
 
