@@ -26,7 +26,9 @@ The workflow builds an HTTP-enabled C++23 `cxxmcp` SDK from
 the gateway against that install tree, builds the gateway, and runs `ctest`.
 The CTest suite includes a source hygiene guard for conflict markers and
 trailing whitespace across tracked source, test, documentation, CMake, and
-workflow text files.
+workflow text files. It also includes a source dependency guard that prevents
+the removed app/profile stack and third-party CLI/logging/config shims from
+returning to the library-first gateway surface.
 
 ## Local Gate
 

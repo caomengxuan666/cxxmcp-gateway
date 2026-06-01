@@ -22,6 +22,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Local static build and CTest | `ctest --test-dir build-agent-check --output-on-failure --timeout 300` |
 | Local shared build and CTest | `ctest --test-dir build-agent-shared-check --output-on-failure --timeout 300` |
 | Source hygiene | `gateway_source_hygiene_guard_negative` |
+| Forbidden legacy dependencies | `gateway_source_dependency_guard` |
 | Build-tree package consumer | `gateway_package_build_tree_configure`, `gateway_package_build_tree_build`, `gateway_package_build_tree_run` |
 | Install-tree package consumer | `gateway_package_install_tree_install`, `gateway_package_install_tree_configure`, `gateway_package_install_tree_build`, `gateway_package_install_tree_run` |
 | Component install behavior | `gateway_package_component_install_smoke` |
