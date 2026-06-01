@@ -617,9 +617,10 @@ The current MVP baseline has verified coverage for:
     and Streamable HTTP upstreams, raw `completion/complete` requests route
     through the JSON-RPC handler, execution rejects completion-negative
     upstream capability caches, route-stage unknown/disabled upstream errors
-    follow the prompt/resource namespace contracts, unsupported completion ref
-    types are rejected, and hosted advertisement is gated by refreshed upstream
-    capabilities.
+    follow the prompt/resource namespace contracts, upstream-returned MCP
+    errors preserve code/message/detail with gateway upstream context,
+    unsupported completion ref types are rejected, and hosted advertisement is
+    gated by refreshed upstream capabilities.
 12. Optional performance measurement tooling for stdio/HTTP cold and cached
     `tools/list`, per-call `tools/call`, opt-in persistent-session
     `tools/call`, direct SDK HTTP comparison, and persistent HTTP pool pair
