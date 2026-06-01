@@ -2493,6 +2493,27 @@ void test_persistent_stop_rejects_queued_session_pool_call() {
   require(observed_one_busy_slot,
           "persistent queue test should expose bounded busy pool slots");
 
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "queued call cancellation no-op"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "persistent-queued"}, {"progress", 0.5}}},
+  };
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "persistent queued notifications should remain local no-ops");
+  }
+  const auto after_notifications =
+      require_upstream_state(runtime.upstream_states(), "persistent_queue");
+  require(after_notifications.active_calls >= 2,
+          "persistent queued notification no-ops should keep queued call "
+          "observable");
+  require(after_notifications.busy_persistent_sessions == 1,
+          "persistent queued notification no-ops should keep busy slot");
+
   auto stopped = runtime.stop();
   require(stopped.has_value(),
           "persistent queue test runtime should stop after active call drains");
@@ -3573,6 +3594,27 @@ void test_persistent_http_stop_rejects_queued_session_pool_call() {
   }
   require(observed_queued_call,
           "persistent http stop queue test should observe queued call");
+
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "queued http call cancellation no-op"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "persistent-http-queued"}, {"progress", 0.5}}},
+  };
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "persistent http queued notifications should remain local no-ops");
+  }
+  const auto after_notifications = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_stop_queue");
+  require(after_notifications.active_calls >= 2,
+          "persistent http queued notification no-ops should keep queued call "
+          "observable");
+  require(after_notifications.busy_persistent_sessions == 1,
+          "persistent http queued notification no-ops should keep busy slot");
 
   auto stopped_runtime = runtime.stop();
   require(stopped_runtime.has_value(),
