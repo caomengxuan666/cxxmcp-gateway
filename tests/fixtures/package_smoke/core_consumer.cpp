@@ -21,6 +21,12 @@ int main() {
     return 1;
   }
 
+  auto valid_upstream_id = mcp::gateway::validate_upstream_id("local");
+  auto invalid_upstream_id = mcp::gateway::validate_upstream_id("bad.id");
+  if (!valid_upstream_id || invalid_upstream_id) {
+    return 11;
+  }
+
   mcp::gateway::GatewayConfig appended;
   mcp::gateway::UpstreamServer appended_upstream;
   appended_upstream.id = "remote";
@@ -124,6 +130,13 @@ int main() {
   if (config_error.category != "gateway.config" ||
       config_error.detail != "field") {
     return 10;
+  }
+
+  const auto gateway_error =
+      mcp::gateway::make_gateway_error(mcp::protocol::ErrorCode::InvalidParams,
+                                       "bad route", "detail");
+  if (gateway_error.category != "gateway" || gateway_error.detail != "detail") {
+    return 12;
   }
 
   return 0;
