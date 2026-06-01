@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
 int main() {
@@ -39,6 +40,28 @@ int main() {
   if (!refreshed) {
     return 1;
   }
+
+  auto notification = runtime.handle_notification(
+      mcp::protocol::make_notification(
+          mcp::protocol::CancelledNotificationMethod,
+          mcp::protocol::Json{{"requestId", std::int64_t{42}},
+                              {"reason", "package-smoke"}}));
+  if (!notification) {
+    return 1;
+  }
+
+  mcp::protocol::JsonRpcRequest tools_list;
+  tools_list.method = mcp::protocol::ToolsListMethod;
+  tools_list.id = std::int64_t{43};
+  auto tools_list_response = runtime.handle_request(tools_list);
+  if (!tools_list_response.has_value() ||
+      !tools_list_response->has_result() ||
+      !tools_list_response->result->contains("tools") ||
+      !tools_list_response->result->at("tools").is_array() ||
+      !tools_list_response->result->at("tools").empty()) {
+    return 1;
+  }
+
   auto stopped = runtime.stop();
   if (!stopped) {
     return 1;
