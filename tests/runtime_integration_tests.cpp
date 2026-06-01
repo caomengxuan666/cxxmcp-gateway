@@ -5556,6 +5556,13 @@ void test_hosted_gateway_rejects_invalid_json_rpc_request() {
   require(response.find("-32700") != std::string::npos,
           "invalid JSON-RPC request should map to JSON-RPC parse error");
 
+  const auto invalid_shape_response =
+      post_raw_http(kPort, "/mcp", R"({"jsonrpc":"2.0","id":1,"params":{}})");
+  require(invalid_shape_response.find(" 400 ") != std::string::npos,
+          "invalid JSON-RPC shape should return HTTP 400");
+  require(invalid_shape_response.find("-32600") != std::string::npos,
+          "invalid JSON-RPC shape should map to invalid request");
+
   auto stopped = gateway.stop();
   require(stopped.has_value(), "invalid JSON-RPC gateway should stop");
 }
