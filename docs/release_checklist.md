@@ -68,8 +68,8 @@ checks below.
   name in the CMake diagnostic.
 - `BUILD_SHARED_LIBS` remains honored by library targets.
 - `<cxxmcp/gateway.hpp>` remains core-only.
-- Runtime package consumers can call both typed runtime APIs and raw
-  `handle_request()`/`handle_notification()` APIs through the `runtime`
-  component.
+- Runtime package consumers can call typed runtime APIs, hosted endpoint APIs,
+  and raw `handle_request()`/`handle_notification()` APIs through the
+  `runtime` component.
 - Runtime observability hooks do not add a logging-framework dependency to
   core or runtime.

@@ -41,6 +41,16 @@ int main() {
     return 1;
   }
 
+  auto invalid_start = runtime.start_http(
+      {.host = "", .port = 3000, .path = "/mcp"});
+  if (invalid_start) {
+    return 1;
+  }
+  auto wait_before_start = runtime.wait();
+  if (wait_before_start) {
+    return 1;
+  }
+
   auto notification = runtime.handle_notification(
       mcp::protocol::make_notification(
           mcp::protocol::CancelledNotificationMethod,
