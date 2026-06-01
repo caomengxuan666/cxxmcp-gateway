@@ -1988,6 +1988,25 @@ void test_completion_routes_to_stdio_upstream() {
           "resource completion should rewrite resource ref to upstream URI "
           "template");
 
+  mcp::protocol::CompleteParams upstream_error_completion;
+  upstream_error_completion.ref =
+      mcp::protocol::prompt_completion_reference("stdio.summarize");
+  upstream_error_completion.argument.name = "text";
+  upstream_error_completion.argument.value = "deny";
+  auto upstream_error =
+      runtime.complete(std::move(upstream_error_completion));
+  require(!upstream_error.has_value(),
+          "upstream completion MCP error should fail");
+  require(upstream_error.error().code ==
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+          "upstream completion MCP error code should be preserved");
+  require(upstream_error.error().message == "completion denied",
+          "upstream completion MCP error message should be preserved");
+  require(upstream_error.error().detail.find("completion detail") !=
+              std::string::npos,
+          "upstream completion MCP error detail should be preserved");
+  require_gateway_upstream_error(upstream_error.error(), "stdio");
+
   mcp::protocol::CompleteParams invalid_completion;
   invalid_completion.ref =
       mcp::protocol::prompt_completion_reference("bad");

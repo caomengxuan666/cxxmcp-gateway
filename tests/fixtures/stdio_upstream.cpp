@@ -250,8 +250,14 @@ int main(int argc, char** argv) {
           .meta = Json{{"fixture", "stdio"}, {"preserve", true}},
       })
       .completion([](const mcp::protocol::CompleteParams& params,
-                     const mcp::server::CompletionContext&) {
+                     const mcp::server::CompletionContext&)
+          -> mcp::core::Result<mcp::protocol::CompleteResult> {
         mcp::protocol::CompleteResult result;
+        if (params.argument.value == "deny") {
+          return mcp::core::unexpected(mcp::core::Error{
+              static_cast<int>(mcp::protocol::ErrorCode::PermissionDenied),
+              "completion denied", "completion detail", "fixture"});
+        }
         if (params.ref.type == "ref/prompt" &&
             params.ref.name == "summarize" &&
             params.argument.name == "text") {
