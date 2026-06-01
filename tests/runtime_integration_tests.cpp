@@ -4718,6 +4718,8 @@ void test_runtime_stop_timeout_bounds_active_http_call_wait() {
 
   require_stopping_notifications_are_noops(runtime, "shutdown_timeout");
 
+  require_stopping_raw_requests_are_rejected(runtime, "shutdown_timeout");
+
   worker.join();
   if (worker_error) {
     std::rethrow_exception(worker_error);
