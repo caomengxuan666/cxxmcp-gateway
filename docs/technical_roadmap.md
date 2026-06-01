@@ -225,24 +225,27 @@ GUI split triggers:
 - multi-user or remote management;
 - independent product release cadence.
 
-## Phase 1: Tool Data Plane
+## Phase 1: Routed Data Plane Baseline
 
-Goal: make tools aggregation and routing correct enough for real use.
+Goal: make the current routed MCP data-plane families correct enough for real
+use.
 
 Scope:
 
 - validate upstream ids and duplicate ids at startup;
-- define stable exposed-name rules;
-- aggregate `tools/list` from all enabled, tool-capable upstreams;
-- preserve upstream metadata;
-- route `tools/call`;
+- define stable exposed-name, resource URI, prompt name, and completion
+  reference rules;
+- aggregate supported catalog methods from enabled, capable upstreams;
+- preserve upstream metadata and add gateway routing metadata where needed;
+- route supported call/read/get/complete methods back to the selected upstream;
 - normalize gateway errors;
 - preserve upstream MCP errors when possible;
-- add real upstream integration tests.
+- add real upstream integration tests;
 - define gateway `initialize` capability advertisement;
-- advertise tools only when `tools/list` and `tools/call` routing are available;
-- explicitly decide whether `tools/listChanged` is advertised; MVP should not
-  advertise it until notification forwarding exists;
+- advertise capability families only when their routed behavior is available;
+- explicitly decide whether listChanged/subscription/progress/cancellation
+  capabilities are advertised; MVP should not advertise them until forwarding
+  and ownership semantics exist;
 - document the current per-request upstream session limitation;
 - record upstream initialization result and capabilities so they can influence
   downstream capability advertisement and routing behavior.
@@ -288,23 +291,23 @@ Required tests:
 - multiple upstreams;
 - duplicate upstream tool names;
 - disabled upstream;
-- unknown exposed tool;
+- unknown exposed tool, resource, prompt, and completion routes;
 - upstream process not found;
 - upstream HTTP unavailable;
 - upstream timeout;
-- upstream-returned MCP error.
+- upstream-returned MCP error;
 - capability advertisement matches supported methods;
 - unsupported methods fail predictably;
 - malformed exposed names follow the error mapping contract.
 
 Exit criteria:
 
-- tool list and call behavior are documented;
+- routed catalog and request behavior are documented;
 - error codes and messages are stable enough for clients;
-- integration tests cover both supported upstream transports.
+- integration tests cover both supported upstream transports;
 - gateway error mapping table is implemented and tested;
 - namespace grammar is validated;
-- `tools/list` failure policy is documented and tested.
+- aggregate catalog failure policy is documented and tested.
 
 ## Phase 2: Session and Lifecycle
 
