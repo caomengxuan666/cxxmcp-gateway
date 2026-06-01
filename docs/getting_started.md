@@ -103,6 +103,26 @@ Tools and prompts are exposed as `<upstream>.<name>`, for example `fs.read` or
 templates/prompts list caches. It does not close opt-in persistent upstream
 sessions.
 
+## Existing MCP Transport Hosts
+
+Hosts that already own an MCP server transport do not need to use
+`start_http()`. They can pass raw JSON-RPC requests and notifications through
+the runtime adapter APIs:
+
+```cpp
+auto response = runtime.handle_request(request);
+if (response) {
+  return *response;  // gateway-routed data-plane response
+}
+return dispatch_to_host_sdk(request);  // initialize, ping, discovery, etc.
+```
+
+`handle_request()` returns `std::nullopt` for SDK-owned lifecycle, discovery,
+and liveness methods. It returns JSON-RPC responses for gateway-routed
+tools/resources/prompts/completion methods. `handle_notification()` accepts
+notifications as local no-ops; it does not forward cancellation, progress, or
+listChanged notifications upstream.
+
 ## Repeated-Call Latency
 
 The default upstream session mode is `UpstreamSessionMode::per_call`. Each
