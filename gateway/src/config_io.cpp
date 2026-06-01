@@ -2,9 +2,11 @@
 
 #include "cxxmcp/gateway/config_io.hpp"
 
+#include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
-#include <cstdint>
 #include <limits>
 #include <string>
 #include <utility>
@@ -15,21 +17,82 @@
 namespace mcp::gateway {
 namespace {
 
-core::Result<std::string> require_string(const protocol::Json& json,
-                                         std::string_view field,
-                                         std::string_view path) {
+bool valid_environment_name(std::string_view name) {
+  if (name.empty()) {
+    return false;
+  }
+  const auto first = static_cast<unsigned char>(name.front());
+  if (std::isalpha(first) == 0 && name.front() != '_') {
+    return false;
+  }
+  for (char ch : name.substr(1)) {
+    const auto value = static_cast<unsigned char>(ch);
+    if (std::isalnum(value) == 0 && ch != '_') {
+      return false;
+    }
+  }
+  return true;
+}
+
+core::Result<std::string> expand_environment_placeholders(
+    std::string value, std::string_view path,
+    const GatewayConfigLoadOptions& options) {
+  if (!options.environment) {
+    return value;
+  }
+
+  std::string expanded;
+  expanded.reserve(value.size());
+  std::size_t offset = 0;
+  while (offset < value.size()) {
+    const auto marker = value.find("${", offset);
+    if (marker == std::string::npos) {
+      expanded.append(value.substr(offset));
+      break;
+    }
+    expanded.append(value.substr(offset, marker - offset));
+    const auto close = value.find('}', marker + 2);
+    if (close == std::string::npos) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config environment placeholder is not closed",
+          std::string(path)));
+    }
+    const auto name =
+        std::string_view(value).substr(marker + 2, close - marker - 2);
+    if (!valid_environment_name(name)) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config environment placeholder name is invalid",
+          std::string(path)));
+    }
+    auto replacement = options.environment(name);
+    if (!replacement.has_value()) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config environment variable is not available",
+          std::string(path)));
+    }
+    expanded.append(*replacement);
+    offset = close + 1;
+  }
+  return expanded;
+}
+
+core::Result<std::string> require_string(
+    const protocol::Json& json, std::string_view field, std::string_view path,
+    const GatewayConfigLoadOptions& options) {
   const auto key = std::string(field);
   if (!json.contains(key) || !json.at(key).is_string()) {
     return mcp::core::unexpected(make_gateway_config_error(
         "gateway config field must be a string",
         std::string(path) + "." + key));
   }
-  return json.at(key).get<std::string>();
+  return expand_environment_placeholders(json.at(key).get<std::string>(),
+                                         std::string(path) + "." + key,
+                                         options);
 }
 
 core::Result<std::string> optional_transport_string(
     const protocol::Json& json, std::string_view field,
-    std::string_view path) {
+    std::string_view path, const GatewayConfigLoadOptions& options) {
   const auto key = std::string(field);
   if (!json.contains(key)) {
     return std::string{};
@@ -39,12 +102,15 @@ core::Result<std::string> optional_transport_string(
         "gateway config field must be a string",
         std::string(path) + "." + key));
   }
-  return json.at(key).get<std::string>();
+  return expand_environment_placeholders(json.at(key).get<std::string>(),
+                                         std::string(path) + "." + key,
+                                         options);
 }
 
 core::Result<std::string> optional_string(const protocol::Json& json,
                                           std::string_view field,
-                                          std::string_view path) {
+                                          std::string_view path,
+                                          const GatewayConfigLoadOptions& options) {
   const auto key = std::string(field);
   if (!json.contains(key)) {
     return std::string{};
@@ -54,7 +120,9 @@ core::Result<std::string> optional_string(const protocol::Json& json,
         "gateway config field must be a string",
         std::string(path) + "." + key));
   }
-  return json.at(key).get<std::string>();
+  return expand_environment_placeholders(json.at(key).get<std::string>(),
+                                         std::string(path) + "." + key,
+                                         options);
 }
 
 core::Result<core::Unit> reject_endpoint_fields(
@@ -71,7 +139,7 @@ core::Result<core::Unit> reject_endpoint_fields(
 }
 
 core::Result<GatewayRuntimeConfig> runtime_config_from_json(
-    const protocol::Json& json) {
+    const protocol::Json& json, const GatewayConfigLoadOptions& options) {
   GatewayRuntimeConfig runtime;
   if (!json.contains("runtime")) {
     return runtime;
@@ -87,11 +155,15 @@ core::Result<GatewayRuntimeConfig> runtime_config_from_json(
           "gateway config field must be a string",
           "$.runtime.upstreamSessionMode"));
     }
-    const auto mode =
-        runtime_json.at("upstreamSessionMode").get<std::string>();
-    if (mode == "per_call" || mode == "per-call") {
+    auto mode = expand_environment_placeholders(
+        runtime_json.at("upstreamSessionMode").get<std::string>(),
+        "$.runtime.upstreamSessionMode", options);
+    if (!mode) {
+      return mcp::core::unexpected(mode.error());
+    }
+    if (*mode == "per_call" || *mode == "per-call") {
       runtime.upstream_session_mode = UpstreamSessionMode::per_call;
-    } else if (mode == "persistent") {
+    } else if (*mode == "persistent") {
       runtime.upstream_session_mode = UpstreamSessionMode::persistent;
     } else {
       return mcp::core::unexpected(make_gateway_config_error(
@@ -162,7 +234,7 @@ core::Result<GatewayRuntimeConfig> runtime_config_from_json(
 
 core::Result<std::vector<std::string>> optional_string_array(
     const protocol::Json& json, std::string_view field,
-    std::string_view path) {
+    std::string_view path, const GatewayConfigLoadOptions& options) {
   const auto key = std::string(field);
   std::vector<std::string> values;
   if (!json.contains(key)) {
@@ -179,14 +251,19 @@ core::Result<std::vector<std::string>> optional_string_array(
           "gateway config array entries must be strings",
           std::string(path) + "." + key));
     }
-    values.push_back(item.get<std::string>());
+    auto value = expand_environment_placeholders(
+        item.get<std::string>(), std::string(path) + "." + key, options);
+    if (!value) {
+      return mcp::core::unexpected(value.error());
+    }
+    values.push_back(std::move(*value));
   }
   return values;
 }
 
 core::Result<std::unordered_map<std::string, std::string>> optional_string_map(
     const protocol::Json& json, std::string_view field,
-    std::string_view path) {
+    std::string_view path, const GatewayConfigLoadOptions& options) {
   const auto key = std::string(field);
   std::unordered_map<std::string, std::string> values;
   if (!json.contains(key)) {
@@ -203,13 +280,20 @@ core::Result<std::unordered_map<std::string, std::string>> optional_string_map(
           "gateway config object values must be strings",
           std::string(path) + "." + key + "." + map_key));
     }
-    values.emplace(map_key, map_value.get<std::string>());
+    auto value = expand_environment_placeholders(
+        map_value.get<std::string>(),
+        std::string(path) + "." + key + "." + map_key, options);
+    if (!value) {
+      return mcp::core::unexpected(value.error());
+    }
+    values.emplace(map_key, std::move(*value));
   }
   return values;
 }
 
 core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
-                                                std::size_t index) {
+                                                std::size_t index,
+                                                const GatewayConfigLoadOptions& options) {
   if (!json.is_object()) {
     return mcp::core::unexpected(
         make_gateway_config_error("gateway upstream entry must be an object",
@@ -217,18 +301,18 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
   }
 
   const auto path = "upstreams[" + std::to_string(index) + "]";
-  auto id = require_string(json, "id", path);
+  auto id = require_string(json, "id", path, options);
   if (!id) {
     return mcp::core::unexpected(id.error());
   }
-  auto transport = require_string(json, "transport", path);
+  auto transport = require_string(json, "transport", path, options);
   if (!transport) {
     return mcp::core::unexpected(transport.error());
   }
 
   UpstreamServer upstream;
   upstream.id = std::move(*id);
-  auto display_name = optional_string(json, "displayName", path);
+  auto display_name = optional_string(json, "displayName", path, options);
   if (!display_name) {
     return mcp::core::unexpected(display_name.error());
   }
@@ -243,24 +327,25 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
 
   if (*transport == "stdio") {
     upstream.transport = UpstreamTransportKind::process_stdio;
-    auto command = upstream.enabled ? require_string(json, "command", path)
-                                    : optional_transport_string(
-                                          json, "command", path);
+    auto command = upstream.enabled
+                       ? require_string(json, "command", path, options)
+                       : optional_transport_string(json, "command", path,
+                                                   options);
     if (!command) {
       return mcp::core::unexpected(command.error());
     }
     upstream.process_stdio.command = std::move(*command);
-    auto args = optional_string_array(json, "args", path);
+    auto args = optional_string_array(json, "args", path, options);
     if (!args) {
       return mcp::core::unexpected(args.error());
     }
     upstream.process_stdio.args = std::move(*args);
-    auto cwd = optional_string(json, "cwd", path);
+    auto cwd = optional_string(json, "cwd", path, options);
     if (!cwd) {
       return mcp::core::unexpected(cwd.error());
     }
     upstream.process_stdio.cwd = std::move(*cwd);
-    auto env = optional_string_map(json, "env", path);
+    auto env = optional_string_map(json, "env", path, options);
     if (!env) {
       return mcp::core::unexpected(env.error());
     }
@@ -277,13 +362,14 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
     }
   } else if (*transport == "http" || *transport == "streamable_http") {
     upstream.transport = UpstreamTransportKind::streamable_http;
-    auto uri = upstream.enabled ? require_string(json, "uri", path)
-                                : optional_transport_string(json, "uri", path);
+    auto uri = upstream.enabled ? require_string(json, "uri", path, options)
+                                : optional_transport_string(json, "uri", path,
+                                                            options);
     if (!uri) {
       return mcp::core::unexpected(uri.error());
     }
     upstream.streamable_http.uri = std::move(*uri);
-    auto headers = optional_string_map(json, "headers", path);
+    auto headers = optional_string_map(json, "headers", path, options);
     if (!headers) {
       return mcp::core::unexpected(headers.error());
     }
@@ -311,6 +397,11 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
 
 core::Result<GatewayConfig> gateway_config_from_json(
     const protocol::Json& json) {
+  return gateway_config_from_json(json, GatewayConfigLoadOptions{});
+}
+
+core::Result<GatewayConfig> gateway_config_from_json(
+    const protocol::Json& json, const GatewayConfigLoadOptions& options) {
   if (!json.is_object()) {
     return mcp::core::unexpected(
         make_gateway_config_error("gateway config root must be an object"));
@@ -321,7 +412,7 @@ core::Result<GatewayConfig> gateway_config_from_json(
   }
 
   GatewayConfig config;
-  auto name = optional_string(json, "name", "$");
+  auto name = optional_string(json, "name", "$", options);
   if (!name) {
     return mcp::core::unexpected(name.error());
   }
@@ -329,7 +420,7 @@ core::Result<GatewayConfig> gateway_config_from_json(
   if (config.name.empty()) {
     config.name = "cxxmcp-gateway";
   }
-  auto version = optional_string(json, "version", "$");
+  auto version = optional_string(json, "version", "$", options);
   if (!version) {
     return mcp::core::unexpected(version.error());
   }
@@ -344,7 +435,8 @@ core::Result<GatewayConfig> gateway_config_from_json(
   }
 
   for (std::size_t i = 0; i < json.at("upstreams").size(); ++i) {
-    auto upstream = upstream_from_json(json.at("upstreams").at(i), i);
+    auto upstream =
+        upstream_from_json(json.at("upstreams").at(i), i, options);
     if (!upstream) {
       return mcp::core::unexpected(upstream.error());
     }
@@ -360,11 +452,16 @@ core::Result<GatewayConfig> gateway_config_from_json(
 
 core::Result<GatewayConfigDocument> gateway_config_document_from_json(
     const protocol::Json& json) {
-  auto config = gateway_config_from_json(json);
+  return gateway_config_document_from_json(json, GatewayConfigLoadOptions{});
+}
+
+core::Result<GatewayConfigDocument> gateway_config_document_from_json(
+    const protocol::Json& json, const GatewayConfigLoadOptions& options) {
+  auto config = gateway_config_from_json(json, options);
   if (!config) {
     return mcp::core::unexpected(config.error());
   }
-  auto runtime = runtime_config_from_json(json);
+  auto runtime = runtime_config_from_json(json, options);
   if (!runtime) {
     return mcp::core::unexpected(runtime.error());
   }
@@ -383,20 +480,31 @@ static core::Result<protocol::Json> parse_gateway_config_json_text(
 
 core::Result<GatewayConfig> gateway_config_from_json_text(
     std::string_view text) {
+  return gateway_config_from_json_text(text, GatewayConfigLoadOptions{});
+}
+
+core::Result<GatewayConfig> gateway_config_from_json_text(
+    std::string_view text, const GatewayConfigLoadOptions& options) {
   auto json = parse_gateway_config_json_text(text, "JSON text");
   if (!json) {
     return mcp::core::unexpected(json.error());
   }
-  return gateway_config_from_json(*json);
+  return gateway_config_from_json(*json, options);
 }
 
 core::Result<GatewayConfigDocument> gateway_config_document_from_json_text(
     std::string_view text) {
+  return gateway_config_document_from_json_text(text,
+                                                GatewayConfigLoadOptions{});
+}
+
+core::Result<GatewayConfigDocument> gateway_config_document_from_json_text(
+    std::string_view text, const GatewayConfigLoadOptions& options) {
   auto json = parse_gateway_config_json_text(text, "JSON text");
   if (!json) {
     return mcp::core::unexpected(json.error());
   }
-  return gateway_config_document_from_json(*json);
+  return gateway_config_document_from_json(*json, options);
 }
 
 core::Result<protocol::Json> load_gateway_config_json(std::string_view path) {
@@ -412,20 +520,30 @@ core::Result<protocol::Json> load_gateway_config_json(std::string_view path) {
 
 core::Result<GatewayConfig> load_gateway_config_file(
     std::string_view path) {
+  return load_gateway_config_file(path, GatewayConfigLoadOptions{});
+}
+
+core::Result<GatewayConfig> load_gateway_config_file(
+    std::string_view path, const GatewayConfigLoadOptions& options) {
   auto json = load_gateway_config_json(path);
   if (!json) {
     return mcp::core::unexpected(json.error());
   }
-  return gateway_config_from_json(*json);
+  return gateway_config_from_json(*json, options);
 }
 
 core::Result<GatewayConfigDocument> load_gateway_config_document_file(
     std::string_view path) {
+  return load_gateway_config_document_file(path, GatewayConfigLoadOptions{});
+}
+
+core::Result<GatewayConfigDocument> load_gateway_config_document_file(
+    std::string_view path, const GatewayConfigLoadOptions& options) {
   auto json = load_gateway_config_json(path);
   if (!json) {
     return mcp::core::unexpected(json.error());
   }
-  return gateway_config_document_from_json(*json);
+  return gateway_config_document_from_json(*json, options);
 }
 
 }  // namespace mcp::gateway

@@ -464,7 +464,9 @@ Current implementation status:
 - CLI endpoint flags (`--host`, `--port`, and `--path`) are not part of the
   config file format yet, and root-level endpoint fields with those names are
   rejected rather than silently ignored;
-- environment-variable substitution is intentionally not implemented yet.
+- environment-variable substitution is explicit opt-in for library consumers
+  through `GatewayConfigLoadOptions::environment`; default parsing and the
+  reference CLI keep literal string values.
 
 Exit criteria:
 

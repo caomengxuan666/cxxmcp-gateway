@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 
 int main() {
   const mcp::protocol::Json json = {
@@ -17,6 +18,21 @@ int main() {
   auto parsed_text =
       mcp::gateway::gateway_config_from_json_text(json.dump());
   if (!parsed_text.has_value() || parsed_text->upstreams.size() != 1) {
+    return 1;
+  }
+  mcp::gateway::GatewayConfigLoadOptions options;
+  options.environment = [](std::string_view name)
+      -> std::optional<std::string> {
+    if (name == "COMMAND") {
+      return std::string{"server"};
+    }
+    return std::nullopt;
+  };
+  auto parsed_env = mcp::gateway::gateway_config_from_json_text(
+      R"({"upstreams":[{"id":"local","transport":"stdio","command":"${COMMAND}"}]})",
+      options);
+  if (!parsed_env.has_value() ||
+      parsed_env->upstreams.front().process_stdio.command != "server") {
     return 1;
   }
   auto invalid_config =

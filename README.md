@@ -148,8 +148,10 @@ a JSON file through the `config_io` component.
 Endpoint defaults are `--host 127.0.0.1`, `--port 3000`, and `--path /mcp`.
 Disabled upstreams may omit transport connection fields such as `command` or
 `uri`; enabled upstreams must provide the fields required by their transport.
-Config values are parsed literally; environment-variable substitution is not
-performed by `cxxmcp_gateway_config_io`.
+Config values are parsed literally by default. Library consumers can opt into
+`${NAME}` substitution for JSON string values by passing
+`GatewayConfigLoadOptions::environment`; missing variables fail with a
+`gateway.config` error. The reference CLI keeps the default literal behavior.
 
 ```json
 {

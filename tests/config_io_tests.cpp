@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -104,6 +105,77 @@ void test_parse_json_config() {
           "valid JSON text gateway config should parse");
   require(parsed_text->upstreams.size() == 2,
           "JSON text gateway config should preserve upstreams");
+}
+
+void test_parse_json_config_with_environment_substitution() {
+  mcp::gateway::GatewayConfigLoadOptions options;
+  options.environment = [](std::string_view name)
+      -> std::optional<std::string> {
+    if (name == "SESSION_MODE") {
+      return std::string{"persistent"};
+    }
+    if (name == "COMMAND") {
+      return std::string{"fixture"};
+    }
+    if (name == "ROOT") {
+      return std::string{"C:/fixture"};
+    }
+    if (name == "TOKEN") {
+      return std::string{"secret"};
+    }
+    if (name == "HOST") {
+      return std::string{"127.0.0.1:3000"};
+    }
+    return std::nullopt;
+  };
+  const Json json = {
+      {"runtime", Json{{"upstreamSessionMode", "${SESSION_MODE}"}}},
+      {"upstreams",
+       Json::array({
+           Json{{"id", "stdio"},
+                {"transport", "stdio"},
+                {"command", "${COMMAND}"},
+                {"args", Json::array({"--root=${ROOT}", "literal"})},
+                {"cwd", "${ROOT}"},
+                {"env", Json{{"${TOKEN_KEY}", "${TOKEN}"}}}},
+           Json{{"id", "http"},
+                {"transport", "http"},
+                {"uri", "http://${HOST}/mcp"},
+                {"headers", Json{{"Authorization", "Bearer ${TOKEN}"}}}},
+       })},
+  };
+
+  auto parsed =
+      mcp::gateway::gateway_config_document_from_json(json, options);
+  require(parsed.has_value(),
+          "JSON config should parse with environment substitution");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "runtime string fields should support environment substitution");
+  require(parsed->config.upstreams[0].process_stdio.command == "fixture",
+          "stdio command should expand environment placeholders");
+  require(parsed->config.upstreams[0].process_stdio.args.at(0) ==
+              "--root=C:/fixture",
+          "stdio args should expand environment placeholders");
+  require(parsed->config.upstreams[0].process_stdio.cwd == "C:/fixture",
+          "stdio cwd should expand environment placeholders");
+  require(parsed->config.upstreams[0].process_stdio.env.count(
+              "${TOKEN_KEY}") == 1,
+          "env map keys should remain literal");
+  require(parsed->config.upstreams[0].process_stdio.env.at("${TOKEN_KEY}") ==
+              "secret",
+          "env map values should expand environment placeholders");
+  require(parsed->config.upstreams[1].streamable_http.uri ==
+              "http://127.0.0.1:3000/mcp",
+          "HTTP URI should expand environment placeholders");
+  require(parsed->config.upstreams[1].streamable_http.headers.at(
+              "Authorization") == "Bearer secret",
+          "HTTP header values should expand environment placeholders");
+
+  auto parsed_text = mcp::gateway::gateway_config_document_from_json_text(
+      json.dump(), options);
+  require(parsed_text.has_value(),
+          "JSON text config should parse with environment substitution");
 }
 
 void test_parse_json_config_document() {
@@ -487,6 +559,53 @@ void test_parse_json_text_errors() {
           "JSON text document parser should report stable parse failure");
 }
 
+void test_environment_substitution_errors() {
+  mcp::gateway::GatewayConfigLoadOptions options;
+  options.environment = [](std::string_view) -> std::optional<std::string> {
+    return std::nullopt;
+  };
+  auto missing = mcp::gateway::gateway_config_from_json(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "${MISSING}"}}})}},
+      options);
+  require(!missing.has_value(), "missing environment variable should fail");
+  require(missing.error().category == "gateway.config",
+          "missing environment variable should use gateway.config category");
+  require(missing.error().detail == "upstreams[0].command",
+          "missing environment variable should preserve field path");
+
+  options.environment = [](std::string_view name) -> std::optional<std::string> {
+    if (name == "ROOT") {
+      return std::string{"."};
+    }
+    return std::nullopt;
+  };
+  auto invalid_name = mcp::gateway::gateway_config_from_json(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "${}"},
+                              {"args", Json::array({"--root=${ROOT}"})}}})}},
+      options);
+  require(!invalid_name.has_value(),
+          "invalid environment placeholder name should fail");
+  require(invalid_name.error().detail == "upstreams[0].command",
+          "invalid environment placeholder should preserve field path");
+
+  auto unclosed = mcp::gateway::gateway_config_from_json(
+      Json{{"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "${ROOT"}}})}},
+      options);
+  require(!unclosed.has_value(),
+          "unclosed environment placeholder should fail");
+  require(unclosed.error().detail == "upstreams[0].command",
+          "unclosed environment placeholder should preserve field path");
+}
+
 void test_parse_disabled_upstreams_without_connection_fields() {
   const Json json = {
       {"upstreams",
@@ -559,12 +678,14 @@ void test_load_config_file() {
 int main() {
   try {
     test_parse_json_config();
+    test_parse_json_config_with_environment_substitution();
     test_parse_json_config_document();
     test_reject_invalid_config();
     test_reject_optional_string_type_mismatches();
     test_reject_structured_field_type_mismatches();
     test_reject_endpoint_fields();
     test_parse_json_text_errors();
+    test_environment_substitution_errors();
     test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
     return 0;
