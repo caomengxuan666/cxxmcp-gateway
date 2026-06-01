@@ -280,6 +280,18 @@ int main(int argc, char** argv) {
     runtime_config.prewarm_capabilities = true;
   }
 
+  auto valid_runtime_config =
+      mcp::gateway::validate_gateway_runtime_config(runtime_config);
+  if (!valid_runtime_config) {
+    std::cerr << "invalid runtime config: "
+              << valid_runtime_config.error().message;
+    if (!valid_runtime_config.error().detail.empty()) {
+      std::cerr << ": " << valid_runtime_config.error().detail;
+    }
+    std::cerr << "\n";
+    return 2;
+  }
+
   if (config.upstreams.empty()) {
     std::cerr << "at least one upstream is required\n";
     return 2;

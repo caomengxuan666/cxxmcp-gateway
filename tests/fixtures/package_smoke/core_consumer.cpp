@@ -6,6 +6,7 @@
 #include <cxxmcp/gateway/error.hpp>
 #include <cxxmcp/gateway/router.hpp>
 
+#include <chrono>
 #include <string>
 #include <utility>
 
@@ -19,6 +20,24 @@ int main() {
   auto valid = mcp::gateway::validate_gateway_config(config);
   if (!valid) {
     return 1;
+  }
+
+  mcp::gateway::GatewayRuntimeConfig runtime_config;
+  runtime_config.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  runtime_config.persistent_session_pool_size = 2;
+  runtime_config.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  runtime_config.active_call_drain_timeout =
+      std::chrono::milliseconds{5000};
+  runtime_config.prewarm_capabilities = true;
+  auto valid_runtime =
+      mcp::gateway::validate_gateway_runtime_config(runtime_config);
+  runtime_config.persistent_session_pool_size = 0;
+  auto invalid_runtime =
+      mcp::gateway::validate_gateway_runtime_config(runtime_config);
+  if (!valid_runtime || invalid_runtime) {
+    return 19;
   }
 
   auto valid_upstream_id = mcp::gateway::validate_upstream_id("local");

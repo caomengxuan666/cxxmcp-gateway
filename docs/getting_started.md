@@ -90,13 +90,17 @@ Tools and prompts are exposed as `<upstream>.<name>`, for example `fs.read` or
 
 1. Build `GatewayConfig` from your own config source.
 2. Call `validate_gateway_config()` before starting the runtime.
-3. Optionally install a `GatewayRuntimeObserver` for lifecycle and upstream
+3. If your host exposes runtime knobs such as session mode, pool size, or
+   shutdown timeouts, validate the corresponding `GatewayRuntimeConfig` with
+   `validate_gateway_runtime_config()` before mapping it into
+   `GatewayRuntimeOptions`.
+4. Optionally install a `GatewayRuntimeObserver` for lifecycle and upstream
    state events.
-4. Optionally call `refresh_upstream_capabilities()` before `start_http()` when
+5. Optionally call `refresh_upstream_capabilities()` before `start_http()` when
    you want hosted capability advertisement to reflect initialized upstream
    capabilities.
-5. Start the hosted Streamable HTTP endpoint with `start_http()`.
-6. Call `stop()` during shutdown. Persistent upstream sessions are closed by
+6. Start the hosted Streamable HTTP endpoint with `start_http()`.
+7. Call `stop()` during shutdown. Persistent upstream sessions are closed by
    `stop()`.
 
 `clear_cached_catalogs()` invalidates successful aggregate tools/resources/

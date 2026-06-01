@@ -902,6 +902,37 @@ void test_invalid_config_advertises_no_tools() {
           "invalid runtime config should not advertise tasks");
 }
 
+void test_runtime_options_normalize_invalid_direct_values() {
+  mcp::gateway::GatewayRuntimeOptions invalid_mode_options;
+  invalid_mode_options.upstream_session_mode =
+      static_cast<mcp::gateway::UpstreamSessionMode>(999);
+  mcp::gateway::GatewayRuntime invalid_mode_runtime(
+      make_disabled_config("invalid_mode"), std::move(invalid_mode_options));
+  const auto invalid_mode_state =
+      require_upstream_state(invalid_mode_runtime.upstream_states(),
+                             "invalid_mode");
+  require(invalid_mode_state.persistent_session_pool_size == 0,
+          "unsupported direct session mode should fall back to per-call");
+
+  mcp::gateway::GatewayRuntimeOptions zero_pool_options;
+  zero_pool_options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  zero_pool_options.persistent_session_pool_size = 0;
+  zero_pool_options.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{-1};
+  zero_pool_options.active_call_drain_timeout =
+      std::chrono::milliseconds{-1};
+  mcp::gateway::GatewayRuntime zero_pool_runtime(
+      make_disabled_config("zero_pool"), std::move(zero_pool_options));
+  const auto zero_pool_state =
+      require_upstream_state(zero_pool_runtime.upstream_states(), "zero_pool");
+  require(zero_pool_state.persistent_session_pool_size == 1,
+          "zero direct persistent pool size should normalize to one slot");
+  auto stopped = zero_pool_runtime.stop();
+  require(stopped.has_value(),
+          "negative direct timeout values should normalize to disabled bounds");
+}
+
 void test_stdio_process_start_failure() {
   mcp::gateway::GatewayConfig config;
   mcp::gateway::UpstreamServer upstream;
@@ -6884,6 +6915,8 @@ int main() {
     run("disabled upstream", test_disabled_upstream);
     run("invalid config advertises no tools",
         test_invalid_config_advertises_no_tools);
+    run("runtime options normalize invalid direct values",
+        test_runtime_options_normalize_invalid_direct_values);
     run("stdio process start failure", test_stdio_process_start_failure);
     run("tools list fail fast after partial success",
         test_tools_list_fail_fast_after_partial_success);

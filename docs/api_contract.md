@@ -14,7 +14,9 @@ the release checklist.
 - Link `cxxmcp-gateway::runtime`.
 - Include `<cxxmcp/gateway/runtime.hpp>` for `GatewayRuntime`.
 - Include `<cxxmcp/gateway/config.hpp>` for `GatewayConfig` and
-  `validate_gateway_config()`.
+  `validate_gateway_config()`. Hosts that construct `GatewayRuntimeConfig`
+  directly can also use `validate_gateway_runtime_config()` before mapping
+  those values into `GatewayRuntimeOptions`.
 - `<cxxmcp/gateway.hpp>` is intentionally core-only and does not imply that the
   runtime component is available.
 
@@ -28,6 +30,15 @@ the release checklist.
 - Hosts should call `validate_gateway_config()` before construction or before
   exposing config errors to users. `start_http()` validates again before
   binding the endpoint.
+- Hosts that expose runtime knobs directly should validate
+  `GatewayRuntimeConfig` with `validate_gateway_runtime_config()`: persistent
+  pool size must be positive, timeout values must be non-negative, and the
+  session mode must be supported.
+- `GatewayRuntimeOptions` passed directly to the constructor are defensively
+  normalized for runtime safety: unsupported session-mode enum values fall back
+  to `per_call`, a zero persistent pool size becomes one, and negative timeout
+  values are treated as disabled bounds. Hosts should still validate earlier
+  when they need user-facing configuration errors.
 
 ## Session Modes
 

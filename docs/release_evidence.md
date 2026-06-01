@@ -36,12 +36,13 @@ It is intentionally an index, not a replacement for running the gates.
 | Contract | Evidence |
 | --- | --- |
 | `find_package(cxxmcp-gateway CONFIG REQUIRED)` exports core | `tests/fixtures/package_smoke/CMakeLists.txt`, including versioned package discovery |
-| Core router, catalog merge, validation, and error helper APIs are consumable from packages | `tests/fixtures/package_smoke/core_consumer.cpp` exercises `cxxmcp-gateway::core` without runtime/config-IO linkage |
+| Core router, catalog merge, validation, and error helper APIs are consumable from packages | `tests/fixtures/package_smoke/core_consumer.cpp` exercises `cxxmcp-gateway::core` without runtime/config-IO linkage, including gateway and runtime config validation |
 | Runtime component is explicit | `tests/fixtures/package_smoke/runtime_consumer.cpp` move construction/assignment, typed runtime, hosted endpoint, and observer coverage; missing-runtime component failure tests |
 | Raw runtime request/notification APIs are consumable from packages | `tests/fixtures/package_smoke/runtime_consumer.cpp` calls `handle_request()` and `handle_notification()` through `cxxmcp-gateway::runtime` |
+| Direct runtime option normalization | `test_runtime_options_normalize_invalid_direct_values` |
 | Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp` JSON success/error and file-load success/error consumer coverage, `gateway_config_io`, missing-config-IO component failure tests |
 | CLI component is optional | CLI smoke tests, CLI component failure tests |
-| CLI/config runtime knobs | `gateway_cli_help`, `gateway_cli_invalid_args`, `gateway_config_io`, `tests/fixtures/package_smoke/config_io_consumer.cpp` |
+| CLI/config runtime knobs | `gateway_cli_help`, `gateway_cli_invalid_args`, CLI merged runtime-config validation, `gateway_config_io`, `tests/fixtures/package_smoke/config_io_consumer.cpp` |
 | `BUILD_SHARED_LIBS` is honored | static/shared CI matrix and local static/shared gates |
 | Umbrella header is core-only | package smoke core consumer and runtime component tests |
 | Runtime observer has no logging dependency | `test_runtime_observer_reports_status_without_logger_dependency` |

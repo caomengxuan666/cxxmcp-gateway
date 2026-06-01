@@ -137,6 +137,39 @@ core::Result<core::Unit> validate_upstream_id(
   return core::Unit{};
 }
 
+core::Result<core::Unit> validate_gateway_runtime_config(
+    const GatewayRuntimeConfig& runtime) {
+  switch (runtime.upstream_session_mode) {
+    case UpstreamSessionMode::per_call:
+    case UpstreamSessionMode::persistent:
+      break;
+    default:
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway upstream session mode is not supported"));
+  }
+
+  if (runtime.persistent_session_pool_size == 0) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway persistent session pool size must be positive"));
+  }
+
+  if (runtime.persistent_session_acquire_timeout.count() < 0) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway persistent session acquire timeout must be non-negative"));
+  }
+
+  if (runtime.active_call_drain_timeout.count() < 0) {
+    return mcp::core::unexpected(make_gateway_error(
+        protocol::ErrorCode::InvalidParams,
+        "gateway active call drain timeout must be non-negative"));
+  }
+
+  return core::Unit{};
+}
+
 core::Result<core::Unit> validate_gateway_config(
     const GatewayConfig& config) {
   if (config.name.empty()) {
