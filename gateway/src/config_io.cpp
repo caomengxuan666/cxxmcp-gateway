@@ -371,6 +371,34 @@ core::Result<GatewayConfigDocument> gateway_config_document_from_json(
   return GatewayConfigDocument{std::move(*config), *runtime};
 }
 
+static core::Result<protocol::Json> parse_gateway_config_json_text(
+    std::string_view text, std::string detail) {
+  auto json = protocol::Json::parse(text.begin(), text.end(), nullptr, false);
+  if (json.is_discarded()) {
+    return mcp::core::unexpected(make_gateway_config_error(
+        "failed to parse gateway config JSON", std::move(detail)));
+  }
+  return json;
+}
+
+core::Result<GatewayConfig> gateway_config_from_json_text(
+    std::string_view text) {
+  auto json = parse_gateway_config_json_text(text, "JSON text");
+  if (!json) {
+    return mcp::core::unexpected(json.error());
+  }
+  return gateway_config_from_json(*json);
+}
+
+core::Result<GatewayConfigDocument> gateway_config_document_from_json_text(
+    std::string_view text) {
+  auto json = parse_gateway_config_json_text(text, "JSON text");
+  if (!json) {
+    return mcp::core::unexpected(json.error());
+  }
+  return gateway_config_document_from_json(*json);
+}
+
 core::Result<protocol::Json> load_gateway_config_json(std::string_view path) {
   std::ifstream input(std::string(path), std::ios::binary);
   if (!input) {
@@ -379,12 +407,7 @@ core::Result<protocol::Json> load_gateway_config_json(std::string_view path) {
   }
   const std::string text{std::istreambuf_iterator<char>(input),
                          std::istreambuf_iterator<char>()};
-  auto json = protocol::Json::parse(text, nullptr, false);
-  if (json.is_discarded()) {
-    return mcp::core::unexpected(make_gateway_config_error(
-        "failed to parse gateway config JSON", std::string(path)));
-  }
-  return json;
+  return parse_gateway_config_json_text(text, std::string(path));
 }
 
 core::Result<GatewayConfig> load_gateway_config_file(
