@@ -43,6 +43,17 @@ int main() {
     return 2;
   }
 
+  mcp::gateway::GatewayRouter router(*merged);
+  if (!router.validate_config()) {
+    return 13;
+  }
+  const auto tool_route = router.resolve_tool_route("local.echo");
+  if (!tool_route || tool_route->upstream == nullptr ||
+      tool_route->upstream->id != "local" ||
+      tool_route->upstream_tool_name != "echo") {
+    return 14;
+  }
+
   const auto resolved =
       mcp::gateway::GatewayRouter::resolve_tool_name("local.echo");
   if (!resolved || resolved->upstream_id != "local" ||
@@ -59,6 +70,12 @@ int main() {
       resolved_resource->upstream_uri != "file:///tmp/readme.md") {
     return 4;
   }
+  const auto resource_route = router.resolve_resource_route(exposed_resource);
+  if (!resource_route || resource_route->upstream == nullptr ||
+      resource_route->upstream->id != "local" ||
+      resource_route->upstream_uri != "file:///tmp/readme.md") {
+    return 15;
+  }
 
   const auto exposed_prompt =
       mcp::gateway::GatewayRouter::expose_prompt_name("local", "summarize");
@@ -68,6 +85,12 @@ int main() {
       resolved_prompt->upstream_id != "local" ||
       resolved_prompt->upstream_prompt_name != "summarize") {
     return 5;
+  }
+  const auto prompt_route = router.resolve_prompt_route(exposed_prompt);
+  if (!prompt_route || prompt_route->upstream == nullptr ||
+      prompt_route->upstream->id != "local" ||
+      prompt_route->upstream_prompt_name != "summarize") {
+    return 16;
   }
 
   mcp::protocol::ToolDefinition tool;
@@ -137,6 +160,15 @@ int main() {
                                        "bad route", "detail");
   if (gateway_error.category != "gateway" || gateway_error.detail != "detail") {
     return 12;
+  }
+
+  const auto annotated = mcp::gateway::annotate_gateway_upstream_error(
+      mcp::core::Error{1, "upstream failed", "detail", "transport"},
+      "local");
+  if (annotated.category != "gateway.upstream.transport" ||
+      annotated.detail.find("local") == std::string::npos ||
+      annotated.detail.find("detail") == std::string::npos) {
+    return 17;
   }
 
   return 0;
