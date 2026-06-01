@@ -21,6 +21,8 @@ checks below.
 - `docs/compatibility.md` matches the release candidate's SDK revision policy,
   API/ABI stability level, supported CI platform matrix, and feature-support
   boundaries.
+- `docs/performance_profile.md` matches the current session-mode contract,
+  performance baseline interpretation, and low-latency/high-QPS boundaries.
 - Future-only capabilities remain unadvertised unless their namespace,
   routing, notification, and integration-test contracts are implemented.
   New routed capability families must pass the
