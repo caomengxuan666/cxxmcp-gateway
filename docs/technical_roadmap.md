@@ -558,13 +558,14 @@ The current MVP baseline has verified coverage for:
 2. Core/runtime split: core owns config validation, namespace rules, catalog
    merging, and route decisions; runtime owns SDK peer/service and upstream
    process/network execution.
-3. Config validation: empty ids, invalid id grammar, duplicate ids from direct
-   config construction, JSON config loading, and merged file plus command-line
-   upstream config, missing enabled transport parameters, invalid HTTP
-   timeouts, structured field type mismatches, unsupported root-level endpoint
-   fields, invalid HTTP and process-stdio timeouts, runtime session mode, pool
-   size, and timeout validation, defensive direct runtime option
-   normalization, config file open failures, and malformed config JSON.
+3. Config validation: empty gateway name/version values, empty ids, invalid id
+   grammar, duplicate ids from direct config construction, JSON config loading,
+   and merged file plus command-line upstream config, missing enabled transport
+   parameters, invalid HTTP timeouts, structured field type mismatches,
+   unsupported root-level endpoint fields, invalid HTTP and process-stdio
+   timeouts, runtime session mode, pool size, and timeout validation,
+   defensive direct runtime option normalization, config file open failures,
+   and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
@@ -595,13 +596,14 @@ The current MVP baseline has verified coverage for:
    endpoint option validation,
    hosted multi-client routing for process-stdio and Streamable HTTP
    upstreams, wait-before-start rejection, overlapping wait/stop handling,
-   observer lifecycle reentry,
+   destructor-owned hosted endpoint shutdown and port release, observer
+   lifecycle reentry,
    cancellation/progress notification no-ops for active and stopping
    process-stdio and Streamable HTTP upstream calls, stdio child cleanup after
    successful per-call sessions and on stop, persistent stdio session reuse,
    default same-upstream serialization, configured same-upstream pool
    concurrency,
-   active-call stop, hostile-call timeout during pool shutdown, failure
+   active-call stop, active-call timeout during pool shutdown, failure
    invalidation, pool failure isolation, reconnect, and cleanup on stop, plus
    persistent HTTP default same-upstream serialization, pool queue draining,
    and timeout recovery.
