@@ -14,7 +14,8 @@ single upstream MCP server.
 Gateway routing is mostly namespace parsing, catalog lookup, capability checks,
 and SDK call dispatch. For cached catalog reads this path is intentionally
 small. The release baseline records cached `tools/list` calls in the
-single-digit microsecond range on the measured Windows release build.
+single-digit to low-double-digit microsecond range on the measured Windows
+release build.
 
 `tools/call` latency is dominated by upstream session and transport behavior:
 

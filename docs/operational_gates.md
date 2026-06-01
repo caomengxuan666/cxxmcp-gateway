@@ -79,11 +79,13 @@ Performance is not yet a release blocker, but regressions must be measurable.
 Use a Release build and the optional `cxxmcp-gateway-perf` tool as the baseline.
 The tool is intentionally excluded from the default build and CI gate.
 
-Build and run it explicitly against a `cxxmcp` SDK built with the same build
-type and MSVC runtime settings:
+Build and run it explicitly against a clean `cxxmcp` SDK install built with the
+same build type and MSVC runtime settings. See
+[`release_baseline.md`](release_baseline.md) for the full SDK
+configure/build/install sequence used by the recorded baseline.
 
 ```powershell
-cmake -S . -B build-perf -G Ninja -DCMAKE_BUILD_TYPE=Release -DCXXMCP_GATEWAY_BUILD_PERF=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\MCPServer.cpp\out\install\gateway-sdk-cxx23\lib\cmake\cxxmcp
+cmake -S . -B build-perf -G Ninja -DCMAKE_BUILD_TYPE=Release -DCXXMCP_GATEWAY_BUILD_PERF=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\cxxmcp-sdk-perf-install\lib\cmake\cxxmcp
 cmake --build build-perf --target cxxmcp_gateway_perf
 build-perf\cxxmcp-gateway-perf.exe --iterations 50
 ```
