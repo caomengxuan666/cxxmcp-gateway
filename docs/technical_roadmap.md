@@ -685,4 +685,6 @@ The current MVP baseline has verified coverage for:
    or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,
    advertisement, notification behavior, integration tests, and upstream
-   capability-discovery requirements are specified.
+   capability-discovery requirements are specified. The required pre-design
+   checklist is documented in
+   [`capability_extension_gate.md`](capability_extension_gate.md).
