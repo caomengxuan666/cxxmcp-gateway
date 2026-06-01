@@ -14,6 +14,9 @@ The supported consumer is a C++23 host that:
   revision;
 - owns application policy, auth, credentials, deployment, logging, metrics,
   and process supervision outside the gateway library.
+- relies on the library-first source tree and package surface only; the removed
+  app/profile stack and third-party CLI/logging/config shims are not part of
+  the supported shape.
 
 The default package exports `cxxmcp-gateway::core`. Optional components export:
 
@@ -46,6 +49,8 @@ The public API is source-level C++ API, not a stable binary ABI commitment.
 - Public headers, exported CMake targets, component names, routing contracts,
   and runtime behavior documented in `api_contract.md` are release-candidate
   contracts.
+- The source dependency guard keeps forbidden legacy paths and dependencies
+  out of the supported tree and package surface.
 - Breaking source changes should be documented in release notes and reflected
   in the getting-started/API docs.
 - Shared-library builds are tested because consumers need them, but ABI
