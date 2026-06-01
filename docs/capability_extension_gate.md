@@ -7,6 +7,8 @@ completion surface.
 It is intentionally a design gate, not an implementation plan. A future
 capability PR should update this document or link to a capability-specific
 design that answers every item below before runtime advertisement is enabled.
+Use [`capability_design_template.md`](capability_design_template.md) as the
+starting point for that capability-specific design.
 
 ## Required Decisions
 

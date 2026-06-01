@@ -26,8 +26,10 @@ checks below.
 - Future-only capabilities remain unadvertised unless their namespace,
   routing, notification, and integration-test contracts are implemented.
   New routed capability families must pass the
-  [`capability_extension_gate.md`](capability_extension_gate.md) checklist
-  before they are advertised.
+  [`capability_extension_gate.md`](capability_extension_gate.md) checklist,
+  preferably through a filled
+  [`capability_design_template.md`](capability_design_template.md), before
+  they are advertised.
 
 ## Required Validation
 
