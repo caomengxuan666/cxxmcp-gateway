@@ -36,7 +36,7 @@ It is intentionally an index, not a replacement for running the gates.
 | --- | --- |
 | `find_package(cxxmcp-gateway CONFIG REQUIRED)` exports core | `tests/fixtures/package_smoke/CMakeLists.txt`, including versioned package discovery |
 | Runtime component is explicit | `tests/fixtures/package_smoke/runtime_consumer.cpp`, missing-runtime component failure tests |
-| Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp`, `gateway_config_io`, missing-config-IO component failure tests |
+| Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp` JSON and file-load consumer coverage, `gateway_config_io`, missing-config-IO component failure tests |
 | CLI component is optional | CLI smoke tests, CLI component failure tests |
 | CLI/config runtime knobs | `gateway_cli_help`, `gateway_cli_invalid_args`, `gateway_config_io`, `tests/fixtures/package_smoke/config_io_consumer.cpp` |
 | `BUILD_SHARED_LIBS` is honored | static/shared CI matrix and local static/shared gates |

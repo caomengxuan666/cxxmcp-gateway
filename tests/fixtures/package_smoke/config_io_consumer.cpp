@@ -1,5 +1,8 @@
 #include <cxxmcp/gateway/config_io.hpp>
 
+#include <filesystem>
+#include <fstream>
+
 int main() {
   const mcp::protocol::Json json = {
       {"upstreams",
@@ -35,6 +38,25 @@ int main() {
       document->runtime.persistent_session_acquire_timeout.count() != 150 ||
       document->runtime.active_call_drain_timeout.count() != 5000 ||
       !document->runtime.prewarm_capabilities) {
+    return 1;
+  }
+
+  const auto config_path =
+      std::filesystem::temp_directory_path() /
+      "cxxmcp_gateway_package_config_io_consumer.json";
+  {
+    std::ofstream out(config_path, std::ios::binary);
+    out << document_json.dump();
+  }
+  auto loaded =
+      mcp::gateway::load_gateway_config_document_file(config_path.string());
+  std::filesystem::remove(config_path);
+  if (!loaded.has_value() ||
+      loaded->config.upstreams.size() != 1 ||
+      loaded->config.upstreams.front().id != "local" ||
+      loaded->runtime.upstream_session_mode !=
+          mcp::gateway::UpstreamSessionMode::persistent ||
+      loaded->runtime.active_call_drain_timeout.count() != 5000) {
     return 1;
   }
   return 0;
