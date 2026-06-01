@@ -14,6 +14,12 @@ int main() {
   if (!parsed.has_value()) {
     return 1;
   }
+  auto invalid_config =
+      mcp::gateway::gateway_config_from_json(mcp::protocol::Json::object());
+  if (invalid_config.has_value() ||
+      invalid_config.error().category != "gateway.config") {
+    return 1;
+  }
 
   const mcp::protocol::Json document_json = {
       {"runtime",
@@ -30,6 +36,12 @@ int main() {
   auto document =
       mcp::gateway::gateway_config_document_from_json(document_json);
   if (!document.has_value()) {
+    return 1;
+  }
+  auto invalid_document = mcp::gateway::gateway_config_document_from_json(
+      mcp::protocol::Json{{"runtime", "bad"}});
+  if (invalid_document.has_value() ||
+      invalid_document.error().category != "gateway.config") {
     return 1;
   }
   if (document->runtime.upstream_session_mode !=
