@@ -25,6 +25,7 @@
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <csignal>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -6864,6 +6865,10 @@ void test_notification_lifecycle_after_stop() {
 }  // namespace
 
 int main() {
+#ifndef _WIN32
+  std::signal(SIGPIPE, SIG_IGN);
+#endif
+
   try {
     auto run = [](std::string_view name, auto&& fn) {
       std::cerr << "[ RUN      ] " << name << "\n";
