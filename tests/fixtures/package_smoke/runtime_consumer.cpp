@@ -6,8 +6,98 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+namespace {
+
+#ifdef _WIN32
+class SocketRuntime final {
+ public:
+  SocketRuntime() {
+    WSADATA data{};
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+      throw std::runtime_error("WSAStartup failed");
+    }
+  }
+
+  ~SocketRuntime() { WSACleanup(); }
+};
+
+using SocketHandle = SOCKET;
+constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
+
+void close_socket(SocketHandle socket) { closesocket(socket); }
+
+bool socket_failed(int result) { return result == SOCKET_ERROR; }
+#else
+class SocketRuntime final {
+ public:
+  SocketRuntime() = default;
+};
+
+using SocketHandle = int;
+constexpr SocketHandle kInvalidSocket = -1;
+
+void close_socket(SocketHandle socket) { close(socket); }
+
+bool socket_failed(int result) { return result < 0; }
+#endif
+
+std::uint16_t find_available_loopback_port() {
+  SocketRuntime sockets;
+  SocketHandle socket = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (socket == kInvalidSocket) {
+    throw std::runtime_error("failed to create loopback port probe socket");
+  }
+
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(0);
+  if (inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) != 1) {
+    close_socket(socket);
+    throw std::runtime_error("failed to parse loopback address");
+  }
+
+  if (socket_failed(::bind(socket, reinterpret_cast<sockaddr*>(&address),
+                           sizeof(address)))) {
+    close_socket(socket);
+    throw std::runtime_error("failed to bind loopback port probe socket");
+  }
+
+  sockaddr_in bound_address{};
+#ifdef _WIN32
+  int bound_address_length = sizeof(bound_address);
+#else
+  socklen_t bound_address_length = sizeof(bound_address);
+#endif
+  if (socket_failed(::getsockname(
+          socket, reinterpret_cast<sockaddr*>(&bound_address),
+          &bound_address_length))) {
+    close_socket(socket);
+    throw std::runtime_error("failed to inspect available loopback port");
+  }
+
+  const auto port = ntohs(bound_address.sin_port);
+  close_socket(socket);
+  return port;
+}
+
+}  // namespace
 
 static_assert(
     std::is_move_constructible_v<mcp::gateway::GatewayRuntime>,
@@ -93,6 +183,13 @@ int main() {
   }
   auto wait_before_start = assigned_runtime.wait();
   if (wait_before_start) {
+    return 1;
+  }
+
+  const auto port = find_available_loopback_port();
+  auto valid_start = assigned_runtime.start_http(
+      {.host = "127.0.0.1", .port = port, .path = "/mcp"});
+  if (!valid_start) {
     return 1;
   }
 
