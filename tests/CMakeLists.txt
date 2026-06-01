@@ -111,6 +111,14 @@ if(TARGET cxxmcp_gateway_cli)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_duplicate_config_flag_upstream.cmake")
         cxxmcp_gateway_prepend_target_dir_to_test(
             gateway_cli_config_and_flags_validate_together cxxmcp_gateway_cli)
+
+        add_test(NAME gateway_cli_runtime_config_overrides
+            COMMAND "${CMAKE_COMMAND}"
+                -DCXXMCP_GATEWAY_CLI=$<TARGET_FILE:cxxmcp_gateway_cli>
+                -DCXXMCP_GATEWAY_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config_runtime_overrides.json
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_runtime_config_overrides.cmake")
+        cxxmcp_gateway_prepend_target_dir_to_test(
+            gateway_cli_runtime_config_overrides cxxmcp_gateway_cli)
     endif()
 
     add_test(NAME gateway_cli_without_config_io_rejects_config
