@@ -34,6 +34,11 @@ the release checklist.
   `GatewayRuntimeConfig` with `validate_gateway_runtime_config()`: persistent
   pool size must be positive, timeout values must be non-negative, and the
   session mode must be supported.
+- `GatewayRuntimeOptions` passed directly to the constructor are defensively
+  normalized for runtime safety: unsupported session-mode enum values fall back
+  to `per_call`, a zero persistent pool size becomes one, and negative timeout
+  values are treated as disabled bounds. Hosts should still validate earlier
+  when they need user-facing configuration errors.
 
 ## Session Modes
 

@@ -560,8 +560,8 @@ The current MVP baseline has verified coverage for:
    upstream config, missing enabled transport parameters, invalid HTTP
    timeouts, structured field type mismatches, unsupported root-level endpoint
    fields, invalid HTTP and process-stdio timeouts, runtime session mode, pool
-   size, and timeout validation, config file open failures, and malformed
-   config JSON.
+   size, and timeout validation, defensive direct runtime option
+   normalization, config file open failures, and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed

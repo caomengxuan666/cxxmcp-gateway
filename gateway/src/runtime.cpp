@@ -51,6 +51,21 @@ bool gateway_owned_error(const core::Error& error) {
   return error.category.rfind("gateway", 0) == 0;
 }
 
+UpstreamSessionMode normalize_session_mode(UpstreamSessionMode mode) {
+  switch (mode) {
+    case UpstreamSessionMode::per_call:
+    case UpstreamSessionMode::persistent:
+      return mode;
+    default:
+      return UpstreamSessionMode::per_call;
+  }
+}
+
+std::chrono::milliseconds normalize_non_negative_timeout(
+    std::chrono::milliseconds timeout) {
+  return timeout.count() < 0 ? std::chrono::milliseconds{0} : timeout;
+}
+
 protocol::ServerCapabilities gateway_server_capabilities(
     const GatewayConfig& config) {
   auto builder = protocol::server_capabilities();
@@ -183,12 +198,15 @@ struct GatewayRuntime::Impl final {
 
   explicit Impl(GatewayConfig config, GatewayRuntimeOptions options)
       : router(std::move(config)),
-        upstream_session_mode(options.upstream_session_mode),
+        upstream_session_mode(
+            normalize_session_mode(options.upstream_session_mode)),
         persistent_session_pool_size(
             std::max<std::size_t>(options.persistent_session_pool_size, 1)),
         persistent_session_acquire_timeout(
-            options.persistent_session_acquire_timeout),
-        active_call_drain_timeout(options.active_call_drain_timeout),
+            normalize_non_negative_timeout(
+                options.persistent_session_acquire_timeout)),
+        active_call_drain_timeout(
+            normalize_non_negative_timeout(options.active_call_drain_timeout)),
         observer(std::move(options.observer)) {
     for (const auto& upstream : router.config().upstreams) {
       upstream_states.emplace(upstream.id,
