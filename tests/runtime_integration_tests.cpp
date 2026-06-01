@@ -4289,6 +4289,141 @@ void test_tools_list_uses_cached_catalog_until_cleared() {
           "tools/list after clearing cache should start upstream again");
 }
 
+template <typename ListAndRequire>
+void require_catalog_list_cache_behavior(std::string_view upstream_id,
+                                         std::string_view marker_name,
+                                         ListAndRequire list_and_require) {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = std::string(upstream_id);
+  config.upstreams.front().process_stdio.args = {"--startup-delay-ms", "500"};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_" + std::string(marker_name) + "_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  list_and_require(runtime, "initial catalog list should populate cache");
+
+  for (int attempt = 0; attempt < 200 && std::filesystem::exists(marker_path);
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(!std::filesystem::exists(marker_path),
+          "initial catalog-list upstream process should be cleaned up");
+
+  std::atomic_bool second_done = false;
+  std::exception_ptr second_error;
+  std::thread second_worker([&] {
+    try {
+      list_and_require(runtime, "cached catalog list should succeed");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+    second_done = true;
+  });
+
+  bool observed_second_marker = false;
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_second_marker = true;
+      break;
+    }
+    if (second_done.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  second_worker.join();
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  require(!observed_second_marker,
+          "cached catalog list should not start a new upstream process");
+
+  auto cleared = runtime.clear_cached_catalogs();
+  require(cleared.has_value(), "clear_cached_catalogs should succeed");
+
+  std::atomic_bool third_done = false;
+  std::exception_ptr third_error;
+  std::thread third_worker([&] {
+    try {
+      list_and_require(runtime,
+                       "catalog list after clearing cache should succeed");
+    } catch (...) {
+      third_error = std::current_exception();
+    }
+    third_done = true;
+  });
+
+  bool observed_third_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_third_marker = true;
+      break;
+    }
+    if (third_done.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  third_worker.join();
+  if (third_error) {
+    std::rethrow_exception(third_error);
+  }
+  require(observed_third_marker,
+          "catalog list after clearing cache should start upstream again");
+}
+
+void test_resources_list_uses_cached_catalog_until_cleared() {
+  const auto upstream_id = std::string_view("cached_resources");
+  const auto resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          upstream_id, "file:///fixture/readme.txt");
+  require_catalog_list_cache_behavior(
+      upstream_id, "cached_resources_list",
+      [&](mcp::gateway::GatewayRuntime& runtime, std::string_view message) {
+        auto resources = runtime.list_resources();
+        require(resources.has_value(), message);
+        require(has_resource(*resources, resource_uri),
+                "resources/list should include upstream resource");
+      });
+}
+
+void test_resource_templates_list_uses_cached_catalog_until_cleared() {
+  const auto upstream_id = std::string_view("cached_templates");
+  const auto template_uri =
+      mcp::gateway::GatewayRouter::expose_resource_template_uri(
+          upstream_id, "file:///fixture/{path}");
+  require_catalog_list_cache_behavior(
+      upstream_id, "cached_resource_templates_list",
+      [&](mcp::gateway::GatewayRuntime& runtime, std::string_view message) {
+        auto resource_templates = runtime.list_resource_templates();
+        require(resource_templates.has_value(), message);
+        require(has_resource_template(*resource_templates, template_uri),
+                "resources/templates/list should include upstream template");
+      });
+}
+
+void test_prompts_list_uses_cached_catalog_until_cleared() {
+  const auto upstream_id = std::string_view("cached_prompts");
+  require_catalog_list_cache_behavior(
+      upstream_id, "cached_prompts_list",
+      [&](mcp::gateway::GatewayRuntime& runtime, std::string_view message) {
+        auto prompts = runtime.list_prompts();
+        require(prompts.has_value(), message);
+        require(has_prompt(*prompts, "cached_prompts.summarize"),
+                "prompts/list should include upstream prompt");
+      });
+}
+
 void test_clear_cached_catalogs_keeps_persistent_session() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "persistent_cached";
@@ -7048,6 +7183,12 @@ int main() {
         test_multi_upstream_tools_list_starts_upstreams_concurrently);
     run("tools list uses cached catalog until cleared",
         test_tools_list_uses_cached_catalog_until_cleared);
+    run("resources list uses cached catalog until cleared",
+        test_resources_list_uses_cached_catalog_until_cleared);
+    run("resource templates list uses cached catalog until cleared",
+        test_resource_templates_list_uses_cached_catalog_until_cleared);
+    run("prompts list uses cached catalog until cleared",
+        test_prompts_list_uses_cached_catalog_until_cleared);
     run("clear cached catalogs keeps persistent session",
         test_clear_cached_catalogs_keeps_persistent_session);
     run("cancellation and progress notifications are local noops",
