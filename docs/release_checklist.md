@@ -52,7 +52,9 @@ checks below.
   routing/runtime implementation changes materially.
 - Performance evidence includes Release-build stdio and Streamable HTTP
   timings for `tools/list`, per-call and persistent-session `tools/call`, and
-  the persistent HTTP pool pair scenario.
+  the persistent HTTP pool pair scenario. It also includes an initialized
+  direct SDK Streamable HTTP `tools/call` comparison to separate gateway
+  overhead from SDK, transport, and fixture-server path cost.
 
 ## Public Contract
 
