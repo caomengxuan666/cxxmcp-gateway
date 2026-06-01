@@ -112,6 +112,14 @@ if(TARGET cxxmcp_gateway_cli)
         cxxmcp_gateway_prepend_target_dir_to_test(
             gateway_cli_config_and_flags_validate_together cxxmcp_gateway_cli)
 
+        add_test(NAME gateway_cli_config_prewarm_from_file
+            COMMAND "${CMAKE_COMMAND}"
+                -DCXXMCP_GATEWAY_CLI=$<TARGET_FILE:cxxmcp_gateway_cli>
+                -DCXXMCP_GATEWAY_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli_config_prewarm_from_file.cmake")
+        cxxmcp_gateway_prepend_target_dir_to_test(
+            gateway_cli_config_prewarm_from_file cxxmcp_gateway_cli)
+
         add_test(NAME gateway_cli_runtime_config_overrides
             COMMAND "${CMAKE_COMMAND}"
                 -DCXXMCP_GATEWAY_CLI=$<TARGET_FILE:cxxmcp_gateway_cli>
