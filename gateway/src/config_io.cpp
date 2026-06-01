@@ -152,6 +152,11 @@ core::Result<GatewayRuntimeConfig> runtime_config_from_json(
     runtime.prewarm_capabilities =
         runtime_json.at("prewarmCapabilities").get<bool>();
   }
+  auto valid = validate_gateway_runtime_config(runtime);
+  if (!valid) {
+    return mcp::core::unexpected(
+        make_gateway_config_error(valid.error().message, "$.runtime"));
+  }
   return runtime;
 }
 
