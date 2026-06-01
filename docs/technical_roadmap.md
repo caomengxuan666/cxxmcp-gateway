@@ -637,7 +637,9 @@ The current MVP baseline has verified coverage for:
     catalog invalidation does not close opt-in persistent upstream sessions.
 16. Current local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
-    `caomengxuan666/cxxmcp` SDK revision.
+    `caomengxuan666/cxxmcp` SDK revision, with session-mode and latency
+    interpretation guidance documented in
+    [`performance_profile.md`](performance_profile.md).
 17. Basic runtime observability hooks: library consumers can install a
     `GatewayRuntimeObserver` to receive runtime lifecycle and upstream status
     events without adding a logging framework dependency to core or runtime.

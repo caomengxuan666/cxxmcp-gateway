@@ -11,6 +11,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Host integration path | `docs/getting_started.md` |
 | Runtime public contract | `docs/api_contract.md` |
 | SDK/API/ABI/platform boundaries | `docs/compatibility.md` |
+| Performance and session-mode interpretation | `docs/performance_profile.md`, `docs/release_baseline.md` |
 | Future-only capabilities remain unadvertised | `docs/gateway_scope.md`, `tests/runtime_integration_tests.cpp` capability and raw-request coverage |
 | Future capability extension gate | `docs/capability_extension_gate.md` |
 

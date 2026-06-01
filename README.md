@@ -36,6 +36,8 @@ See [Gateway Technical Roadmap](docs/technical_roadmap.md) for the phased
 implementation path.
 See [Operational Gates](docs/operational_gates.md) for release-blocking checks,
 the supported CI matrix, and performance measurement expectations.
+See [Performance Profile](docs/performance_profile.md) for latency,
+throughput, session-mode, and baseline interpretation guidance.
 See [Release Checklist](docs/release_checklist.md) for the release-candidate
 validation checklist.
 See [Release Evidence Map](docs/release_evidence.md) for the test and
@@ -100,6 +102,10 @@ Optional performance tooling is available with
 prints CSV latency summaries for stdio/HTTP cold and cached `tools/list`,
 per-call `tools/call`, opt-in persistent-session `tools/call`, and a direct
 SDK HTTP comparison row.
+These measurements are regression evidence, not a low-latency or high-QPS
+service guarantee. See [Performance Profile](docs/performance_profile.md) for
+how to choose between default per-call sessions, opt-in persistent sessions,
+and direct SDK integration.
 
 Optional embedding examples are available with
 `-DCXXMCP_GATEWAY_BUILD_EXAMPLES=ON`. They are excluded from the default build
