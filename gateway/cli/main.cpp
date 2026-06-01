@@ -280,13 +280,13 @@ int main(int argc, char** argv) {
     runtime_config.prewarm_capabilities = true;
   }
 
-  auto valid_runtime_config =
-      mcp::gateway::validate_gateway_runtime_config(runtime_config);
-  if (!valid_runtime_config) {
+  auto runtime_options =
+      mcp::gateway::make_gateway_runtime_options(runtime_config);
+  if (!runtime_options) {
     std::cerr << "invalid runtime config: "
-              << valid_runtime_config.error().message;
-    if (!valid_runtime_config.error().detail.empty()) {
-      std::cerr << ": " << valid_runtime_config.error().detail;
+              << runtime_options.error().message;
+    if (!runtime_options.error().detail.empty()) {
+      std::cerr << ": " << runtime_options.error().detail;
     }
     std::cerr << "\n";
     return 2;
@@ -297,16 +297,8 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  mcp::gateway::GatewayRuntimeOptions runtime_options;
-  runtime_options.upstream_session_mode = runtime_config.upstream_session_mode;
-  runtime_options.persistent_session_pool_size =
-      runtime_config.persistent_session_pool_size;
-  runtime_options.persistent_session_acquire_timeout =
-      runtime_config.persistent_session_acquire_timeout;
-  runtime_options.active_call_drain_timeout =
-      runtime_config.active_call_drain_timeout;
   mcp::gateway::GatewayRuntime runtime(std::move(config),
-                                       std::move(runtime_options));
+                                       std::move(*runtime_options));
   if (runtime_config.prewarm_capabilities) {
     auto refreshed = runtime.refresh_upstream_capabilities();
     if (!refreshed) {

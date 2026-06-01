@@ -34,16 +34,22 @@ int main() {
   }
 
   std::size_t observed_events = 0;
-  mcp::gateway::GatewayRuntimeOptions options;
-  options.upstream_session_mode =
+  mcp::gateway::GatewayRuntimeConfig runtime_config;
+  runtime_config.upstream_session_mode =
       mcp::gateway::UpstreamSessionMode::persistent;
-  options.persistent_session_pool_size = 2;
-  options.persistent_session_acquire_timeout = std::chrono::milliseconds{100};
-  options.active_call_drain_timeout = std::chrono::milliseconds{5000};
-  options.observer =
-      [&](const mcp::gateway::GatewayRuntimeEvent&) { ++observed_events; };
+  runtime_config.persistent_session_pool_size = 2;
+  runtime_config.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  runtime_config.active_call_drain_timeout = std::chrono::milliseconds{5000};
+  auto options = mcp::gateway::make_gateway_runtime_options(
+      runtime_config,
+      [&](const mcp::gateway::GatewayRuntimeEvent&) { ++observed_events; });
+  if (!options) {
+    return 1;
+  }
 
-  mcp::gateway::GatewayRuntime runtime(std::move(config), std::move(options));
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(*options));
   mcp::gateway::GatewayRuntime moved_runtime(std::move(runtime));
 
   mcp::gateway::GatewayConfig replacement_config;

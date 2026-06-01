@@ -75,6 +75,10 @@ struct GatewayRuntimeOptions {
   std::chrono::milliseconds active_call_drain_timeout{0};
 };
 
+core::Result<GatewayRuntimeOptions> make_gateway_runtime_options(
+    const GatewayRuntimeConfig& runtime,
+    GatewayRuntimeObserver observer = {});
+
 class GatewayRuntime final {
  public:
   explicit GatewayRuntime(GatewayConfig config);

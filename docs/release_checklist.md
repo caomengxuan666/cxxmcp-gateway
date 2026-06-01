@@ -75,6 +75,9 @@ checks below.
 - Runtime package consumers can call typed runtime APIs, hosted endpoint APIs,
   and raw `handle_request()`/`handle_notification()` APIs through the
   `runtime` component.
+- Runtime package consumers can map validated `GatewayRuntimeConfig` values
+  into `GatewayRuntimeOptions` without duplicating reference-runner field
+  mapping.
 - Runtime package consumers can move-construct and move-assign
   `GatewayRuntime`; copying remains intentionally unavailable.
 - Runtime observability hooks do not add a logging-framework dependency to

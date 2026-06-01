@@ -61,8 +61,9 @@ mcp::gateway::GatewayRuntime runtime(std::move(config));
 ```
 
 Hosts that need observability can install a `GatewayRuntimeObserver` through
-`GatewayRuntimeOptions`. Observer callbacks receive runtime lifecycle and
-upstream status events and do not require a logging framework dependency.
+`GatewayRuntimeOptions` or `make_gateway_runtime_options()`. Observer
+callbacks receive runtime lifecycle and upstream status events and do not
+require a logging framework dependency.
 Repeated upstream calls use explicit per-call sessions by default. Hosts that
 prefer lower repeated-call latency over the simplest lifecycle can opt into one
 persistent session per upstream with
@@ -129,11 +130,8 @@ upstream calls; the default `0` keeps the existing unbounded wait. `--prewarm`
 refreshes upstream capabilities before the hosted
 endpoint starts and initializes the configured persistent pool. This is the
 reference runner form of the library
-`GatewayRuntimeOptions::upstream_session_mode`,
-`GatewayRuntimeOptions::persistent_session_pool_size`, and
-`GatewayRuntimeOptions::persistent_session_acquire_timeout`,
-`GatewayRuntimeOptions::active_call_drain_timeout`, plus the
-`GatewayRuntime::refresh_upstream_capabilities()` path; it reduces repeated-call
+`GatewayRuntimeConfig` to `make_gateway_runtime_options()` mapping plus the
+`GatewayRuntime::refresh_upstream_capabilities()` path. It reduces repeated-call
 setup cost but remains a bounded per-upstream pool, not adaptive multiplexing.
 Library hosts can also set `GatewayRuntimeOptions::active_call_drain_timeout`
 to make shutdown return a lifecycle error after a bounded wait for active

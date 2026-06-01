@@ -91,9 +91,8 @@ Tools and prompts are exposed as `<upstream>.<name>`, for example `fs.read` or
 1. Build `GatewayConfig` from your own config source.
 2. Call `validate_gateway_config()` before starting the runtime.
 3. If your host exposes runtime knobs such as session mode, pool size, or
-   shutdown timeouts, validate the corresponding `GatewayRuntimeConfig` with
-   `validate_gateway_runtime_config()` before mapping it into
-   `GatewayRuntimeOptions`.
+   shutdown timeouts, map the corresponding `GatewayRuntimeConfig` with
+   `make_gateway_runtime_options()` before constructing the runtime.
 4. Optionally install a `GatewayRuntimeObserver` for lifecycle and upstream
    state events.
 5. Optionally call `refresh_upstream_capabilities()` before `start_http()` when
@@ -138,14 +137,20 @@ Hosts that make repeated calls to the same upstream can opt into persistent
 sessions:
 
 ```cpp
-mcp::gateway::GatewayRuntimeOptions options;
-options.upstream_session_mode =
+mcp::gateway::GatewayRuntimeConfig runtime_config;
+runtime_config.upstream_session_mode =
     mcp::gateway::UpstreamSessionMode::persistent;
-options.persistent_session_pool_size = 2;
-options.persistent_session_acquire_timeout = std::chrono::milliseconds{100};
-options.active_call_drain_timeout = std::chrono::seconds{5};
+runtime_config.persistent_session_pool_size = 2;
+runtime_config.persistent_session_acquire_timeout =
+    std::chrono::milliseconds{100};
+runtime_config.active_call_drain_timeout = std::chrono::seconds{5};
 
-mcp::gateway::GatewayRuntime runtime(std::move(config), std::move(options));
+auto options = mcp::gateway::make_gateway_runtime_options(runtime_config);
+if (!options) {
+  return 1;
+}
+
+mcp::gateway::GatewayRuntime runtime(std::move(config), std::move(*options));
 ```
 
 Persistent mode keeps a bounded pool of initialized sessions per upstream.
@@ -195,9 +200,11 @@ When config IO is built, JSON config files can carry the same runtime choices:
 }
 ```
 
-Command-line `--session-mode` and `--session-pool-size` override file values,
-and `--prewarm` enables startup capability refresh even when the file leaves it
-disabled.
+Command-line `--session-mode`, `--session-pool-size`,
+`--session-acquire-timeout-ms`, and `--active-call-drain-timeout-ms` override
+file runtime values. `--prewarm` enables startup capability refresh even when
+the file leaves it disabled. Command-line upstream flags are appended to file
+upstreams, and duplicate ids fail validation before the endpoint starts.
 
 ## Buildable Example
 
