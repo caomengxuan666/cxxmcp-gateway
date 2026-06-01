@@ -34,6 +34,51 @@ int main() {
   const auto valid_config = mcp::gateway::validate_gateway_config(config);
   require(valid_config.has_value(), "valid gateway config should validate");
 
+  mcp::gateway::GatewayRuntimeConfig runtime_config;
+  runtime_config.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  runtime_config.persistent_session_pool_size = 2;
+  runtime_config.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  runtime_config.active_call_drain_timeout =
+      std::chrono::milliseconds{5000};
+  runtime_config.prewarm_capabilities = true;
+  const auto valid_runtime_config =
+      mcp::gateway::validate_gateway_runtime_config(runtime_config);
+  require(valid_runtime_config.has_value(),
+          "valid gateway runtime config should validate");
+
+  auto invalid_session_mode = runtime_config;
+  invalid_session_mode.upstream_session_mode =
+      static_cast<mcp::gateway::UpstreamSessionMode>(999);
+  const auto invalid_mode =
+      mcp::gateway::validate_gateway_runtime_config(invalid_session_mode);
+  require(!invalid_mode.has_value(),
+          "unsupported runtime session mode should fail validation");
+
+  auto invalid_pool = runtime_config;
+  invalid_pool.persistent_session_pool_size = 0;
+  const auto invalid_pool_size =
+      mcp::gateway::validate_gateway_runtime_config(invalid_pool);
+  require(!invalid_pool_size.has_value(),
+          "zero persistent pool size should fail validation");
+
+  auto invalid_acquire_timeout = runtime_config;
+  invalid_acquire_timeout.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{-1};
+  const auto negative_acquire_timeout =
+      mcp::gateway::validate_gateway_runtime_config(invalid_acquire_timeout);
+  require(!negative_acquire_timeout.has_value(),
+          "negative persistent acquire timeout should fail validation");
+
+  auto invalid_drain_timeout = runtime_config;
+  invalid_drain_timeout.active_call_drain_timeout =
+      std::chrono::milliseconds{-1};
+  const auto negative_drain_timeout =
+      mcp::gateway::validate_gateway_runtime_config(invalid_drain_timeout);
+  require(!negative_drain_timeout.has_value(),
+          "negative active call drain timeout should fail validation");
+
   const auto exposed =
       mcp::gateway::GatewayRouter::expose_tool_name("fs", "read_file");
   require(exposed == "fs.read_file", "exposed tool name mismatch");
