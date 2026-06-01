@@ -1,0 +1,21 @@
+{
+  "name": "env-file-gateway",
+  "version": "1.0.0",
+  "runtime": {
+    "upstreamSessionMode": "persistent",
+    "persistentSessionPoolSize": 2,
+    "prewarmCapabilities": true
+  },
+  "upstreams": [
+    {
+      "id": "envfile",
+      "transport": "stdio",
+      "command": "${GATEWAY_FIXTURE_COMMAND}",
+      "args": ["--token=${GATEWAY_FIXTURE_TOKEN}"],
+      "cwd": "${GATEWAY_FIXTURE_CWD}",
+      "env": {
+        "TOKEN": "${GATEWAY_FIXTURE_TOKEN}"
+      }
+    }
+  ]
+}
