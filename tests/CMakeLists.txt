@@ -33,6 +33,7 @@ if(TARGET cxxmcp_gateway_config_io)
         PRIVATE cxxmcp_gateway_config_io)
     target_compile_definitions(cxxmcp_gateway_config_io_tests PRIVATE
         CXXMCP_GATEWAY_CONFIG_IO_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config.json"
+        CXXMCP_GATEWAY_CONFIG_IO_ENV_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config_env.json"
         CXXMCP_GATEWAY_MALFORMED_CONFIG_IO_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gateway_config_malformed.json"
     )
     cxxmcp_gateway_require_cxx23(cxxmcp_gateway_config_io_tests)

@@ -40,7 +40,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Runtime component is explicit | `tests/fixtures/package_smoke/runtime_consumer.cpp` runtime-config-to-options mapping, move construction/assignment, typed runtime, hosted endpoint option validation, and observer coverage; missing-runtime component failure tests |
 | Raw runtime request/notification APIs are consumable from packages | `tests/fixtures/package_smoke/runtime_consumer.cpp` calls `handle_request()` and `handle_notification()` through `cxxmcp-gateway::runtime` |
 | Direct runtime option normalization | `test_runtime_options_normalize_invalid_direct_values` |
-| Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp` JSON object, JSON text, opt-in environment substitution, file-load success/error consumer coverage, `gateway_config_io`, missing-config-IO component failure tests |
+| Config IO component is explicit | `tests/fixtures/package_smoke/config_io_consumer.cpp` JSON object, JSON text, opt-in environment substitution, file-load success/error consumer coverage, `gateway_config_io` including file-load environment substitution, missing-config-IO component failure tests |
 | CLI component is optional | CLI smoke tests, CLI component failure tests |
 | CLI/config runtime knobs | `gateway_cli_help`, `gateway_cli_invalid_args`, `gateway_cli_runtime_config_overrides`, CLI merged runtime-config validation, `gateway_config_io`, `tests/fixtures/package_smoke/config_io_consumer.cpp` |
 | `BUILD_SHARED_LIBS` is honored | static/shared CI matrix and local static/shared gates |

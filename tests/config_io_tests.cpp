@@ -673,6 +673,54 @@ void test_load_config_file() {
           "malformed config JSON should preserve path detail");
 }
 
+void test_load_config_file_with_environment_substitution() {
+  mcp::gateway::GatewayConfigLoadOptions options;
+  options.environment = [](std::string_view name)
+      -> std::optional<std::string> {
+    if (name == "GATEWAY_FIXTURE_COMMAND") {
+      return "fixture-server";
+    }
+    if (name == "GATEWAY_FIXTURE_TOKEN") {
+      return "file-secret";
+    }
+    if (name == "GATEWAY_FIXTURE_CWD") {
+      return "/tmp/gateway-fixture";
+    }
+    return std::nullopt;
+  };
+
+  auto loaded = mcp::gateway::load_gateway_config_file(
+      CXXMCP_GATEWAY_CONFIG_IO_ENV_FIXTURE, options);
+  require(loaded.has_value(),
+          "config fixture should load with environment substitution");
+  require(loaded->upstreams.size() == 1,
+          "environment config fixture upstream should load");
+  require(loaded->upstreams.front().process_stdio.command == "fixture-server",
+          "file config command should expand environment placeholder");
+  require(loaded->upstreams.front().process_stdio.args.size() == 1,
+          "file config args should load");
+  require(loaded->upstreams.front().process_stdio.args.front() ==
+              "--token=file-secret",
+          "file config args should expand environment placeholder");
+  require(loaded->upstreams.front().process_stdio.cwd ==
+              "/tmp/gateway-fixture",
+          "file config cwd should expand environment placeholder");
+  require(loaded->upstreams.front().process_stdio.env.at("TOKEN") ==
+              "file-secret",
+          "file config env value should expand environment placeholder");
+
+  auto document = mcp::gateway::load_gateway_config_document_file(
+      CXXMCP_GATEWAY_CONFIG_IO_ENV_FIXTURE, options);
+  require(document.has_value(),
+          "config document fixture should load with environment substitution");
+  require(document->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "environment config fixture runtime should load");
+  require(document->config.upstreams.front().process_stdio.command ==
+              "fixture-server",
+          "document file config should expand environment placeholder");
+}
+
 }  // namespace
 
 int main() {
@@ -688,6 +736,7 @@ int main() {
     test_environment_substitution_errors();
     test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
+    test_load_config_file_with_environment_substitution();
     return 0;
   } catch (const std::exception& ex) {
     std::cerr << "gateway config_io test failed: " << ex.what() << "\n";
