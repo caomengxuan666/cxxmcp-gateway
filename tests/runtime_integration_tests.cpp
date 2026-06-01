@@ -559,6 +559,8 @@ void require_runtime_stopping_error(const mcp::core::Error& error,
   require(error.code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
           "runtime stopping rejection should use InvalidRequest");
+  require(error.category == "gateway",
+          "runtime stopping rejection should use gateway category");
   require(error.message.find("stopping") != std::string::npos,
           "runtime stopping rejection should mention stopping");
   require(error.detail == operation,
@@ -570,6 +572,8 @@ void require_runtime_stopped_error(const mcp::core::Error& error,
   require(error.code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
           "runtime stopped rejection should use InvalidRequest");
+  require(error.category == "gateway",
+          "runtime stopped rejection should use gateway category");
   require(error.message.find("stopped") != std::string::npos,
           "runtime stopped rejection should mention stopped");
   require(error.detail == operation,
