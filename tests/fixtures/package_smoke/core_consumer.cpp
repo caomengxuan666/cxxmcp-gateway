@@ -44,6 +44,10 @@ int main() {
   }
 
   mcp::gateway::GatewayRouter router(*merged);
+  if (router.config().upstreams.size() != 2 ||
+      router.config().upstreams.front().id != "local") {
+    return 18;
+  }
   if (!router.validate_config()) {
     return 13;
   }
