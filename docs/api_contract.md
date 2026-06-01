@@ -93,6 +93,28 @@ completion routes.
 The MVP does not advertise listChanged, resource subscriptions, tasks,
 progress, cancellation forwarding, or logging control.
 
+## Raw JSON-RPC Adapter APIs
+
+Hosts that embed the runtime behind their own MCP server transport can use the
+raw adapter APIs instead of only the typed methods.
+
+- `handle_request()` returns `std::nullopt` for SDK-owned lifecycle,
+  discovery, and liveness methods such as `initialize`, `ping`, and server
+  discovery. The host SDK should continue dispatching those methods.
+- `handle_request()` returns a JSON-RPC response for gateway-routed data-plane
+  methods: `tools/list`, `tools/call`, `resources/list`,
+  `resources/templates/list`, `resources/read`, `prompts/list`,
+  `prompts/get`, and selected `completion/complete` requests.
+- Unsupported MCP methods that are not SDK-owned and not part of the routed
+  MVP surface return gateway-owned JSON-RPC errors rather than being
+  advertised as supported.
+- `handle_notification()` accepts notifications as local no-ops. It does not
+  forward cancellation, progress, or listChanged notifications upstream and
+  does not clear active upstream calls.
+- Stopped or stopping runtimes reject routed raw requests with the same
+  lifecycle error shape used by the typed methods, while SDK-owned requests
+  still return `std::nullopt`.
+
 ## Routing Names
 
 - Tools use `<upstream>.<tool>`.
