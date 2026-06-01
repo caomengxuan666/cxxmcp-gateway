@@ -22,14 +22,15 @@ the release checklist.
 
 ## Construction
 
-`GatewayRuntime` owns a validated snapshot of `GatewayConfig`.
+`GatewayRuntime` owns an immutable snapshot of `GatewayConfig`.
 
 - It is movable, not copyable.
 - It does not start a hosted HTTP endpoint until `start_http()` is called.
 - Disabled upstreams remain visible in `upstream_states()` but are not routed.
 - Hosts should call `validate_gateway_config()` before construction or before
-  exposing config errors to users. `start_http()` validates again before
-  binding the endpoint.
+  exposing config errors to users. Construction itself does not bind a port or
+  contact upstreams; `start_http()` validates again before binding the
+  endpoint.
 - Hosts that expose runtime knobs directly should validate
   `GatewayRuntimeConfig` with `validate_gateway_runtime_config()`: persistent
   pool size must be positive, timeout values must be non-negative, and the

@@ -6,7 +6,7 @@ large compatibility layer around old gateway code.
 
 The first stable boundary is capability aggregation and request routing. Other
 control-plane features should be added only after this data plane is validated
-with real upstream servers and client traffic.
+with upstream integration fixtures and hosted client traffic.
 
 ## Project Identity
 
@@ -281,8 +281,10 @@ management state.
 
 File-based configuration lives in the separate `cxxmcp_gateway_config_io`
 layer. The initial format is JSON and loads into `GatewayConfig`; YAML, TOML,
-or environment substitution are not supported until their rules are explicit.
-Hosted endpoint fields are not part of the file format yet, so root-level
+and other file formats are not supported yet. Environment-variable
+substitution is supported only as an explicit library-consumer opt-in with
+documented replacement rules. Hosted endpoint fields are not part of the file
+format yet, so root-level
 `host`, `port`, and `path` fields are rejected rather than ignored. The core
 remains independent from the chosen file format.
 
