@@ -449,7 +449,9 @@ notification behavior.
 
 Future subscriptions and long-running task ids may need their own namespace or
 metadata rules. They must be defined separately before those capability
-families are advertised.
+families are advertised, and must pass the
+[`capability_extension_gate.md`](capability_extension_gate.md) checklist before
+they enter the supported surface.
 
 ## Session and Notification Semantics
 
@@ -681,7 +683,8 @@ The gateway should not be considered mature until these paths are covered:
    upstream capabilities prove support. Resource subscriptions, tasks, and
    other MCP capabilities should be added incrementally only after their
    namespace, advertisement, notification behavior, and integration tests are
-   specified.
+   specified through the
+   [`capability_extension_gate.md`](capability_extension_gate.md) checklist.
 
 ## Design Rule
 
