@@ -164,26 +164,29 @@ If a requirement is only "implement MCP", use the SDK. If a requirement is
 
 3. Capability aggregation
 
-   The gateway aggregates upstream capabilities. The initial capability surface
-   is tools:
+   The gateway aggregates upstream capabilities for the current routed data
+   plane:
 
-   - `tools/list` is collected from enabled upstreams.
-   - Exposed tool names use the stable `<upstream>.<tool>` format.
-   - Gateway metadata preserves the upstream id and original upstream tool name.
+   - tool catalogs use stable `<upstream>.<tool>` names;
+   - resource and resource-template catalogs use gateway-owned resource URIs;
+   - prompt catalogs use stable `<upstream>.<prompt>` names;
+   - completion support is advertised only from initialized upstream
+     capability evidence.
 
-   The pure catalog transformation lives in core: upstream tool catalogs are
-   converted into gateway-exposed tool definitions by `merge_tool_catalogs()`.
-   Runtime owns fetching upstream catalogs, but not the naming or metadata
-   rules.
+   The pure catalog transformations live in core. Runtime owns fetching
+   upstream catalogs and capability records, but not the naming, URI, or
+   metadata rules.
 
 4. Request routing
 
-   The gateway routes `tools/call` back to the selected upstream based on the
-   exposed tool name.
+   The gateway routes supported data-plane requests back to the selected
+   upstream: `tools/call`, `resources/read`, `prompts/get`, and selected
+   `completion/complete` requests.
 
-   Tool arguments should remain transparent. The gateway should not rewrite
-   schemas or mutate caller-provided arguments unless a future feature explicitly
-   owns that behavior.
+   Tool and prompt arguments should remain transparent. The gateway should not
+   rewrite schemas or mutate caller-provided arguments unless a future feature
+   explicitly owns that behavior. Resource and completion references are
+   rewritten only according to their documented gateway namespaces.
 
 5. Error normalization
 

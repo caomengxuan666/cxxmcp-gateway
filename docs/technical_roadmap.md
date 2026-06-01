@@ -92,7 +92,8 @@ Responsibilities:
 - host Streamable HTTP endpoint;
 - create and own upstream peers;
 - manage upstream sessions;
-- execute upstream `tools/list` aggregation and `tools/call` routing;
+- execute routed data-plane aggregation and dispatch for tools, resources,
+  prompts, and selected completions;
 - pool or reuse upstream connections when validated;
 - coordinate shutdown;
 - surface runtime errors cleanly.
