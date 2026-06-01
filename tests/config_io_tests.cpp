@@ -27,10 +27,24 @@ void require_config_error(const Json& json, std::string_view expected_detail,
           "config type error should include field path");
 }
 
+void require_config_document_error(const Json& json,
+                                   std::string_view expected_detail,
+                                   std::string_view message) {
+  const auto parsed = mcp::gateway::gateway_config_document_from_json(json);
+  require(!parsed.has_value(), message);
+  require(parsed.error().category == "gateway.config",
+          "config document parser should use gateway.config error category");
+  require(parsed.error().detail == expected_detail,
+          "config document type error should include field path");
+}
+
 void test_parse_json_config() {
   const Json json = {
       {"name", "gateway-test"},
       {"version", "1.2.3"},
+      {"runtime",
+       Json{{"upstreamSessionMode", "persistent"},
+            {"prewarmCapabilities", true}}},
       {"upstreams",
        Json::array({
            Json{{"id", "stdio"},
@@ -38,6 +52,7 @@ void test_parse_json_config() {
                 {"command", "fixture"},
                 {"args", Json::array({"--flag", "${GATEWAY_ROOT}"})},
                 {"cwd", "${GATEWAY_CWD}"},
+                {"timeoutMs", 2345},
                 {"env",
                  Json{{"A", "B"},
                       {"TOKEN", "${GATEWAY_TOKEN}"}}}},
@@ -70,6 +85,8 @@ void test_parse_json_config() {
   require(parsed->upstreams[0].process_stdio.env.at("TOKEN") ==
               "${GATEWAY_TOKEN}",
           "stdio env should preserve literal environment placeholders");
+  require(parsed->upstreams[0].process_stdio.timeout.count() == 2345,
+          "stdio timeout should parse");
   require(parsed->upstreams[1].id == "http", "http id should parse");
   require(parsed->upstreams[1].display_name == "HTTP upstream",
           "display name should parse");
@@ -81,6 +98,70 @@ void test_parse_json_config() {
   require(parsed->upstreams[1].streamable_http.headers.at("Authorization") ==
               "Bearer token",
           "http headers should parse");
+}
+
+void test_parse_json_config_document() {
+  const Json json = {
+      {"runtime",
+       Json{{"upstreamSessionMode", "persistent"},
+            {"persistentSessionPoolSize", 3},
+            {"persistentSessionAcquireTimeoutMs", 250},
+            {"activeCallDrainTimeoutMs", 5000},
+            {"prewarmCapabilities", true}}},
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})},
+  };
+
+  auto parsed = mcp::gateway::gateway_config_document_from_json(json);
+  require(parsed.has_value(), "valid JSON gateway document should parse");
+  require(parsed->config.upstreams.size() == 1,
+          "document config upstreams should parse");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "document runtime session mode should parse");
+  require(parsed->runtime.persistent_session_pool_size == 3,
+          "document persistent session pool size should parse");
+  require(parsed->runtime.persistent_session_acquire_timeout.count() == 250,
+          "document persistent session acquire timeout should parse");
+  require(parsed->runtime.active_call_drain_timeout.count() == 5000,
+          "document active call drain timeout should parse");
+  require(parsed->runtime.prewarm_capabilities,
+          "document prewarm flag should parse");
+
+  const Json per_call = {
+      {"runtime", Json{{"upstreamSessionMode", "per-call"}}},
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})},
+  };
+  parsed = mcp::gateway::gateway_config_document_from_json(per_call);
+  require(parsed.has_value(), "per-call spelling should parse");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::per_call,
+          "per-call spelling should select per-call mode");
+
+  const Json defaults = {
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"}}})},
+  };
+  parsed = mcp::gateway::gateway_config_document_from_json(defaults);
+  require(parsed.has_value(), "runtime defaults should parse");
+  require(parsed->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::per_call,
+          "default runtime session mode should be per-call");
+  require(parsed->runtime.persistent_session_pool_size == 1,
+          "default persistent session pool size should be one");
+  require(parsed->runtime.persistent_session_acquire_timeout.count() == 0,
+          "default persistent session acquire timeout should be disabled");
+  require(parsed->runtime.active_call_drain_timeout.count() == 0,
+          "default active call drain timeout should be disabled");
+  require(!parsed->runtime.prewarm_capabilities,
+          "default runtime prewarm should be false");
 }
 
 void test_reject_invalid_config() {
@@ -146,6 +227,15 @@ void test_reject_invalid_config() {
                          {"timeoutMs", 0}}})}};
   parsed = mcp::gateway::gateway_config_from_json(zero_timeout);
   require(!parsed.has_value(), "zero HTTP timeout should fail validation");
+
+  const Json zero_stdio_timeout = Json{
+      {"upstreams",
+       Json::array({Json{{"id", "stdio"},
+                         {"transport", "stdio"},
+                         {"command", "fixture"},
+                         {"timeoutMs", 0}}})}};
+  parsed = mcp::gateway::gateway_config_from_json(zero_stdio_timeout);
+  require(!parsed.has_value(), "zero stdio timeout should fail validation");
 }
 
 void test_reject_optional_string_type_mismatches() {
@@ -248,6 +338,104 @@ void test_reject_structured_field_type_mismatches() {
                               {"uri", "http://127.0.0.1:3000/mcp"},
                               {"timeoutMs", "30000"}}})}},
       "upstreams[0].timeoutMs", "non-integer HTTP timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json::array()},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime", "non-object runtime config should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"upstreamSessionMode", "pooled"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.upstreamSessionMode",
+      "unknown runtime session mode should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"upstreamSessionMode", 42}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.upstreamSessionMode",
+      "non-string runtime session mode should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"prewarmCapabilities", "yes"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.prewarmCapabilities",
+      "non-boolean runtime prewarm should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionPoolSize", 0}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionPoolSize",
+      "zero persistent session pool size should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionPoolSize", -1}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionPoolSize",
+      "negative persistent session pool size should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionPoolSize", "2"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionPoolSize",
+      "non-integer persistent session pool size should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionAcquireTimeoutMs", -1}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionAcquireTimeoutMs",
+      "negative persistent session acquire timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"persistentSessionAcquireTimeoutMs", "100"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.persistentSessionAcquireTimeoutMs",
+      "non-integer persistent session acquire timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"activeCallDrainTimeoutMs", -1}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.activeCallDrainTimeoutMs",
+      "negative active call drain timeout should fail");
+
+  require_config_document_error(
+      Json{{"runtime", Json{{"activeCallDrainTimeoutMs", "100"}}},
+           {"upstreams",
+            Json::array({Json{{"id", "stdio"},
+                              {"transport", "stdio"},
+                              {"command", "fixture"}}})}},
+      "$.runtime.activeCallDrainTimeoutMs",
+      "non-integer active call drain timeout should fail");
 }
 
 void test_reject_endpoint_fields() {
@@ -299,6 +487,17 @@ void test_load_config_file() {
   require(loaded->upstreams.front().id == "fixture",
           "config fixture upstream id should load");
 
+  auto document = mcp::gateway::load_gateway_config_document_file(
+      CXXMCP_GATEWAY_CONFIG_IO_FIXTURE);
+  require(document.has_value(), "config fixture document should load");
+  require(document->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "config fixture runtime session mode should load");
+  require(document->runtime.persistent_session_pool_size == 2,
+          "config fixture persistent session pool size should load");
+  require(document->runtime.prewarm_capabilities,
+          "config fixture runtime prewarm should load");
+
   const auto missing_path =
       std::string(CXXMCP_GATEWAY_CONFIG_IO_FIXTURE) + ".missing";
   auto missing = mcp::gateway::load_gateway_config_file(missing_path);
@@ -327,6 +526,7 @@ void test_load_config_file() {
 int main() {
   try {
     test_parse_json_config();
+    test_parse_json_config_document();
     test_reject_invalid_config();
     test_reject_optional_string_type_mismatches();
     test_reject_structured_field_type_mismatches();

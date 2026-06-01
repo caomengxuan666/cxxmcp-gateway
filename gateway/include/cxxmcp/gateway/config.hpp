@@ -3,6 +3,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -22,6 +23,7 @@ struct ProcessStdioUpstream {
   std::vector<std::string> args;
   std::string cwd;
   std::unordered_map<std::string, std::string> env;
+  std::chrono::milliseconds timeout{30000};
 };
 
 struct HttpUpstream {
@@ -43,6 +45,19 @@ struct GatewayConfig {
   std::string name = "cxxmcp-gateway";
   std::string version = "0.1.0";
   std::vector<UpstreamServer> upstreams;
+};
+
+enum class UpstreamSessionMode {
+  per_call,
+  persistent,
+};
+
+struct GatewayRuntimeConfig {
+  UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
+  std::size_t persistent_session_pool_size = 1;
+  std::chrono::milliseconds persistent_session_acquire_timeout{0};
+  std::chrono::milliseconds active_call_drain_timeout{0};
+  bool prewarm_capabilities = false;
 };
 
 core::Result<core::Unit> validate_upstream_id(std::string_view upstream_id);

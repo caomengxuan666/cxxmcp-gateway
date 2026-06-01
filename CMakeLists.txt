@@ -65,12 +65,18 @@ option(CXXMCP_GATEWAY_BUILD_CONFIG_IO
     ${CXXMCP_GATEWAY_DEFAULT_CONFIG_IO})
 option(CXXMCP_GATEWAY_BUILD_TESTS
     "Build gateway tests" ${CXXMCP_GATEWAY_DEFAULT_TESTS})
+option(CXXMCP_GATEWAY_BUILD_EXAMPLES
+    "Build optional gateway embedding examples" OFF)
 option(CXXMCP_GATEWAY_BUILD_PERF
     "Build optional gateway performance measurement tools" OFF)
 
 if(CXXMCP_GATEWAY_BUILD_CLI AND NOT CXXMCP_GATEWAY_BUILD_RUNTIME)
     message(FATAL_ERROR
         "CXXMCP_GATEWAY_BUILD_CLI requires CXXMCP_GATEWAY_BUILD_RUNTIME")
+endif()
+if(CXXMCP_GATEWAY_BUILD_EXAMPLES AND NOT CXXMCP_GATEWAY_BUILD_RUNTIME)
+    message(FATAL_ERROR
+        "CXXMCP_GATEWAY_BUILD_EXAMPLES requires CXXMCP_GATEWAY_BUILD_RUNTIME")
 endif()
 if(CXXMCP_GATEWAY_BUILD_PERF AND NOT CXXMCP_GATEWAY_BUILD_RUNTIME)
     message(FATAL_ERROR
@@ -172,6 +178,17 @@ if(CXXMCP_GATEWAY_BUILD_PERF)
     set_target_properties(cxxmcp_gateway_perf PROPERTIES
         OUTPUT_NAME cxxmcp-gateway-perf)
     cxxmcp_gateway_require_cxx23(cxxmcp_gateway_perf)
+endif()
+
+if(CXXMCP_GATEWAY_BUILD_EXAMPLES)
+    add_executable(cxxmcp_gateway_embedded_runtime_example
+        examples/embedded_runtime_host.cpp
+    )
+    target_link_libraries(cxxmcp_gateway_embedded_runtime_example
+        PRIVATE cxxmcp_gateway_runtime)
+    set_target_properties(cxxmcp_gateway_embedded_runtime_example PROPERTIES
+        OUTPUT_NAME cxxmcp-gateway-embedded-runtime-example)
+    cxxmcp_gateway_require_cxx23(cxxmcp_gateway_embedded_runtime_example)
 endif()
 
 if(CXXMCP_GATEWAY_BUILD_TESTS)

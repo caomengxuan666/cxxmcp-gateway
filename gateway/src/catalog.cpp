@@ -13,6 +13,35 @@
 #include "cxxmcp/protocol/types.hpp"
 
 namespace mcp::gateway {
+namespace {
+
+void attach_gateway_metadata(protocol::Json& meta,
+                             protocol::Json gateway_metadata) {
+  if (!meta.contains("gateway")) {
+    meta["gateway"] = std::move(gateway_metadata);
+    return;
+  }
+
+  if (!meta["gateway"].is_object()) {
+    meta["gatewayUpstreamOriginal"] = meta["gateway"];
+    meta["gateway"] = std::move(gateway_metadata);
+    return;
+  }
+
+  const auto original_gateway = meta["gateway"];
+  bool collision = false;
+  for (const auto& entry : gateway_metadata.items()) {
+    if (meta["gateway"].contains(entry.key())) {
+      collision = true;
+    }
+    meta["gateway"][entry.key()] = entry.value();
+  }
+  if (collision && !meta.contains("gatewayUpstreamOriginal")) {
+    meta["gatewayUpstreamOriginal"] = original_gateway;
+  }
+}
+
+}  // namespace
 
 core::Result<std::vector<protocol::ToolDefinition>> merge_tool_catalogs(
     const std::vector<UpstreamToolCatalog>& catalogs) {
@@ -43,10 +72,10 @@ core::Result<std::vector<protocol::ToolDefinition>> merge_tool_catalogs(
       protocol::Json meta =
           tool.meta.has_value() && tool.meta->is_object() ? *tool.meta
                                                           : protocol::Json::object();
-      meta["gateway"] = protocol::Json{
+      attach_gateway_metadata(meta, protocol::Json{
           {"upstreamId", catalog.upstream_id},
           {"upstreamToolName", upstream_name},
-      };
+      });
       tool.meta = std::move(meta);
       exposed.push_back(std::move(tool));
     }
@@ -90,10 +119,10 @@ core::Result<std::vector<protocol::Resource>> merge_resource_catalogs(
           resource.meta.has_value() && resource.meta->is_object()
               ? *resource.meta
               : protocol::Json::object();
-      meta["gateway"] = protocol::Json{
+      attach_gateway_metadata(meta, protocol::Json{
           {"upstreamId", catalog.upstream_id},
           {"upstreamResourceUri", upstream_uri},
-      };
+      });
       resource.meta = std::move(meta);
       exposed.push_back(std::move(resource));
     }
@@ -143,10 +172,10 @@ merge_resource_template_catalogs(
                   resource_template.meta->is_object()
               ? *resource_template.meta
               : protocol::Json::object();
-      meta["gateway"] = protocol::Json{
+      attach_gateway_metadata(meta, protocol::Json{
           {"upstreamId", catalog.upstream_id},
           {"upstreamResourceTemplateUri", upstream_uri_template},
-      };
+      });
       resource_template.meta = std::move(meta);
       exposed.push_back(std::move(resource_template));
     }
@@ -190,10 +219,10 @@ core::Result<std::vector<protocol::Prompt>> merge_prompt_catalogs(
           prompt.meta.has_value() && prompt.meta->is_object()
               ? *prompt.meta
               : protocol::Json::object();
-      meta["gateway"] = protocol::Json{
+      attach_gateway_metadata(meta, protocol::Json{
           {"upstreamId", catalog.upstream_id},
           {"upstreamPromptName", upstream_name},
-      };
+      });
       prompt.meta = std::move(meta);
       exposed.push_back(std::move(prompt));
     }

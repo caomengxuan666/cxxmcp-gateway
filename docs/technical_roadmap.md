@@ -232,7 +232,7 @@ Scope:
 
 - validate upstream ids and duplicate ids at startup;
 - define stable exposed-name rules;
-- aggregate `tools/list` from all enabled upstreams;
+- aggregate `tools/list` from all enabled, tool-capable upstreams;
 - preserve upstream metadata;
 - route `tools/call`;
 - normalize gateway errors;
@@ -252,15 +252,15 @@ Supported MCP method matrix for Phase 1:
 | -------------------- | ---------------- |
 | `initialize` | SDK-owned downstream lifecycle; gateway capabilities must match routed methods |
 | `ping` | SDK-owned |
-| `tools/list` | Aggregated from enabled upstreams |
+| `tools/list` | Aggregated from enabled, tool-capable upstreams |
 | `tools/call` | Routed by exposed tool name |
 | `notifications/initialized` | SDK-owned |
 | `notifications/tools/list_changed` | Not advertised and not forwarded in MVP |
-| `resources/list` | Aggregated from enabled upstreams with gateway-owned resource URIs |
+| `resources/list` | Aggregated from enabled, resource-capable upstreams with gateway-owned resource URIs |
 | `resources/read` | Routed by gateway resource URI |
-| `resources/templates/list` | Aggregated from enabled upstreams with gateway-owned resource URI templates |
+| `resources/templates/list` | Aggregated from enabled, resource-capable upstreams with gateway-owned resource URI templates |
 | resource subscriptions/listChanged/updated | Not advertised and not forwarded in MVP |
-| `prompts/list` | Aggregated from enabled upstreams |
+| `prompts/list` | Aggregated from enabled, prompt-capable upstreams |
 | `prompts/get` | Routed by exposed prompt name |
 | `notifications/prompts/list_changed` | Not advertised and not forwarded in MVP |
 | tasks | Not advertised unless SDK and gateway routing support exist |
@@ -512,6 +512,8 @@ Scope:
 
 Current operational gates are documented in
 [`operational_gates.md`](operational_gates.md).
+The release-candidate checklist is documented in
+[`release_checklist.md`](release_checklist.md).
 
 Exit criteria:
 
@@ -544,8 +546,10 @@ The current MVP baseline has verified coverage for:
 1. Library packaging contract: shared/static builds, package components,
    top-level versus subproject defaults, and build-tree/install-tree package
    smoke tests that configure, build, and run downstream consumers and the
-   build-tree and installed CLI; unavailable `runtime`, `config_io`, and
-   `cli` components fail clearly when requested; source dependency and hygiene
+   build-tree and installed CLI; unavailable `runtime`, `config_io`, `cli`,
+   and unknown components fail clearly when requested; package consumers
+   compile and execute representative core, runtime, and config-IO public API
+   paths without relying on in-tree targets; source dependency and hygiene
    guards cover removed legacy dependencies, forbidden legacy paths, conflict
    markers, and trailing whitespace.
 2. Core/runtime split: core owns config validation, namespace rules, catalog
@@ -555,7 +559,8 @@ The current MVP baseline has verified coverage for:
    from direct config construction, JSON config loading, and merged file plus
    command-line upstream config, missing enabled transport parameters, invalid
    HTTP timeouts, structured field type mismatches, unsupported root-level
-   endpoint fields, config file open failures, and malformed config JSON.
+   endpoint fields, invalid HTTP and process-stdio timeouts, config file open
+   failures, and malformed config JSON.
 4. Tool data-plane integration: process stdio upstreams, Streamable HTTP
    upstreams, multiple upstreams, duplicate exposed tool names, unknown or
    disabled upstreams, unavailable upstreams, upstream timeouts, malformed
@@ -570,24 +575,37 @@ The current MVP baseline has verified coverage for:
 7. Gateway error mapping for routing, transport, timeout, protocol, and
    upstream MCP failures, including direct coverage for gateway-owned error
    construction and upstream error annotation.
-8. Runtime lifecycle decision: explicit per-call upstream sessions, with
-   initialized upstream capabilities recorded in runtime state.
+8. Runtime lifecycle decision: default explicit per-call upstream sessions,
+   plus opt-in persistent bounded per-upstream session pools, with initialized
+   upstream capabilities recorded in runtime state.
 9. Graceful shutdown and concurrency coverage: repeated calls, concurrent calls
-   to one upstream, concurrent calls to multiple upstreams, idle shutdown,
+   to one upstream, concurrent calls to multiple upstreams, concurrent
+   multi-upstream catalog list fan-out, idle shutdown,
    active-call shutdown with observable `stopping` state, downstream session
-   close during an active upstream call, observable initialized state during
-   active upstream calls, post-stop rejection for side-effecting runtime
-   operations, in-flight stopping rejection for data-plane operations and
+   close during active process-stdio and Streamable HTTP upstream calls,
+   observable initialized state during active upstream calls, post-stop
+   rejection for side-effecting runtime operations, in-flight stopping
+   rejection for direct and raw JSON-RPC routed data-plane operations and
    capability refresh, raw JSON-RPC post-stop rejection for routed methods
-   while SDK-owned lifecycle and liveness methods remain delegated,
-   hosted endpoint option validation, wait-before-start rejection,
-   cancellation/progress notification no-ops, and stdio child cleanup after
-   successful per-call sessions and on stop.
+   while SDK-owned lifecycle and liveness methods remain delegated, hosted
+   endpoint option validation,
+   hosted multi-client routing for process-stdio and Streamable HTTP
+   upstreams, wait-before-start rejection, overlapping wait/stop handling,
+   observer lifecycle reentry,
+   cancellation/progress notification no-ops for active and stopping
+   process-stdio and Streamable HTTP upstream calls, stdio child cleanup after
+   successful per-call sessions and on stop, persistent stdio session reuse,
+   default same-upstream serialization, configured same-upstream pool
+   concurrency,
+   active-call stop, hostile-call timeout during pool shutdown, failure
+   invalidation, pool failure isolation, reconnect, and cleanup on stop, plus
+   persistent HTTP default same-upstream serialization, pool queue draining,
+   and timeout recovery.
 10. Supported method and capability advertisement matrix for the routed tools,
    resources, and prompts MVP, including SDK-owned lifecycle/discovery request
    pass-through, unsupported request/notification behavior, unsupported
-   notification no-op coverage, and serialized JSON shape for non-advertised
-   sub-capabilities.
+   notification no-op coverage during active calls and after stop, and
+   serialized JSON shape for non-advertised sub-capabilities.
 11. Completion data-plane integration: prompt completions and resource-template
     completions route through existing gateway namespaces for process stdio
     and Streamable HTTP upstreams, raw `completion/complete` requests route
@@ -596,28 +614,79 @@ The current MVP baseline has verified coverage for:
     follow the prompt/resource namespace contracts, unsupported completion ref
     types are rejected, and hosted advertisement is gated by refreshed upstream
     capabilities.
-12. Optional performance measurement tooling for stdio/HTTP `tools/list` and
-    `tools/call`, excluded from the default build and release-blocking CI.
+12. Optional performance measurement tooling for stdio/HTTP cold and cached
+    `tools/list`, per-call `tools/call`, opt-in persistent-session
+    `tools/call`, direct SDK HTTP comparison, and persistent HTTP pool pair
+    calls, excluded from the default build and release-blocking CI.
 13. Capability-aware advertisement refinement: `server_capabilities()` remains
     side-effect-free, uses config-based MVP advertisement before upstream
     discovery, narrows tools/resources/prompts plus completion advertisement
     once all enabled upstream capability records are cached, and unions
     advertised capability families across multiple initialized upstream caches;
-    hosted endpoints retain the capability snapshot captured at `start_http()`.
+    capability-negative upstreams are skipped for cached aggregate catalog
+    listing and rejected locally for routed operations; hosted endpoints retain
+    the capability snapshot captured at `start_http()`.
 14. Explicit capability refresh API: hosts can call
     `GatewayRuntime::refresh_upstream_capabilities()` before `start_http()` to
-    initialize upstream capability caches without fetching catalogs or routing
-    a data-plane request.
-15. Current local Release performance baseline recorded in
+    initialize upstream capability caches, clear cached aggregate catalogs,
+    and avoid routing a data-plane request.
+15. Runtime catalog cache: successful aggregate tools/resources/templates/
+    prompts catalog lists are cached until explicit invalidation, capability
+    refresh, or runtime recreation, while cache misses retain concurrent
+    multi-upstream fan-out and whole-request failure semantics; explicit
+    catalog invalidation does not close opt-in persistent upstream sessions.
+16. Current local Release performance baseline recorded in
     [`release_baseline.md`](release_baseline.md) against a clean
     `caomengxuan666/cxxmcp` SDK revision.
+17. Basic runtime observability hooks: library consumers can install a
+    `GatewayRuntimeObserver` to receive runtime lifecycle and upstream status
+    events without adding a logging framework dependency to core or runtime.
+18. Release-readiness checklist documented in
+    [`release_checklist.md`](release_checklist.md), including package
+    consumption, component install, SDK revision, performance evidence, and
+    public-contract gates; [`release_evidence.md`](release_evidence.md) maps
+    those gates to concrete tests, documents, and commands.
+19. Library onboarding and public runtime API docs: C++ hosts have a minimal
+    integration guide in [`getting_started.md`](getting_started.md), and
+    lifecycle, concurrency, session, cache, capability, observer, routing, and
+    error-shape contracts are summarized in
+    [`api_contract.md`](api_contract.md).
+20. Compatibility policy: supported consumer shape, SDK revision boundaries,
+    source/API versus ABI stability, CI platform matrix, and feature support
+    limits are documented in [`compatibility.md`](compatibility.md).
+21. Buildable embedded-runtime example: `examples/embedded_runtime_host.cpp`
+    compiles behind `CXXMCP_GATEWAY_BUILD_EXAMPLES=ON` and demonstrates
+    host-owned config construction, observer callbacks, capability prewarm,
+    hosted startup, and opt-in persistent upstream sessions without changing
+    default package components; `gateway_examples_build` covers the optional
+    example build in CTest.
+22. Persistent pool observability: `upstream_states()` exposes configured pool
+    size, initialized persistent session count, and busy persistent session
+    count so library hosts can distinguish active accepted calls from actual
+    occupied fixed-pool slots.
+23. Persistent pool wait bounding: hosts can set
+    `persistent_session_acquire_timeout` through the runtime API, reference
+    CLI, or JSON runtime config so same-upstream calls queued behind a full
+    fixed pool can fail after a defined wait instead of queueing indefinitely;
+    integration coverage verifies this contract for both process stdio and
+    Streamable HTTP upstreams.
+24. Active call drain bounding: hosts can set `active_call_drain_timeout` so
+    `GatewayRuntime::stop()` returns a lifecycle error after a defined wait for
+    active upstream calls instead of relying only on an outer test runner or
+    supervisor timeout. Active calls are still not cancelled by the gateway.
+    Integration coverage verifies this contract for both process stdio and
+    Streamable HTTP upstreams, and config/CLI coverage exposes the same bound
+    through `activeCallDrainTimeoutMs` and `--active-call-drain-timeout-ms`.
 
 ## Remaining Near-Term Backlog
 
 1. Keep broadening lifecycle evidence where the SDK exposes stronger hooks,
-   especially if future pooled upstream sessions are introduced.
+   especially around transport-specific concurrency and active request
+   cancellation behavior.
 2. Refresh the performance baseline whenever the release-candidate SDK revision
    or routing/runtime implementation changes materially.
 3. Design the next routed MCP capability family only after its namespace,
    advertisement, notification behavior, integration tests, and upstream
-   capability-discovery requirements are specified.
+   capability-discovery requirements are specified. The required pre-design
+   checklist is documented in
+   [`capability_extension_gate.md`](capability_extension_gate.md).

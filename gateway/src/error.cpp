@@ -22,11 +22,12 @@ core::Error make_gateway_config_error(std::string message,
 
 core::Error annotate_gateway_upstream_error(core::Error error,
                                             std::string_view upstream_id) {
-  if (error.category == "transport" &&
-      (error.message.find("timed out") != std::string::npos ||
-       error.message.find("timeout") != std::string::npos ||
-       error.detail.find("timed out") != std::string::npos ||
-       error.detail.find("timeout") != std::string::npos)) {
+  const auto looks_like_timeout =
+      error.message.find("timed out") != std::string::npos ||
+      error.message.find("timeout") != std::string::npos ||
+      error.detail.find("timed out") != std::string::npos ||
+      error.detail.find("timeout") != std::string::npos;
+  if (error.category.rfind("gateway.", 0) != 0 && looks_like_timeout) {
     error.category = "timeout";
   }
 

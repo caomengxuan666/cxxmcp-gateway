@@ -2,8 +2,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -35,6 +37,9 @@ struct UpstreamRuntimeState {
   std::string upstream_id;
   UpstreamRuntimeStatus status = UpstreamRuntimeStatus::configured;
   std::size_t active_calls = 0;
+  std::size_t persistent_session_pool_size = 0;
+  std::size_t initialized_persistent_sessions = 0;
+  std::size_t busy_persistent_sessions = 0;
   std::optional<protocol::ServerCapabilities> capabilities;
   std::optional<core::Error> last_error;
 };
@@ -45,9 +50,35 @@ struct HttpEndpoint {
   std::string path = "/mcp";
 };
 
+enum class GatewayRuntimeEventKind {
+  upstream_status_changed,
+  runtime_stopping,
+  runtime_stopped,
+};
+
+struct GatewayRuntimeEvent {
+  GatewayRuntimeEventKind kind =
+      GatewayRuntimeEventKind::upstream_status_changed;
+  std::string upstream_id;
+  UpstreamRuntimeStatus upstream_status = UpstreamRuntimeStatus::configured;
+  std::optional<core::Error> error;
+};
+
+using GatewayRuntimeObserver =
+    std::function<void(const GatewayRuntimeEvent& event)>;
+
+struct GatewayRuntimeOptions {
+  GatewayRuntimeObserver observer;
+  UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
+  std::size_t persistent_session_pool_size = 1;
+  std::chrono::milliseconds persistent_session_acquire_timeout{0};
+  std::chrono::milliseconds active_call_drain_timeout{0};
+};
+
 class GatewayRuntime final {
  public:
   explicit GatewayRuntime(GatewayConfig config);
+  GatewayRuntime(GatewayConfig config, GatewayRuntimeOptions options);
   ~GatewayRuntime();
 
   GatewayRuntime(const GatewayRuntime&) = delete;
@@ -75,6 +106,7 @@ class GatewayRuntime final {
   std::optional<protocol::JsonRpcResponse> handle_request(
       const protocol::JsonRpcRequest& request);
   std::vector<UpstreamRuntimeState> upstream_states() const;
+  core::Result<core::Unit> clear_cached_catalogs();
   core::Result<core::Unit> refresh_upstream_capabilities();
   protocol::ServerCapabilities server_capabilities() const;
 

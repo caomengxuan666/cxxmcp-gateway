@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iterator>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -67,6 +68,91 @@ core::Result<core::Unit> reject_endpoint_fields(
     }
   }
   return core::Unit{};
+}
+
+core::Result<GatewayRuntimeConfig> runtime_config_from_json(
+    const protocol::Json& json) {
+  GatewayRuntimeConfig runtime;
+  if (!json.contains("runtime")) {
+    return runtime;
+  }
+  const auto& runtime_json = json.at("runtime");
+  if (!runtime_json.is_object()) {
+    return mcp::core::unexpected(make_gateway_config_error(
+        "gateway config field must be an object", "$.runtime"));
+  }
+  if (runtime_json.contains("upstreamSessionMode")) {
+    if (!runtime_json.at("upstreamSessionMode").is_string()) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a string",
+          "$.runtime.upstreamSessionMode"));
+    }
+    const auto mode =
+        runtime_json.at("upstreamSessionMode").get<std::string>();
+    if (mode == "per_call" || mode == "per-call") {
+      runtime.upstream_session_mode = UpstreamSessionMode::per_call;
+    } else if (mode == "persistent") {
+      runtime.upstream_session_mode = UpstreamSessionMode::persistent;
+    } else {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway runtime upstreamSessionMode must be 'per_call' or "
+          "'persistent'",
+          "$.runtime.upstreamSessionMode"));
+    }
+  }
+  if (runtime_json.contains("persistentSessionPoolSize")) {
+    if (!runtime_json.at("persistentSessionPoolSize").is_number_integer() ||
+        runtime_json.at("persistentSessionPoolSize").get<std::int64_t>() <= 0) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a positive integer",
+          "$.runtime.persistentSessionPoolSize"));
+    }
+    const auto value =
+        runtime_json.at("persistentSessionPoolSize").get<std::int64_t>();
+    if (static_cast<std::uint64_t>(value) >
+        static_cast<std::uint64_t>(
+            std::numeric_limits<std::size_t>::max())) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field is too large",
+          "$.runtime.persistentSessionPoolSize"));
+    }
+    runtime.persistent_session_pool_size = static_cast<std::size_t>(value);
+  }
+  if (runtime_json.contains("persistentSessionAcquireTimeoutMs")) {
+    if (!runtime_json.at("persistentSessionAcquireTimeoutMs")
+             .is_number_integer() ||
+        runtime_json.at("persistentSessionAcquireTimeoutMs")
+                .get<std::int64_t>() < 0) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a non-negative integer",
+          "$.runtime.persistentSessionAcquireTimeoutMs"));
+    }
+    runtime.persistent_session_acquire_timeout =
+        std::chrono::milliseconds{
+            runtime_json.at("persistentSessionAcquireTimeoutMs")
+                .get<std::int64_t>()};
+  }
+  if (runtime_json.contains("activeCallDrainTimeoutMs")) {
+    if (!runtime_json.at("activeCallDrainTimeoutMs").is_number_integer() ||
+        runtime_json.at("activeCallDrainTimeoutMs").get<std::int64_t>() < 0) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a non-negative integer",
+          "$.runtime.activeCallDrainTimeoutMs"));
+    }
+    runtime.active_call_drain_timeout =
+        std::chrono::milliseconds{
+            runtime_json.at("activeCallDrainTimeoutMs").get<std::int64_t>()};
+  }
+  if (runtime_json.contains("prewarmCapabilities")) {
+    if (!runtime_json.at("prewarmCapabilities").is_boolean()) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be a boolean",
+          "$.runtime.prewarmCapabilities"));
+    }
+    runtime.prewarm_capabilities =
+        runtime_json.at("prewarmCapabilities").get<bool>();
+  }
+  return runtime;
 }
 
 core::Result<std::vector<std::string>> optional_string_array(
@@ -174,6 +260,16 @@ core::Result<UpstreamServer> upstream_from_json(const protocol::Json& json,
       return mcp::core::unexpected(env.error());
     }
     upstream.process_stdio.env = std::move(*env);
+    if (json.contains("timeoutMs")) {
+      if (!json.at("timeoutMs").is_number_integer() ||
+          json.at("timeoutMs").get<std::int64_t>() <= 0) {
+        return mcp::core::unexpected(make_gateway_config_error(
+            "gateway config field must be a positive integer",
+            path + ".timeoutMs"));
+      }
+      upstream.process_stdio.timeout =
+          std::chrono::milliseconds{json.at("timeoutMs").get<std::int64_t>()};
+    }
   } else if (*transport == "http" || *transport == "streamable_http") {
     upstream.transport = UpstreamTransportKind::streamable_http;
     auto uri = upstream.enabled ? require_string(json, "uri", path)
@@ -257,8 +353,20 @@ core::Result<GatewayConfig> gateway_config_from_json(
   return config;
 }
 
-core::Result<GatewayConfig> load_gateway_config_file(
-    std::string_view path) {
+core::Result<GatewayConfigDocument> gateway_config_document_from_json(
+    const protocol::Json& json) {
+  auto config = gateway_config_from_json(json);
+  if (!config) {
+    return mcp::core::unexpected(config.error());
+  }
+  auto runtime = runtime_config_from_json(json);
+  if (!runtime) {
+    return mcp::core::unexpected(runtime.error());
+  }
+  return GatewayConfigDocument{std::move(*config), *runtime};
+}
+
+core::Result<protocol::Json> load_gateway_config_json(std::string_view path) {
   std::ifstream input(std::string(path), std::ios::binary);
   if (!input) {
     return mcp::core::unexpected(make_gateway_config_error(
@@ -271,7 +379,25 @@ core::Result<GatewayConfig> load_gateway_config_file(
     return mcp::core::unexpected(make_gateway_config_error(
         "failed to parse gateway config JSON", std::string(path)));
   }
-  return gateway_config_from_json(json);
+  return json;
+}
+
+core::Result<GatewayConfig> load_gateway_config_file(
+    std::string_view path) {
+  auto json = load_gateway_config_json(path);
+  if (!json) {
+    return mcp::core::unexpected(json.error());
+  }
+  return gateway_config_from_json(*json);
+}
+
+core::Result<GatewayConfigDocument> load_gateway_config_document_file(
+    std::string_view path) {
+  auto json = load_gateway_config_json(path);
+  if (!json) {
+    return mcp::core::unexpected(json.error());
+  }
+  return gateway_config_document_from_json(*json);
 }
 
 }  // namespace mcp::gateway

@@ -173,6 +173,12 @@ core::Result<core::Unit> validate_gateway_config(
               "enabled process stdio upstream command must not be empty",
               upstream.id));
         }
+        if (upstream.process_stdio.timeout.count() <= 0) {
+          return mcp::core::unexpected(make_gateway_error(
+              protocol::ErrorCode::InvalidParams,
+              "enabled process stdio upstream timeout must be positive",
+              upstream.id));
+        }
         break;
       case UpstreamTransportKind::streamable_http:
         if (upstream.streamable_http.uri.empty()) {

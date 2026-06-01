@@ -26,10 +26,20 @@ is validated.
 
 See [Gateway Scope and Boundaries](docs/gateway_scope.md) for the current
 responsibility split and validation plan.
+See [Getting Started](docs/getting_started.md) for a minimal C++ host
+integration path.
+See [Runtime API Contract](docs/api_contract.md) for lifecycle, threading,
+session, cache, capability, and error-shape semantics.
+See [Compatibility Policy](docs/compatibility.md) for the current SDK,
+platform, API, ABI, and feature-support boundaries.
 See [Gateway Technical Roadmap](docs/technical_roadmap.md) for the phased
 implementation path.
 See [Operational Gates](docs/operational_gates.md) for release-blocking checks,
 the supported CI matrix, and performance measurement expectations.
+See [Release Checklist](docs/release_checklist.md) for the release-candidate
+validation checklist.
+See [Release Evidence Map](docs/release_evidence.md) for the test and
+documentation evidence behind each release gate.
 
 ## Use as a Library
 
@@ -47,6 +57,14 @@ mcp::gateway::GatewayRuntime runtime(std::move(config));
 (void)runtime.start_http({.host = "127.0.0.1", .port = 39931, .path = "/mcp"});
 (void)runtime.wait();
 ```
+
+Hosts that need observability can install a `GatewayRuntimeObserver` through
+`GatewayRuntimeOptions`. Observer callbacks receive runtime lifecycle and
+upstream status events and do not require a logging framework dependency.
+Repeated upstream calls use explicit per-call sessions by default. Hosts that
+prefer lower repeated-call latency over the simplest lifecycle can opt into one
+persistent session per upstream with
+`GatewayRuntimeOptions::upstream_session_mode`.
 
 ## Build
 
@@ -79,7 +97,13 @@ ABI is still stabilizing.
 
 Optional performance tooling is available with
 `-DCXXMCP_GATEWAY_BUILD_PERF=ON`. It is excluded from the default build and
-prints CSV latency summaries for stdio/HTTP `tools/list` and `tools/call`.
+prints CSV latency summaries for stdio/HTTP cold and cached `tools/list`,
+per-call `tools/call`, opt-in persistent-session `tools/call`, and a direct
+SDK HTTP comparison row.
+
+Optional embedding examples are available with
+`-DCXXMCP_GATEWAY_BUILD_EXAMPLES=ON`. They are excluded from the default build
+and are not installed as package components.
 
 ## CLI
 
@@ -90,6 +114,24 @@ cxxmcp-gateway serve --port 39931 --upstream-http local=http://127.0.0.1:3000/mc
 ```
 
 Use `--upstream-stdio <id=command>` for process-stdio upstreams.
+Use `--session-mode persistent` to keep initialized upstream sessions and
+`--session-pool-size <n>` to allow up to `<n>` concurrent initialized sessions
+per upstream. `--session-acquire-timeout-ms <ms>` bounds how long a persistent
+call waits for a busy pool slot; the default `0` keeps the existing unbounded
+wait. `--active-call-drain-timeout-ms <ms>` bounds shutdown waiting for active
+upstream calls; the default `0` keeps the existing unbounded wait. `--prewarm`
+refreshes upstream capabilities before the hosted
+endpoint starts and initializes the configured persistent pool. This is the
+reference runner form of the library
+`GatewayRuntimeOptions::upstream_session_mode`,
+`GatewayRuntimeOptions::persistent_session_pool_size`, and
+`GatewayRuntimeOptions::persistent_session_acquire_timeout`,
+`GatewayRuntimeOptions::active_call_drain_timeout`, plus the
+`GatewayRuntime::refresh_upstream_capabilities()` path; it reduces repeated-call
+setup cost but remains a bounded per-upstream pool, not adaptive multiplexing.
+Library hosts can also set `GatewayRuntimeOptions::active_call_drain_timeout`
+to make shutdown return a lifecycle error after a bounded wait for active
+upstream calls; the gateway still does not cancel active upstream work.
 When `cxxmcp_gateway_config_io` is built, the reference runner also accepts
 `--config <file>` for JSON gateway config and appends any command-line
 upstreams to the loaded config. File config and command-line upstreams are
@@ -107,6 +149,11 @@ performed by `cxxmcp_gateway_config_io`.
 {
   "name": "local-gateway",
   "version": "1.0.0",
+  "runtime": {
+    "upstreamSessionMode": "persistent",
+    "persistentSessionPoolSize": 2,
+    "prewarmCapabilities": true
+  },
   "upstreams": [
     {
       "id": "local",
@@ -118,7 +165,8 @@ performed by `cxxmcp_gateway_config_io`.
       "id": "fs",
       "transport": "stdio",
       "command": "filesystem-server",
-      "args": ["--root", "."]
+      "args": ["--root", "."],
+      "timeoutMs": 30000
     }
   ]
 }

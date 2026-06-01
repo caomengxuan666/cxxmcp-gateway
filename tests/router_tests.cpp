@@ -196,6 +196,14 @@ int main() {
   require(!invalid_http_timeout.has_value(),
           "non-positive HTTP upstream timeout should fail validation");
 
+  auto invalid_stdio_timeout_config = config;
+  invalid_stdio_timeout_config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{0};
+  const auto invalid_stdio_timeout =
+      mcp::gateway::validate_gateway_config(invalid_stdio_timeout_config);
+  require(!invalid_stdio_timeout.has_value(),
+          "non-positive stdio upstream timeout should fail validation");
+
   auto file_config = config;
   file_config.name = "file-gateway";
   file_config.version = "9.9.9";
@@ -251,7 +259,9 @@ int main() {
 
   mcp::protocol::ToolDefinition read_file;
   read_file.name = "read_file";
-  read_file.meta = mcp::protocol::Json{{"existing", true}};
+  read_file.meta = mcp::protocol::Json{
+      {"existing", true},
+      {"gateway", mcp::protocol::Json{{"owner", "upstream"}}}};
   mcp::protocol::ToolDefinition write_file;
   write_file.name = "write_file";
 
@@ -273,6 +283,8 @@ int main() {
   require((*merged)[0].meta->at("gateway").at("upstreamToolName") ==
               "read_file",
           "tool catalog merge should include upstream tool name metadata");
+  require((*merged)[0].meta->at("gateway").at("owner") == "upstream",
+          "tool catalog merge should preserve upstream gateway metadata");
 
   const auto duplicate_tools = mcp::gateway::merge_tool_catalogs(
       {mcp::gateway::UpstreamToolCatalog{
@@ -299,7 +311,8 @@ int main() {
   mcp::protocol::Resource readme;
   readme.uri = "file:///tmp/readme.md";
   readme.name = "Readme";
-  readme.meta = mcp::protocol::Json{{"existing", true}};
+  readme.meta = mcp::protocol::Json{{"existing", true},
+                                    {"gateway", "upstream-string"}};
   mcp::protocol::Resource config_resource;
   config_resource.uri = "file:///tmp/config.json";
   config_resource.name = "Config";
@@ -323,6 +336,9 @@ int main() {
               .meta->at("gateway")
               .at("upstreamResourceUri") == "file:///tmp/readme.md",
           "resource catalog merge should include upstream resource URI metadata");
+  require((*merged_resources)[1].meta->at("gatewayUpstreamOriginal") ==
+              "upstream-string",
+          "resource catalog merge should preserve non-object gateway metadata");
 
   const auto duplicate_resources = mcp::gateway::merge_resource_catalogs(
       {mcp::gateway::UpstreamResourceCatalog{
@@ -345,7 +361,9 @@ int main() {
   mcp::protocol::ResourceTemplate workspace_template;
   workspace_template.uri_template = "file:///workspace/{path}";
   workspace_template.name = "Workspace";
-  workspace_template.meta = mcp::protocol::Json{{"existing", true}};
+  workspace_template.meta = mcp::protocol::Json{
+      {"existing", true},
+      {"gateway", mcp::protocol::Json{{"upstreamId", "original"}}}};
   mcp::protocol::ResourceTemplate tmp_template;
   tmp_template.uri_template = "file:///tmp/{path}";
   tmp_template.name = "Tmp";
@@ -375,6 +393,11 @@ int main() {
           "file:///workspace/{path}",
           "resource template catalog merge should include upstream URI "
           "template");
+  require((*merged_templates)[1]
+              .meta->at("gatewayUpstreamOriginal")
+              .at("upstreamId") == "original",
+          "resource template catalog merge should preserve colliding gateway "
+          "metadata");
 
   const auto duplicate_templates =
       mcp::gateway::merge_resource_template_catalogs(
@@ -398,7 +421,9 @@ int main() {
 
   mcp::protocol::Prompt summarize;
   summarize.name = "summarize";
-  summarize.meta = mcp::protocol::Json{{"existing", true}};
+  summarize.meta = mcp::protocol::Json{
+      {"existing", true},
+      {"gateway", mcp::protocol::Json{{"owner", "upstream"}}}};
   mcp::protocol::Prompt rewrite;
   rewrite.name = "rewrite";
 
@@ -421,6 +446,9 @@ int main() {
               .meta->at("gateway")
               .at("upstreamPromptName") == "summarize",
           "prompt catalog merge should include upstream prompt name metadata");
+  require((*merged_prompts)[1].meta->at("gateway").at("owner") ==
+              "upstream",
+          "prompt catalog merge should preserve upstream gateway metadata");
 
   const auto duplicate_prompts = mcp::gateway::merge_prompt_catalogs(
       {mcp::gateway::UpstreamPromptCatalog{
@@ -467,8 +495,15 @@ int main() {
   require(detail_timeout.detail == "upstream 'fs': request timeout",
           "transport timeout detail should preserve upstream context");
 
+  auto protocol_timeout = mcp::gateway::annotate_gateway_upstream_error(
+      mcp::core::Error{4, "process stdio request timed out", "2",
+                       "protocol"},
+      "fs");
+  require(protocol_timeout.category == "gateway.upstream.timeout",
+          "protocol-shaped timeout should normalize to gateway timeout");
+
   auto gateway_owned = mcp::gateway::annotate_gateway_upstream_error(
-      mcp::core::Error{4, "gateway decided", "already annotated",
+      mcp::core::Error{5, "gateway decided", "already annotated",
                        "gateway.upstream.tool"},
       "fs");
   require(gateway_owned.category == "gateway.upstream.tool",

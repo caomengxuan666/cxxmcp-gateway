@@ -300,14 +300,14 @@ transport-specific connection fields are required.
 
 Current MVP:
 
-- `tools/list`: aggregated from enabled upstreams.
+- `tools/list`: aggregated from enabled, tool-capable upstreams.
 - `tools/call`: routed by exposed tool name.
-- `resources/list`: aggregated from enabled upstreams with gateway-owned
-  resource URIs.
+- `resources/list`: aggregated from enabled, resource-capable upstreams with
+  gateway-owned resource URIs.
 - `resources/read`: routed by gateway resource URI.
-- `resources/templates/list`: aggregated from enabled upstreams with
-  gateway-owned resource URI templates.
-- `prompts/list`: aggregated from enabled upstreams.
+- `resources/templates/list`: aggregated from enabled, resource-capable
+  upstreams with gateway-owned resource URI templates.
+- `prompts/list`: aggregated from enabled, prompt-capable upstreams.
 - `prompts/get`: routed by exposed prompt name.
 - `completion/complete`: routed for gateway prompt names and gateway resource
   template URIs when the target upstream supports completion.
@@ -357,12 +357,24 @@ all enabled upstreams have initialized capability records in runtime state, the
 same method narrows `tools`, `resources`, and `prompts` advertisement and adds
 `completion` advertisement from the families actually advertised by those
 upstreams. Unsupported families such as tasks remain unadvertised.
+When a complete capability cache is available, catalog listing methods skip
+enabled upstreams that explicitly do not support that catalog family instead
+of failing an advertised aggregate because of a capability-negative upstream.
+Routed calls to a capability-negative upstream are rejected by the gateway
+without opening a new upstream session.
+
+Catalog listing methods cache successful aggregate results inside the runtime.
+Repeated `tools/list`, `resources/list`, `resources/templates/list`, and
+`prompts/list` calls return the cached aggregate until the host calls
+`GatewayRuntime::clear_cached_catalogs()`, refreshes upstream capabilities, or
+recreates the runtime. The gateway does not advertise or forward list-changed
+notifications in the MVP, so cache invalidation is an explicit host decision.
 
 Hosts that need narrowed advertisement before starting a hosted endpoint can
 call `GatewayRuntime::refresh_upstream_capabilities()`. That API is explicitly
 side-effecting: it initializes enabled upstreams, records their advertised
-capabilities in runtime state, and does not fetch catalogs or route data-plane
-requests.
+capabilities in runtime state, clears cached aggregate catalogs, and does not
+fetch catalogs or route data-plane requests.
 
 Hosted HTTP endpoints use the capability snapshot captured by
 `GatewayRuntime::start_http()`. Capability discovery after the hosted endpoint
@@ -371,11 +383,10 @@ change the `initialize` responses served by that already-running endpoint.
 
 ## Namespace Rules
 
-The initial tool namespace is `<upstream>.<tool>`.
+The tool namespace is `<upstream>.<tool>`.
 
-Upstream ids should be stable, case-sensitive ASCII identifiers. Phase 1 must
-define and validate the exact grammar before the gateway is considered stable.
-The current grammar is:
+Upstream ids are stable, case-sensitive ASCII identifiers. The current
+validated grammar is:
 
 - non-empty;
 - printable ASCII only;
@@ -438,7 +449,9 @@ notification behavior.
 
 Future subscriptions and long-running task ids may need their own namespace or
 metadata rules. They must be defined separately before those capability
-families are advertised.
+families are advertised, and must pass the
+[`capability_extension_gate.md`](capability_extension_gate.md) checklist before
+they enter the supported surface.
 
 ## Session and Notification Semantics
 
@@ -481,32 +494,52 @@ configured -> connecting -> initialized -> healthy
                          stopping -> stopped
 ```
 
-The current per-request upstream session behavior is an MVP implementation
-constraint, not the final model. Phase 1 must document this limitation, and
-Phase 2 must decide whether upstream sessions are per-call, pooled, or
-configurable.
-
-The current Phase 2 decision is explicit per-call upstream sessions. Each
+The default Phase 2 decision is explicit per-call upstream sessions. Each
 upstream list or call operation creates, initializes, uses, and stops its own
 upstream SDK service. This keeps ownership simple while the data-plane behavior
-is validated. Pooling or reuse can be added later behind the runtime boundary
-when its latency and shutdown tradeoffs are tested.
+is validated.
+
+Hosts that need lower repeated-call latency can opt into persistent upstream
+sessions through `GatewayRuntimeOptions`. The current persistent mode lazily
+keeps a bounded initialized session pool per upstream, reuses initialized
+capabilities, and closes retained sessions during `GatewayRuntime::stop()`.
+The default pool size is one, which preserves serialized same-upstream
+behavior. Larger explicit pool sizes allow same-upstream calls to use separate
+initialized sessions up to the configured bound. It is not an adaptive
+multiplexing layer and does not change the default per-call behavior.
+Both Streamable HTTP and process-stdio upstreams support a configured
+per-operation timeout; timeout failures are normalized as gateway upstream
+timeout errors.
+
+Aggregate catalog listing fans out eligible upstream list operations
+concurrently and then applies the same whole-request failure policy: if any
+enabled upstream returns a gateway-normalized error, the aggregate list fails.
+This reduces multi-upstream catalog latency without changing the per-call
+session model for an individual upstream operation.
 
 The runtime exposes an upstream state snapshot for hosts and future admin APIs.
-The current per-call implementation reports configured upstreams, marks an
+The current implementation reports configured upstreams, marks an
 upstream `connecting`/`initialized` during a call, records initialized upstream
 capabilities, marks successful calls `healthy`, marks failed calls `degraded`
 with the last gateway-normalized error, exposes the number of active in-flight
-upstream calls, and marks upstreams `stopping`/`stopped` during runtime
-shutdown. This is an observable lifecycle contract; it is not yet a pooled
-connection manager.
+gateway-accepted upstream operations, and marks upstreams `stopping`/`stopped`
+during runtime shutdown. For persistent pools, `active_calls` includes calls
+waiting for a pool slot; those waiters are woken during shutdown and return a
+runtime stopping error instead of starting a new upstream operation. This is an
+observable lifecycle contract; persistent mode uses a fixed per-upstream pool,
+not an adaptive pooled connection manager.
 
-`GatewayRuntime::stop()` is graceful for the current per-call model: it stops
+`GatewayRuntime::stop()` is graceful for the current lifecycle model: it stops
 the hosted downstream endpoint, rejects new upstream operations, waits for
-already active upstream calls to finish, and then marks upstreams `stopped`. It
-does not yet cancel or interrupt an active upstream call. In the current
-lifecycle model, `stopped` is terminal for a runtime instance; hosts should
-construct a new `GatewayRuntime` to restart the data plane.
+already active upstream calls to finish, closes any persistent upstream
+sessions, and then marks upstreams `stopped`. It does not yet cancel or
+interrupt an active upstream call. Hosts that cannot tolerate unbounded
+shutdown waits can set `active_call_drain_timeout`; when that timeout expires,
+`stop()` returns a gateway-owned lifecycle error and the runtime remains
+`stopping`, still rejecting new routed work. A later `stop()` call can complete
+after active upstream calls drain. In the current lifecycle model, `stopped` is
+terminal for a runtime instance; hosts should construct a new `GatewayRuntime`
+to restart the data plane after it reaches `stopped`.
 
 The raw JSON-RPC entry point follows the same lifecycle boundary for
 gateway-routed methods. After `stop()`, routed requests such as `tools/list`,
@@ -518,13 +551,14 @@ ownership.
 
 For process-stdio upstreams, the per-call upstream SDK service is stopped at the
 end of each upstream operation. Shutdown tests cover active stdio calls by
-observing a fixture child process marker during the call and verifying that the
-marker is removed after `GatewayRuntime::stop()` returns.
+observing both a fixture child process marker and a slow-handler entry marker
+during the call, then verifying that the child process marker is removed after
+`GatewayRuntime::stop()` returns.
 
 ## Gateway Error Mapping
 
-The stable error model is part of the gateway contract. Phase 1 must define a
-protocol-level mapping for at least these cases:
+The stable error model is part of the gateway contract. The current
+protocol-level mapping covers these cases:
 
 | Case | Expected class |
 | ---- | -------------- |
@@ -548,7 +582,7 @@ diagnostic detail text with the upstream id, and maps SDK categories under
 
 ## `tools/list` Failure Policy
 
-The gateway must choose and document one default:
+The gateway documents one default aggregate catalog failure policy:
 
 - fail-fast: one enabled upstream failure fails the whole `tools/list`; or
 - partial list: successful upstream tools are returned with diagnostics for
@@ -583,73 +617,80 @@ ownership and routing contracts are specified and tested.
 
 ## Validation Matrix
 
-The gateway should not be considered mature until these paths are covered:
+The current maturity gate is scoped to the library-first MVP surface above.
+The concrete evidence index is maintained in
+[`release_evidence.md`](release_evidence.md); the broader verified baseline is
+summarized in [`technical_roadmap.md`](technical_roadmap.md).
 
 1. Protocol lifecycle
 
-   - downstream initialize;
-   - initialized notification;
-   - ping;
-   - invalid JSON-RPC requests.
-   - requests before initialization;
-   - repeated initialization;
-   - downstream session close with active upstream calls.
+   Covered for downstream initialize/initialized notification, ping,
+   malformed and invalid JSON-RPC requests, requests before initialization,
+   repeated initialization, unsupported methods and notifications, hosted
+   endpoint startup/shutdown, wait-before-start rejection, and downstream
+   session close while process-stdio or Streamable HTTP upstream calls are
+   active.
 
 2. Tool aggregation
 
-   - one upstream;
-   - multiple upstreams;
-   - duplicate upstream tool names;
-   - disabled upstreams;
-   - empty upstream ids;
-   - metadata preservation.
+   Covered for one upstream, multiple upstreams, duplicate exposed tool names,
+   disabled upstreams, invalid and duplicate upstream ids, fail-fast catalog
+   listing, cached catalog invalidation, capability-negative upstreams, and
+   metadata preservation.
 
 3. Tool calls
 
-   - successful call;
-   - unknown exposed tool name;
-   - unknown upstream;
-   - disabled upstream;
-   - invalid tool arguments;
-   - upstream-returned MCP error.
+   Covered for successful routing, unknown exposed names, unknown upstreams,
+   disabled upstreams, invalid arguments, upstream-returned MCP errors,
+   timeout normalization, transport failure mapping, stopped/stopping runtime
+   rejection, and raw JSON-RPC routed requests.
 
 4. Transport failure
 
-   - stdio command not found;
-   - stdio process exits early;
-   - HTTP upstream unavailable;
-   - upstream timeout;
-   - malformed upstream response.
+   Covered for process stdio command-not-found and early-exit paths,
+   Streamable HTTP upstream unavailability, upstream timeouts, malformed stdio
+   and HTTP upstream responses, per-call cleanup, persistent-session failure
+   invalidation, failure isolation, reconnect, and pool timeout recovery.
 
 5. Concurrency
 
-   - multiple downstream clients;
-   - concurrent calls to one upstream;
-   - concurrent calls to multiple upstreams;
-   - cancellation behavior.
+   Covered for multiple hosted downstream clients, concurrent calls to one
+   upstream, concurrent calls to multiple upstreams, concurrent aggregate
+   catalog fan-out, default same-upstream serialization, configured
+   same-upstream persistent pool concurrency, queued persistent pool calls,
+   pool acquire timeout, and observable active/busy runtime state.
 
 6. Shutdown
 
-   - stop while idle;
-   - stop with active upstream sessions;
-   - stdio process cleanup;
-   - HTTP service shutdown.
+   Covered for idle shutdown, active-call shutdown with observable `stopping`
+   state, active-call drain timeout, rejection of new routed work while
+   stopping or stopped, raw JSON-RPC stopped/stopping errors, stdio child
+   cleanup, persistent session cleanup, HTTP service shutdown, overlapping
+   wait/stop, and observer lifecycle reentry.
 
 7. Packaging
 
-   - build-tree consumption;
-   - install-tree `find_package`;
-   - static linking;
-   - Windows, Linux, and macOS.
+   Covered for build-tree consumption, install-tree `find_package`, versioned
+   package discovery, component discovery and missing-component failures,
+   static and shared library builds, component installs, subproject defaults,
+   optional example builds, and the GitHub Actions Linux/macOS/Windows static
+   and shared matrix.
 
 8. Additional MCP capabilities
 
-   Routed resource and prompt list/read, templates/list, or list/get flows are
-   part of the current MVP. Completion is also part of the MVP when initialized
-   upstream capabilities prove support. Resource subscriptions, tasks, and
-   other MCP capabilities should be added incrementally only after their
-   namespace, advertisement, notification behavior, and integration tests are
-   specified.
+   Routed tools, resources, resource templates, prompts, and selected
+   completion flows are part of the current MVP. Capability advertisement is
+   owned by the runtime and is narrowed by initialized upstream capability
+   records when available. Resource subscriptions, task APIs, progress
+   forwarding, cancellation forwarding, and other MCP capabilities remain
+   unadvertised until their namespace, advertisement, notification, ownership,
+   and integration-test contracts are specified through the
+   [`capability_extension_gate.md`](capability_extension_gate.md) checklist.
+
+Active upstream cancellation is intentionally not part of this MVP. The current
+contract is local cancellation/progress notification no-ops, downstream-close
+state cleanup, and host-configurable wait bounds for queued pool calls and
+shutdown drain.
 
 ## Design Rule
 

@@ -7,6 +7,8 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -23,6 +25,7 @@
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <csignal>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -50,6 +53,21 @@ void require(bool condition, std::string_view message) {
   if (!condition) {
     throw std::runtime_error(std::string(message));
   }
+}
+
+std::size_t count_regular_files(const std::filesystem::path& directory) {
+  std::error_code ignored;
+  if (!std::filesystem::exists(directory, ignored)) {
+    return 0;
+  }
+  std::size_t count = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(directory,
+                                                               ignored)) {
+    if (entry.is_regular_file(ignored)) {
+      ++count;
+    }
+  }
+  return count;
 }
 
 #ifdef _WIN32
@@ -353,6 +371,18 @@ bool has_prompt(const std::vector<Prompt>& prompts, std::string_view name) {
   });
 }
 
+bool has_runtime_event(
+    const std::vector<mcp::gateway::GatewayRuntimeEvent>& events,
+    mcp::gateway::GatewayRuntimeEventKind kind,
+    std::string_view upstream_id = {},
+    std::optional<UpstreamRuntimeStatus> status = std::nullopt) {
+  return std::any_of(events.begin(), events.end(), [&](const auto& event) {
+    return event.kind == kind &&
+           (upstream_id.empty() || event.upstream_id == upstream_id) &&
+           (!status.has_value() || event.upstream_status == *status);
+  });
+}
+
 const ToolDefinition& require_tool(const std::vector<ToolDefinition>& tools,
                                    std::string_view name) {
   const auto it = std::find_if(tools.begin(), tools.end(), [&](const auto& tool) {
@@ -530,10 +560,25 @@ void require_runtime_stopping_error(const mcp::core::Error& error,
   require(error.code ==
               static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
           "runtime stopping rejection should use InvalidRequest");
+  require(error.category == "gateway",
+          "runtime stopping rejection should use gateway category");
   require(error.message.find("stopping") != std::string::npos,
           "runtime stopping rejection should mention stopping");
   require(error.detail == operation,
           "runtime stopping rejection should preserve operation context");
+}
+
+void require_runtime_stopped_error(const mcp::core::Error& error,
+                                   std::string_view operation) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "runtime stopped rejection should use InvalidRequest");
+  require(error.category == "gateway",
+          "runtime stopped rejection should use gateway category");
+  require(error.message.find("stopped") != std::string::npos,
+          "runtime stopped rejection should mention stopped");
+  require(error.detail == operation,
+          "runtime stopped rejection should preserve operation context");
 }
 
 void require_raw_runtime_stopped_error(
@@ -552,6 +597,152 @@ void require_raw_runtime_stopped_error(
           "raw runtime stopped response data should be a string");
   require(response.error->data->get<std::string>() == operation,
           "raw runtime stopped response data should match operation");
+}
+
+void require_raw_runtime_stopping_error(
+    const mcp::protocol::JsonRpcResponse& response,
+    std::string_view operation) {
+  require(response.error.has_value(),
+          "raw runtime stopping response should be an error");
+  require(response.error->code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "raw runtime stopping response should use InvalidRequest");
+  require(response.error->message.find("stopping") != std::string::npos,
+          "raw runtime stopping response should mention stopping");
+  require(response.error->data.has_value(),
+          "raw runtime stopping response should preserve operation context");
+  require(response.error->data->is_string(),
+          "raw runtime stopping response data should be a string");
+  require(response.error->data->get<std::string>() == operation,
+          "raw runtime stopping response data should match operation");
+}
+
+void require_stopping_raw_requests_are_rejected(
+    mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id) {
+  const std::vector<std::string> sdk_owned_methods{
+      mcp::protocol::InitializeMethod,
+      mcp::protocol::PingMethod,
+      mcp::protocol::ServerDiscoverMethod,
+  };
+  for (std::size_t i = 0; i < sdk_owned_methods.size(); ++i) {
+    mcp::protocol::JsonRpcRequest sdk_owned;
+    sdk_owned.method = sdk_owned_methods[i];
+    sdk_owned.id = static_cast<std::int64_t>(200 + i);
+    auto response = runtime.handle_request(sdk_owned);
+    require(!response.has_value(),
+            "stopping runtime should keep SDK-owned methods delegated");
+  }
+
+  auto expect_stopping = [&](mcp::protocol::JsonRpcRequest request,
+                             std::string_view operation) {
+    auto response = runtime.handle_request(request);
+    require(response.has_value(),
+            "stopping runtime raw routed request should respond");
+    require_raw_runtime_stopping_error(*response, operation);
+  };
+
+  mcp::protocol::JsonRpcRequest tools_list;
+  tools_list.method = mcp::protocol::ToolsListMethod;
+  tools_list.id = std::int64_t{210};
+  expect_stopping(std::move(tools_list), "tools/list");
+
+  mcp::protocol::JsonRpcRequest tools_call;
+  tools_call.method = mcp::protocol::ToolsCallMethod;
+  tools_call.id = std::int64_t{211};
+  tools_call.params =
+      Json{{"name", std::string(upstream_id) + ".echo"},
+           {"arguments", Json{{"value", "during-stop"}}}};
+  expect_stopping(std::move(tools_call), "tools/call");
+
+  mcp::protocol::JsonRpcRequest resources_list;
+  resources_list.method = mcp::protocol::ResourcesListMethod;
+  resources_list.id = std::int64_t{212};
+  expect_stopping(std::move(resources_list), "resources/list");
+
+  mcp::protocol::JsonRpcRequest resources_read;
+  resources_read.method = mcp::protocol::ResourcesReadMethod;
+  resources_read.id = std::int64_t{213};
+  resources_read.params =
+      Json{{"uri", mcp::gateway::GatewayRouter::expose_resource_uri(
+                       upstream_id, "file:///during-stop.txt")}};
+  expect_stopping(std::move(resources_read), "resources/read");
+
+  mcp::protocol::JsonRpcRequest resource_templates_list;
+  resource_templates_list.method =
+      mcp::protocol::ResourcesTemplatesListMethod;
+  resource_templates_list.id = std::int64_t{214};
+  expect_stopping(std::move(resource_templates_list),
+                  "resources/templates/list");
+
+  mcp::protocol::JsonRpcRequest prompts_list;
+  prompts_list.method = mcp::protocol::PromptsListMethod;
+  prompts_list.id = std::int64_t{215};
+  expect_stopping(std::move(prompts_list), "prompts/list");
+
+  mcp::protocol::JsonRpcRequest prompts_get;
+  prompts_get.method = mcp::protocol::PromptsGetMethod;
+  prompts_get.id = std::int64_t{216};
+  prompts_get.params =
+      Json{{"name", std::string(upstream_id) + ".summarize"},
+           {"arguments", Json{{"text", "during-stop"}}}};
+  expect_stopping(std::move(prompts_get), "prompts/get");
+
+  mcp::protocol::CompleteParams completion;
+  completion.ref = mcp::protocol::prompt_completion_reference(
+      std::string(upstream_id) + ".summarize");
+  completion.argument.name = "text";
+  completion.argument.value = "during-stop";
+  mcp::protocol::JsonRpcRequest complete;
+  complete.method = mcp::protocol::CompletionCompleteMethod;
+  complete.id = std::int64_t{217};
+  complete.params = mcp::protocol::complete_params_to_json(completion);
+  expect_stopping(std::move(complete), "completion/complete");
+}
+
+void require_stopping_notifications_are_noops(
+    mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id) {
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "downstream cancelled while stopping"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "during-stop"}, {"progress", 0.5}}},
+      {std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::PromptsListChangedNotificationMethod),
+       Json::object()},
+  };
+
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "stopping runtime notifications should remain local no-ops");
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), upstream_id);
+  require(state.active_calls >= 1,
+          "stopping notification no-ops should not clear active calls");
+  require_status(state, UpstreamRuntimeStatus::stopping,
+                 "stopping notification no-ops should not change status");
+}
+
+void require_inspection_apis_preserve_lifecycle_state(
+    mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id,
+    UpstreamRuntimeStatus expected_status, std::size_t min_active_calls) {
+  const auto capabilities = runtime.server_capabilities();
+  require(capabilities.tools.enabled,
+          "inspection server_capabilities should remain available");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), upstream_id);
+  require(state.active_calls >= min_active_calls,
+          "inspection APIs should not clear active call state");
+  require_status(state, expected_status,
+                 "inspection APIs should not change lifecycle status");
 }
 
 void require_gateway_unsupported_capability_error(
@@ -1219,6 +1410,101 @@ void test_upstream_client_capabilities_are_minimal() {
           "client capability inspection should not leave active calls");
 }
 
+void require_persistent_pool_wait_timeout(const mcp::core::Error& error,
+                                          std::string_view upstream_id) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "persistent pool wait timeout should use InvalidRequest");
+  require(error.category == "gateway",
+          "persistent pool wait timeout should remain gateway-owned");
+  require(error.message.find("pool wait timed out") != std::string::npos,
+          "persistent pool wait timeout should explain pool wait timeout");
+  require(error.detail == upstream_id,
+          "persistent pool wait timeout should preserve upstream context");
+}
+
+void require_active_call_drain_timeout(const mcp::core::Error& error) {
+  require(error.code ==
+              static_cast<int>(mcp::protocol::ErrorCode::InvalidRequest),
+          "active call drain timeout should use InvalidRequest");
+  require(error.category == "gateway",
+          "active call drain timeout should remain gateway-owned");
+  require(error.message.find("active upstream calls") != std::string::npos,
+          "active call drain timeout should explain active upstream calls");
+  require(error.detail == "active upstream calls",
+          "active call drain timeout should preserve operation context");
+}
+
+void test_runtime_observer_reports_status_without_logger_dependency() {
+  std::vector<mcp::gateway::GatewayRuntimeEvent> events;
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.observer = [&](const mcp::gateway::GatewayRuntimeEvent& event) {
+    events.push_back(event);
+  };
+
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config(),
+                                       std::move(options));
+
+  auto tools = runtime.list_tools();
+  require(tools.has_value(), "observed runtime tools/list should succeed");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::connecting),
+          "observer should see upstream connecting status");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::initialized),
+          "observer should see upstream initialized status");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::healthy),
+          "observer should see upstream healthy status");
+
+  auto failed = runtime.call_tool("stdio.fail", Json::object());
+  require(!failed.has_value(), "observed runtime upstream error should fail");
+  const auto degraded = std::find_if(
+      events.begin(), events.end(), [](const auto& event) {
+        return event.kind ==
+                   mcp::gateway::GatewayRuntimeEventKind::
+                       upstream_status_changed &&
+               event.upstream_id == "stdio" &&
+               event.upstream_status == UpstreamRuntimeStatus::degraded &&
+               event.error.has_value();
+      });
+  require(degraded != events.end(),
+          "observer should see degraded status with stable error");
+  require_gateway_upstream_error(*degraded->error, "stdio");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "observed runtime stop should succeed");
+  require(has_runtime_event(
+              events, mcp::gateway::GatewayRuntimeEventKind::runtime_stopping),
+          "observer should see runtime stopping event");
+  require(has_runtime_event(
+              events, mcp::gateway::GatewayRuntimeEventKind::runtime_stopped),
+          "observer should see runtime stopped event");
+  require(has_runtime_event(events,
+                            mcp::gateway::GatewayRuntimeEventKind::
+                                upstream_status_changed,
+                            "stdio", UpstreamRuntimeStatus::stopped),
+          "observer should see upstream stopped status");
+
+  mcp::gateway::GatewayRuntimeOptions throwing_options;
+  throwing_options.observer =
+      [](const mcp::gateway::GatewayRuntimeEvent&) { throw std::runtime_error("ignored"); };
+  mcp::gateway::GatewayRuntime throwing_runtime(make_disabled_config("quiet"),
+                                                std::move(throwing_options));
+  auto quiet_tools = throwing_runtime.list_tools();
+  require(quiet_tools.has_value(),
+          "observer exceptions should not affect runtime operations");
+  auto quiet_stop = throwing_runtime.stop();
+  require(quiet_stop.has_value(),
+          "observer exceptions should not affect runtime shutdown");
+}
+
 void test_capability_advertisement_uses_initialized_upstream_cache() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "tools_only";
@@ -1285,6 +1571,22 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
   require_gateway_unsupported_capability_error(unsupported.error(),
                                               "tools_only");
 
+  const auto unsupported_resource_uri =
+      mcp::gateway::GatewayRouter::expose_resource_uri(
+          "tools_only", "file:///fixture/readme.txt");
+  auto unsupported_resource = runtime.read_resource(unsupported_resource_uri);
+  require(!unsupported_resource.has_value(),
+          "tools-only upstream resource read should be rejected by gateway");
+  require_gateway_unsupported_capability_error(unsupported_resource.error(),
+                                              "tools_only");
+
+  auto unsupported_prompt =
+      runtime.get_prompt("tools_only.summarize", Json{{"text", "fixture"}});
+  require(!unsupported_prompt.has_value(),
+          "tools-only upstream prompt get should be rejected by gateway");
+  require_gateway_unsupported_capability_error(unsupported_prompt.error(),
+                                              "tools_only");
+
   const auto after_unsupported =
       require_upstream_state(runtime.upstream_states(), "tools_only");
   require_status(after_unsupported, UpstreamRuntimeStatus::healthy,
@@ -1294,10 +1596,14 @@ void test_capability_advertisement_uses_initialized_upstream_cache() {
           "unsupported completion should retain initialized capabilities");
   require(!after_unsupported.capabilities->completions.enabled,
           "unsupported completion should retain completion-negative cache");
+  require(!after_unsupported.capabilities->resources.enabled,
+          "unsupported resource should retain resource-negative cache");
+  require(!after_unsupported.capabilities->prompts.enabled,
+          "unsupported prompt should retain prompt-negative cache");
   require(!after_unsupported.last_error.has_value(),
-          "unsupported completion should not record an upstream error");
+          "unsupported capability checks should not record an upstream error");
   require(after_unsupported.active_calls == 0,
-          "unsupported completion should not leave active calls");
+          "unsupported capability checks should not leave active calls");
 
   auto tools = runtime.list_tools();
   require(tools.has_value(), "tools-only upstream tools/list should succeed");
@@ -1399,6 +1705,46 @@ void test_capability_advertisement_unions_multiple_upstream_caches() {
   require(!after.tasks.has_value(),
           "multi-upstream capability union should not advertise tasks");
   require_mvp_server_capability_json_shape(after, true);
+
+  auto listed_tools = runtime.list_tools();
+  require(listed_tools.has_value(),
+          "capability-aware tools/list should keep tools-capable upstreams");
+  require(has_tool(*listed_tools, "full.echo"),
+          "tools/list should include full upstream tool");
+  require(has_tool(*listed_tools, "tools_only.echo"),
+          "tools/list should include tools-only upstream tool");
+
+  auto listed_resources = runtime.list_resources();
+  require(listed_resources.has_value(),
+          "capability-aware resources/list should skip tools-only upstream");
+  require(has_resource(*listed_resources,
+                       mcp::gateway::GatewayRouter::expose_resource_uri(
+                           "full", "file:///fixture/readme.txt")),
+          "resources/list should include resource-capable upstream");
+
+  auto listed_templates = runtime.list_resource_templates();
+  require(listed_templates.has_value(),
+          "capability-aware resources/templates/list should skip tools-only "
+          "upstream");
+  require(has_resource_template(
+              *listed_templates,
+              mcp::gateway::GatewayRouter::expose_resource_template_uri(
+                  "full", "file:///fixture/{path}")),
+          "resources/templates/list should include resource-capable upstream");
+
+  auto listed_prompts = runtime.list_prompts();
+  require(listed_prompts.has_value(),
+          "capability-aware prompts/list should skip tools-only upstream");
+  require(has_prompt(*listed_prompts, "full.summarize"),
+          "prompts/list should include prompt-capable upstream");
+
+  const auto after_listing = runtime.upstream_states();
+  const auto listed_tools_only =
+      require_upstream_state(after_listing, "tools_only");
+  require_status(listed_tools_only, UpstreamRuntimeStatus::healthy,
+                 "skipped capability-negative upstream should stay healthy");
+  require(!listed_tools_only.last_error.has_value(),
+          "skipped capability-negative upstream should not record errors");
 }
 
 void test_hosted_capability_advertisement_uses_refresh_cache() {
@@ -1802,6 +2148,775 @@ void test_repeated_stdio_calls_to_one_upstream() {
           "cleaned up");
 }
 
+void test_persistent_stdio_session_reuses_upstream_process() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto first = runtime.call_tool("persistent.echo", Json{{"value", "first"}});
+  require(first.has_value(), "first persistent stdio call should succeed");
+  require_text_result(*first, "first");
+  require(std::filesystem::exists(marker_path),
+          "persistent stdio session should keep upstream process alive after "
+          "first call");
+
+  auto first_state =
+      require_upstream_state(runtime.upstream_states(), "persistent");
+  require(first_state.active_calls == 0,
+          "persistent first call should leave no active upstream calls");
+  require_status(first_state, UpstreamRuntimeStatus::healthy,
+                 "persistent first call should leave upstream healthy");
+
+  auto second =
+      runtime.call_tool("persistent.echo", Json{{"value", "second"}});
+  require(second.has_value(), "second persistent stdio call should succeed");
+  require_text_result(*second, "second");
+  require(std::filesystem::exists(marker_path),
+          "persistent stdio session should reuse the existing upstream "
+          "process for repeated calls");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "persistent runtime should stop");
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent runtime stop should clean up upstream process");
+}
+
+void test_persistent_capability_refresh_prewarms_stdio_session() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "prewarm";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_prewarm_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto refreshed = runtime.refresh_upstream_capabilities();
+  require(refreshed.has_value(),
+          "persistent capability refresh should initialize upstream");
+  require(std::filesystem::exists(marker_path),
+          "persistent capability refresh should keep stdio session alive");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "prewarm");
+  require(state.capabilities.has_value(),
+          "persistent capability refresh should record capabilities");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent capability refresh should leave upstream healthy");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "persistent prewarm runtime should stop");
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent prewarm stop should clean up upstream process");
+}
+
+void test_persistent_stdio_calls_to_one_upstream_are_serialized() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_busy";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first =
+          runtime.call_tool("persistent_busy.slow", Json{{"sleepMs", 250}});
+      require(first.has_value(),
+              "first persistent same-upstream slow call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second =
+          runtime.call_tool("persistent_busy.slow", Json{{"sleepMs", 250}});
+      require(second.has_value(),
+              "second persistent same-upstream slow call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_two_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_busy");
+    if (state.active_calls >= 2) {
+      observed_two_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_two_active,
+          "persistent same-upstream calls should report both active calls");
+  require(elapsed >= std::chrono::milliseconds{450},
+          "persistent same-upstream calls should be serialized by the "
+          "per-upstream session mutex");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_busy");
+  require(state.active_calls == 0,
+          "persistent serialized calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent serialized calls should leave upstream healthy");
+}
+
+void test_persistent_stdio_session_pool_allows_same_upstream_concurrency() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_pool";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent session pool prewarm should initialize sessions");
+  {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_pool");
+    require(state.persistent_session_pool_size == 2,
+            "persistent session pool state should expose configured size");
+    require(state.initialized_persistent_sessions == 2,
+            "persistent session pool prewarm should expose initialized slots");
+    require(state.busy_persistent_sessions == 0,
+            "persistent session pool prewarm should expose no busy slots");
+  }
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first =
+          runtime.call_tool("persistent_pool.slow", Json{{"sleepMs", 450}});
+      require(first.has_value(),
+              "first pooled persistent slow call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second =
+          runtime.call_tool("persistent_pool.slow", Json{{"sleepMs", 450}});
+      require(second.has_value(),
+              "second pooled persistent slow call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_two_active = false;
+  bool observed_two_busy_slots = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_pool");
+    if (state.active_calls >= 2) {
+      observed_two_active = true;
+      if (state.busy_persistent_sessions == 2) {
+        observed_two_busy_slots = true;
+        break;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_two_active,
+          "pooled persistent same-upstream calls should report both active "
+          "calls");
+  require(observed_two_busy_slots,
+          "pooled persistent same-upstream calls should expose busy slots");
+  require(elapsed < std::chrono::milliseconds{800},
+          "pooled persistent same-upstream calls should use separate sessions");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_pool");
+  require(state.active_calls == 0,
+          "pooled persistent calls should clear active calls");
+  require(state.initialized_persistent_sessions == 2,
+          "pooled persistent calls should keep both sessions initialized");
+  require(state.busy_persistent_sessions == 0,
+          "pooled persistent calls should clear busy slots");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "pooled persistent calls should leave upstream healthy");
+}
+
+void test_persistent_stop_rejects_queued_session_pool_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_queue";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::thread first_worker([&] {
+    try {
+      auto first =
+          runtime.call_tool("persistent_queue.slow", Json{{"sleepMs", 600}});
+      require(first.has_value(),
+              "active persistent queue test call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_first_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_queue");
+    if (state.active_calls >= 1) {
+      observed_first_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_first_active,
+          "persistent queue test should observe first active call");
+
+  std::thread second_worker([&] {
+    try {
+      auto second =
+          runtime.call_tool("persistent_queue.echo", Json{{"value", "queued"}});
+      require(!second.has_value(),
+              "queued persistent call should be rejected during stop");
+      require_runtime_stopping_error(second.error(), "persistent_queue");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_queued_call = false;
+  bool observed_one_busy_slot = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_queue");
+    if (state.active_calls >= 2) {
+      observed_queued_call = true;
+      if (state.persistent_session_pool_size == 1 &&
+          state.busy_persistent_sessions == 1) {
+        observed_one_busy_slot = true;
+        break;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_queued_call,
+          "persistent queue test should observe call waiting for pool slot");
+  require(observed_one_busy_slot,
+          "persistent queue test should expose bounded busy pool slots");
+
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "queued call cancellation no-op"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "persistent-queued"}, {"progress", 0.5}}},
+  };
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "persistent queued notifications should remain local no-ops");
+  }
+  const auto after_notifications =
+      require_upstream_state(runtime.upstream_states(), "persistent_queue");
+  require(after_notifications.active_calls >= 2,
+          "persistent queued notification no-ops should keep queued call "
+          "observable");
+  require(after_notifications.busy_persistent_sessions == 1,
+          "persistent queued notification no-ops should keep busy slot");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "persistent queue test runtime should stop after active call drains");
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_queue");
+  require(state.active_calls == 0,
+          "persistent queue stop should clear active call counters");
+  require(state.busy_persistent_sessions == 0,
+          "persistent queue stop should clear busy pool slots");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "persistent queue stop should leave upstream stopped");
+}
+
+void test_persistent_pool_acquire_timeout_rejects_queued_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_pool_wait_timeout";
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  options.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_pool_wait_timeout.slow",
+                                     Json{{"sleepMs", 500}});
+      require(first.has_value(),
+              "active persistent pool wait timeout test call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_busy_slot = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(
+        runtime.upstream_states(), "persistent_pool_wait_timeout");
+    if (state.active_calls >= 1 && state.busy_persistent_sessions == 1) {
+      observed_busy_slot = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_busy_slot,
+          "persistent pool wait timeout test should observe busy slot");
+
+  const auto started = std::chrono::steady_clock::now();
+  auto queued = runtime.call_tool("persistent_pool_wait_timeout.echo",
+                                  Json{{"value", "queued"}});
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(!queued.has_value(),
+          "queued persistent pool call should fail on acquire timeout");
+  require_persistent_pool_wait_timeout(queued.error(),
+                                       "persistent_pool_wait_timeout");
+  require(elapsed < std::chrono::milliseconds{450},
+          "persistent pool acquire timeout should bound queued wait");
+
+  first_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_pool_wait_timeout");
+  require(state.active_calls == 0,
+          "persistent pool wait timeout should clear active calls");
+  require(state.initialized_persistent_sessions == 1,
+          "persistent pool wait timeout should keep healthy slot initialized");
+  require(state.busy_persistent_sessions == 0,
+          "persistent pool wait timeout should clear busy slot");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent pool wait timeout should leave upstream healthy");
+}
+
+void test_persistent_runtime_stop_waits_for_active_stdio_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_stop";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_stop_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto result =
+          runtime.call_tool("persistent_stop.slow", Json{{"sleepMs", 450}});
+      require(result.has_value(),
+              "active persistent stdio call should finish during stop");
+      require_text_result(*result, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "persistent_stop");
+    if (state.active_calls >= 1 && std::filesystem::exists(marker_path)) {
+      observed_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "persistent stop test should observe active stdio call");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "persistent runtime stop should wait for active stdio call");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent runtime stop should clean up active stdio process");
+}
+
+void test_persistent_pool_stop_waits_for_timed_out_stdio_call() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_pool_stop_timeout";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{350};
+  const auto marker_dir =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_pool_stop_timeout_markers_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()));
+  std::error_code ignored;
+  std::filesystem::remove_all(marker_dir, ignored);
+  std::filesystem::create_directories(marker_dir, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_DIR"] =
+      marker_dir.string();
+  const auto slow_marker_path =
+      marker_dir /
+      ("slow-" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::filesystem::remove(slow_marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE"] =
+      slow_marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent pool stop timeout test should prewarm sessions");
+
+  bool observed_two_markers = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (count_regular_files(marker_dir) == 2) {
+      observed_two_markers = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_two_markers,
+          "persistent pool stop timeout test should start two sessions");
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto result = runtime.call_tool("persistent_pool_stop_timeout.slow",
+                                      Json{{"sleepMs", 600}});
+      require(!result.has_value(),
+              "hostile persistent pool call should time out");
+      require_gateway_upstream_timeout(result.error(),
+                                       "persistent_pool_stop_timeout");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  for (int attempt = 0; attempt < 500; ++attempt) {
+    const auto state = require_upstream_state(
+        runtime.upstream_states(), "persistent_pool_stop_timeout");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "persistent pool stop timeout test should observe active call");
+  bool observed_slow_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (std::filesystem::exists(slow_marker_path)) {
+      observed_slow_marker = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_slow_marker,
+          "persistent pool stop timeout test should observe slow handler");
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  auto stopped = runtime.stop();
+  const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+  require(stopped.has_value(),
+          "persistent pool stop should complete after active call timeout");
+  require(stop_elapsed < std::chrono::seconds{5},
+          "persistent pool stop should be bounded by upstream timeout");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_pool_stop_timeout");
+  require(state.active_calls == 0,
+          "persistent pool stop timeout should clear active calls");
+  require(state.initialized_persistent_sessions == 0,
+          "persistent pool stop timeout should discard initialized sessions");
+  require(state.busy_persistent_sessions == 0,
+          "persistent pool stop timeout should release busy sessions");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "persistent pool stop timeout should leave upstream stopped");
+  std::filesystem::remove(slow_marker_path, ignored);
+  std::filesystem::remove_all(marker_dir, ignored);
+}
+
+void test_persistent_stdio_failure_invalidates_session_for_reconnect() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_reconnect";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{250};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_reconnect_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto timed_out =
+      runtime.call_tool("persistent_reconnect.slow", Json{{"sleepMs", 1000}});
+  require(!timed_out.has_value(),
+          "persistent stdio slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(), "persistent_reconnect");
+
+  for (int attempt = 0; attempt < 200 && std::filesystem::exists(marker_path);
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(!std::filesystem::exists(marker_path),
+          "persistent timeout should discard and stop the failed session");
+
+  auto recovered = runtime.call_tool("persistent_reconnect.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent stdio call should reconnect after failed session");
+  require_text_result(*recovered, "recovered");
+  require(std::filesystem::exists(marker_path),
+          "persistent reconnect should keep the replacement session alive");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_reconnect");
+  require(state.active_calls == 0,
+          "persistent reconnect should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent reconnect should restore upstream health");
+}
+
+void test_persistent_stdio_pool_failure_isolates_failed_slot() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_pool_reconnect";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{250};
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent stdio pool reconnect test should prewarm sessions");
+  {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_pool_reconnect");
+    require(state.persistent_session_pool_size == 2,
+            "persistent stdio pool prewarm should keep configured pool size");
+    require(state.initialized_persistent_sessions == 2,
+            "persistent stdio pool prewarm should initialize both slots");
+    require(state.busy_persistent_sessions == 0,
+            "persistent stdio pool prewarm should leave no busy slots");
+  }
+
+  auto timed_out = runtime.call_tool("persistent_pool_reconnect.slow",
+                                     Json{{"sleepMs", 1000}});
+  require(!timed_out.has_value(),
+          "persistent stdio pool slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(),
+                                   "persistent_pool_reconnect");
+
+  {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_pool_reconnect");
+    require(state.persistent_session_pool_size == 2,
+            "persistent stdio pool timeout should keep configured pool size");
+    require(state.initialized_persistent_sessions == 1,
+            "persistent stdio pool timeout should expose one healthy slot");
+    require(state.busy_persistent_sessions == 0,
+            "persistent stdio pool timeout should clear busy slots");
+  }
+
+  auto recovered = runtime.call_tool("persistent_pool_reconnect.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent stdio pool should reconnect a discarded slot");
+  require_text_result(*recovered, "recovered");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_pool_reconnect");
+  require(state.active_calls == 0,
+          "persistent stdio pool reconnect should clear active calls");
+  require(state.initialized_persistent_sessions == 2,
+          "persistent stdio pool reconnect should restore initialized slots");
+  require(state.busy_persistent_sessions == 0,
+          "persistent stdio pool reconnect should clear busy slots");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent stdio pool reconnect should restore health");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "persistent stdio pool reconnect runtime should stop");
+  const auto stopped_state = require_upstream_state(
+      runtime.upstream_states(), "persistent_pool_reconnect");
+  require(stopped_state.initialized_persistent_sessions == 0,
+          "persistent stdio pool stop should discard initialized sessions");
+  require(stopped_state.busy_persistent_sessions == 0,
+          "persistent stdio pool stop should clear busy slots");
+  require_status(stopped_state, UpstreamRuntimeStatus::stopped,
+                 "persistent stdio pool stop should leave upstream stopped");
+}
+
 void test_http_upstream() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -2157,6 +3272,670 @@ void test_http_timeout() {
   require(stopped.has_value(), "http timeout fixture should stop");
 }
 
+void test_persistent_http_calls_to_one_upstream_are_serialized() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-busy")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 250)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(), "persistent http busy fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(), "persistent http busy fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_busy";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_busy.slow",
+                                     Json{{"sleepMs", 250}});
+      require(first.has_value(),
+              "first persistent http same-upstream call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.call_tool("persistent_http_busy.slow",
+                                      Json{{"sleepMs", 250}});
+      require(second.has_value(),
+              "second persistent http same-upstream call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_two_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_busy");
+    if (state.active_calls >= 2) {
+      observed_two_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_two_active,
+          "persistent http same-upstream calls should report both active calls");
+  require(elapsed >= std::chrono::milliseconds{450},
+          "persistent http same-upstream calls should be serialized by the "
+          "per-upstream session mutex");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_http_busy");
+  require(state.active_calls == 0,
+          "persistent http serialized calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent http serialized calls should leave upstream "
+                 "healthy");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http busy runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http busy fixture should stop");
+}
+
+void test_persistent_http_session_pool_handles_queued_calls() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-pool")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 400)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(), "persistent http pool fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(), "persistent http pool fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_pool";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent http session pool prewarm should initialize sessions");
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::exception_ptr third_error;
+  const auto started = std::chrono::steady_clock::now();
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_pool.slow",
+                                     Json{{"sleepMs", 400}});
+      require(first.has_value(),
+              "first pooled persistent http slow call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.call_tool("persistent_http_pool.slow",
+                                      Json{{"sleepMs", 400}});
+      require(second.has_value(),
+              "second pooled persistent http slow call should succeed");
+      require_text_result(*second, "slow-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+  std::thread third_worker([&] {
+    try {
+      auto third = runtime.call_tool("persistent_http_pool.slow",
+                                     Json{{"sleepMs", 400}});
+      require(third.has_value(),
+              "third pooled persistent http slow call should succeed");
+      require_text_result(*third, "slow-done");
+    } catch (...) {
+      third_error = std::current_exception();
+    }
+  });
+
+  bool observed_three_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_pool");
+    if (state.active_calls >= 3) {
+      observed_three_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  third_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  if (third_error) {
+    std::rethrow_exception(third_error);
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(observed_three_active,
+          "pooled persistent http calls should report accepted queued calls");
+  require(elapsed >= std::chrono::milliseconds{700},
+          "persistent http pool size two should bound three accepted calls");
+  require(elapsed < std::chrono::milliseconds{1800},
+          "persistent http pool queued calls should drain without hanging");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "persistent_http_pool");
+  require(state.active_calls == 0,
+          "pooled persistent http calls should clear active calls");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "pooled persistent http calls should leave upstream healthy");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http pool runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http pool fixture should stop");
+}
+
+void test_persistent_http_stop_rejects_queued_session_pool_call() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-stop-queue")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 500)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http stop queue fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http stop queue fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_stop_queue";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_stop_queue.slow",
+                                     Json{{"sleepMs", 500}});
+      require(first.has_value(),
+              "active persistent http stop queue call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_first_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_stop_queue");
+    if (state.active_calls >= 1 && state.busy_persistent_sessions == 1) {
+      observed_first_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_first_active,
+          "persistent http stop queue test should observe busy slot");
+
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.call_tool("persistent_http_stop_queue.echo",
+                                      Json{{"value", "queued"}});
+      require(!second.has_value(),
+              "queued persistent http call should be rejected during stop");
+      require_runtime_stopping_error(second.error(),
+                                     "persistent_http_stop_queue");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_queued_call = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(runtime.upstream_states(),
+                                             "persistent_http_stop_queue");
+    if (state.active_calls >= 2 && state.busy_persistent_sessions == 1) {
+      observed_queued_call = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_queued_call,
+          "persistent http stop queue test should observe queued call");
+
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "queued http call cancellation no-op"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "persistent-http-queued"}, {"progress", 0.5}}},
+  };
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "persistent http queued notifications should remain local no-ops");
+  }
+  const auto after_notifications = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_stop_queue");
+  require(after_notifications.active_calls >= 2,
+          "persistent http queued notification no-ops should keep queued call "
+          "observable");
+  require(after_notifications.busy_persistent_sessions == 1,
+          "persistent http queued notification no-ops should keep busy slot");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http stop queue runtime should stop after active call "
+          "drains");
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "persistent_http_stop_queue");
+  require(state.active_calls == 0,
+          "persistent http stop queue should clear active call counters");
+  require(state.busy_persistent_sessions == 0,
+          "persistent http stop queue should clear busy pool slots");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "persistent http stop queue should leave upstream stopped");
+
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http stop queue fixture should stop");
+}
+
+void test_persistent_http_pool_acquire_timeout_rejects_queued_call() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-pool-wait-timeout")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 500)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http pool wait timeout fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http pool wait timeout fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_pool_wait_timeout";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 1;
+  options.persistent_session_acquire_timeout =
+      std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr first_error;
+  std::thread first_worker([&] {
+    try {
+      auto first = runtime.call_tool("persistent_http_pool_wait_timeout.slow",
+                                     Json{{"sleepMs", 500}});
+      require(first.has_value(),
+              "active persistent http pool wait timeout call should succeed");
+      require_text_result(*first, "slow-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+
+  bool observed_busy_slot = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state = require_upstream_state(
+        runtime.upstream_states(), "persistent_http_pool_wait_timeout");
+    if (state.active_calls >= 1 && state.busy_persistent_sessions == 1) {
+      observed_busy_slot = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_busy_slot,
+          "persistent http pool wait timeout test should observe busy slot");
+
+  const auto started = std::chrono::steady_clock::now();
+  auto queued = runtime.call_tool("persistent_http_pool_wait_timeout.echo",
+                                  Json{{"value", "queued"}});
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  require(!queued.has_value(),
+          "queued persistent http pool call should fail on acquire timeout");
+  require_persistent_pool_wait_timeout(queued.error(),
+                                       "persistent_http_pool_wait_timeout");
+  require(elapsed < std::chrono::milliseconds{450},
+          "persistent http pool acquire timeout should bound queued wait");
+
+  first_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+
+  const auto state = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_pool_wait_timeout");
+  require(state.active_calls == 0,
+          "persistent http pool wait timeout should clear active calls");
+  require(state.initialized_persistent_sessions == 1,
+          "persistent http pool wait timeout should keep slot initialized");
+  require(state.busy_persistent_sessions == 0,
+          "persistent http pool wait timeout should clear busy slot");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "persistent http pool wait timeout should leave upstream "
+                 "healthy");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http pool wait timeout runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http pool wait timeout fixture should stop");
+}
+
+void test_persistent_http_failure_invalidates_session_for_reconnect() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-reconnect")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 1000)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http reconnect fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http reconnect fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_reconnect";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::milliseconds{250};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto timed_out = runtime.call_tool("persistent_http_reconnect.slow",
+                                     Json{{"sleepMs", 1000}});
+  require(!timed_out.has_value(),
+          "persistent http slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(),
+                                   "persistent_http_reconnect");
+
+  const auto degraded = require_upstream_state(runtime.upstream_states(),
+                                              "persistent_http_reconnect");
+  require_status(degraded, UpstreamRuntimeStatus::degraded,
+                 "persistent http timeout should mark upstream degraded");
+  require(degraded.active_calls == 0,
+          "persistent http timeout should clear active calls");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{1000});
+  auto recovered = runtime.call_tool("persistent_http_reconnect.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent http call should reconnect after failed session");
+  require_text_result(*recovered, "recovered");
+
+  const auto recovered_state = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_reconnect");
+  require(recovered_state.active_calls == 0,
+          "persistent http reconnect should clear active calls");
+  require_status(recovered_state, UpstreamRuntimeStatus::healthy,
+                 "persistent http reconnect should restore upstream health");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http reconnect runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http reconnect fixture should stop");
+}
+
+void test_persistent_http_pool_timeout_recovers() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-persistent-http-pool-timeout")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("echo", [](const Json& input) {
+                      return ToolResult::text(
+                          input.value("value", std::string{}));
+                    })
+                    .tool<Json, ToolResult>("slow", [](const Json& input) {
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 1000)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(),
+          "persistent http pool timeout fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(),
+          "persistent http pool timeout fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "persistent_http_pool_timeout";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::milliseconds{250};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  options.persistent_session_pool_size = 2;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto prewarmed = runtime.refresh_upstream_capabilities();
+  require(prewarmed.has_value(),
+          "persistent http pool timeout test should prewarm sessions");
+
+  auto timed_out = runtime.call_tool("persistent_http_pool_timeout.slow",
+                                     Json{{"sleepMs", 1000}});
+  require(!timed_out.has_value(),
+          "persistent http pool slow call should time out");
+  require_gateway_upstream_timeout(timed_out.error(),
+                                   "persistent_http_pool_timeout");
+
+  const auto degraded = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_pool_timeout");
+  require_status(degraded, UpstreamRuntimeStatus::degraded,
+                 "persistent http pool timeout should mark upstream degraded");
+  require(degraded.active_calls == 0,
+          "persistent http pool timeout should clear active calls");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{1000});
+  auto recovered = runtime.call_tool("persistent_http_pool_timeout.echo",
+                                     Json{{"value", "recovered"}});
+  require(recovered.has_value(),
+          "persistent http pool should recover after timeout");
+  require_text_result(*recovered, "recovered");
+
+  auto second = runtime.call_tool("persistent_http_pool_timeout.echo",
+                                  Json{{"value", "second"}});
+  require(second.has_value(),
+          "persistent http pool should continue serving after recovery");
+  require_text_result(*second, "second");
+
+  const auto recovered_state = require_upstream_state(
+      runtime.upstream_states(), "persistent_http_pool_timeout");
+  require(recovered_state.active_calls == 0,
+          "persistent http pool recovery should clear active calls");
+  require_status(recovered_state, UpstreamRuntimeStatus::healthy,
+                 "persistent http pool recovery should restore health");
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "persistent http pool timeout runtime should stop");
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "persistent http pool timeout fixture should stop");
+}
+
+void test_stdio_timeout() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "slow_stdio";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{50};
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto called =
+      runtime.call_tool("slow_stdio.slow", Json{{"sleepMs", 500}});
+  require(!called.has_value(), "slow stdio upstream should time out");
+  require_gateway_upstream_timeout(called.error(), "slow_stdio");
+
+  const auto state = require_upstream_state(runtime.upstream_states(),
+                                           "slow_stdio");
+  require(state.active_calls == 0,
+          "timed out stdio call should clear active call count");
+  require_status(state, UpstreamRuntimeStatus::degraded,
+                 "timed out stdio call should mark upstream degraded");
+}
+
 void test_concurrent_http_calls_update_active_state() {
   const auto kPort = find_available_loopback_port();
   const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
@@ -2290,6 +4069,218 @@ void test_concurrent_stdio_calls_to_one_upstream() {
                  "same-upstream stdio calls should leave upstream healthy");
 }
 
+void test_multi_upstream_tools_list_starts_upstreams_concurrently() {
+  mcp::gateway::GatewayConfig config;
+  for (const auto* id : {"first_list", "second_list"}) {
+    mcp::gateway::UpstreamServer upstream;
+    upstream.id = id;
+    upstream.transport = mcp::gateway::UpstreamTransportKind::process_stdio;
+    upstream.process_stdio.command = CXXMCP_GATEWAY_STDIO_FIXTURE;
+    upstream.process_stdio.args = {"--startup-delay-ms", "700"};
+    config.upstreams.push_back(std::move(upstream));
+  }
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto tools = runtime.list_tools();
+      require(tools.has_value(), "parallel multi-upstream tools/list succeeds");
+      require(has_tool(*tools, "first_list.echo"),
+              "parallel tools/list includes first upstream");
+      require(has_tool(*tools, "second_list.echo"),
+              "parallel tools/list includes second upstream");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_both_active = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto states = runtime.upstream_states();
+    const auto first = require_upstream_state(states, "first_list");
+    const auto second = require_upstream_state(states, "second_list");
+    if (first.active_calls >= 1 && second.active_calls >= 1) {
+      observed_both_active = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+  require(observed_both_active,
+          "one tools/list should start eligible upstream list operations "
+          "concurrently");
+
+  const auto final_states = runtime.upstream_states();
+  require(require_upstream_state(final_states, "first_list").active_calls == 0,
+          "first parallel listed upstream should clear active calls");
+  require(require_upstream_state(final_states, "second_list").active_calls == 0,
+          "second parallel listed upstream should clear active calls");
+}
+
+void test_tools_list_uses_cached_catalog_until_cleared() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "cached";
+  config.upstreams.front().process_stdio.args = {"--startup-delay-ms", "500"};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_cached_list_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  auto first = runtime.list_tools();
+  require(first.has_value(), "initial tools/list should populate cache");
+  require(has_tool(*first, "cached.echo"),
+          "initial tools/list should include upstream tool");
+
+  for (int attempt = 0; attempt < 200 && std::filesystem::exists(marker_path);
+       ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(!std::filesystem::exists(marker_path),
+          "initial cached-list upstream process should be cleaned up");
+
+  std::atomic_bool second_done = false;
+  std::exception_ptr second_error;
+  std::thread second_worker([&] {
+    try {
+      auto second = runtime.list_tools();
+      require(second.has_value(), "cached tools/list should succeed");
+      require(has_tool(*second, "cached.echo"),
+              "cached tools/list should include upstream tool");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+    second_done = true;
+  });
+
+  bool observed_second_marker = false;
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_second_marker = true;
+      break;
+    }
+    if (second_done.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  second_worker.join();
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  require(!observed_second_marker,
+          "cached tools/list should not start a new upstream process");
+
+  auto cleared = runtime.clear_cached_catalogs();
+  require(cleared.has_value(), "clear_cached_catalogs should succeed");
+
+  std::atomic_bool third_done = false;
+  std::exception_ptr third_error;
+  std::thread third_worker([&] {
+    try {
+      auto third = runtime.list_tools();
+      require(third.has_value(),
+              "tools/list after clearing cache should succeed");
+      require(has_tool(*third, "cached.echo"),
+              "tools/list after clearing cache should include upstream tool");
+    } catch (...) {
+      third_error = std::current_exception();
+    }
+    third_done = true;
+  });
+
+  bool observed_third_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (std::filesystem::exists(marker_path)) {
+      observed_third_marker = true;
+      break;
+    }
+    if (third_done.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  third_worker.join();
+  if (third_error) {
+    std::rethrow_exception(third_error);
+  }
+  require(observed_third_marker,
+          "tools/list after clearing cache should start upstream again");
+}
+
+void test_clear_cached_catalogs_keeps_persistent_session() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "persistent_cached";
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_persistent_cached_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.upstream_session_mode =
+      mcp::gateway::UpstreamSessionMode::persistent;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  auto first = runtime.list_tools();
+  require(first.has_value(),
+          "persistent cached tools/list should populate cache");
+  require(has_tool(*first, "persistent_cached.echo"),
+          "persistent cached tools/list should include upstream tool");
+  require(std::filesystem::exists(marker_path),
+          "persistent cached tools/list should keep session alive");
+
+  auto cleared = runtime.clear_cached_catalogs();
+  require(cleared.has_value(),
+          "clear_cached_catalogs should succeed in persistent mode");
+  require(std::filesystem::exists(marker_path),
+          "clear_cached_catalogs should not stop persistent upstream session");
+
+  auto second = runtime.list_tools();
+  require(second.has_value(),
+          "persistent tools/list after cache clear should succeed");
+  require(has_tool(*second, "persistent_cached.echo"),
+          "persistent tools/list after cache clear should include upstream "
+          "tool");
+  require(std::filesystem::exists(marker_path),
+          "persistent tools/list after cache clear should keep session alive");
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "persistent cached runtime should stop");
+
+  bool marker_removed = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!std::filesystem::exists(marker_path)) {
+      marker_removed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(marker_removed,
+          "persistent cached runtime stop should clean up session");
+}
+
 void test_cancellation_and_progress_notifications_are_local_noops() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "notify";
@@ -2412,6 +4403,8 @@ void test_cancellation_and_progress_notifications_are_local_noops() {
 void test_runtime_stop_waits_for_active_stdio_call() {
   auto config = make_stdio_config();
   config.upstreams.front().id = "stdio_stop";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{2000};
   const auto marker_path =
       std::filesystem::temp_directory_path() /
       ("cxxmcp_gateway_stdio_marker_" +
@@ -2419,18 +4412,32 @@ void test_runtime_stop_waits_for_active_stdio_call() {
                           .time_since_epoch()
                           .count()) +
        ".txt");
+  const auto slow_marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_slow_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
   std::error_code ignored;
   std::filesystem::remove(marker_path, ignored);
+  std::filesystem::remove(slow_marker_path, ignored);
   config.upstreams.front()
       .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
       marker_path.string();
-  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE"] =
+      slow_marker_path.string();
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.active_call_drain_timeout = std::chrono::milliseconds{5000};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
 
   std::exception_ptr worker_error;
   std::thread worker([&] {
     try {
       auto called =
-          runtime.call_tool("stdio_stop.slow", Json{{"sleepMs", 1200}});
+          runtime.call_tool("stdio_stop.slow", Json{{"sleepMs", 600}});
       require(called.has_value(), "slow stdio call should succeed");
       require_text_result(*called, "slow-done");
     } catch (...) {
@@ -2440,6 +4447,7 @@ void test_runtime_stop_waits_for_active_stdio_call() {
 
   bool observed_active = false;
   bool observed_marker = false;
+  bool observed_slow_marker = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     const auto state =
         require_upstream_state(runtime.upstream_states(), "stdio_stop");
@@ -2449,13 +4457,18 @@ void test_runtime_stop_waits_for_active_stdio_call() {
     if (std::filesystem::exists(marker_path)) {
       observed_marker = true;
     }
-    if (observed_active && observed_marker) {
+    if (std::filesystem::exists(slow_marker_path)) {
+      observed_slow_marker = true;
+    }
+    if (observed_active && observed_marker && observed_slow_marker) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
   }
   require(observed_active, "stdio shutdown test should observe active call");
   require(observed_marker, "stdio shutdown test should observe child process marker");
+  require(observed_slow_marker,
+          "stdio shutdown test should observe slow handler marker");
 
   std::exception_ptr stop_error;
   const auto stop_started = std::chrono::steady_clock::now();
@@ -2482,6 +4495,13 @@ void test_runtime_stop_waits_for_active_stdio_call() {
 
   require(observed_stopping,
           "runtime stop should expose stopping state while stdio call drains");
+
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "stdio_stop", UpstreamRuntimeStatus::stopping, 1);
+
+  require_stopping_notifications_are_noops(runtime, "stdio_stop");
+
+  require_stopping_raw_requests_are_rejected(runtime, "stdio_stop");
 
   auto stopping_list = runtime.list_tools();
   require(!stopping_list.has_value(),
@@ -2560,6 +4580,8 @@ void test_runtime_stop_waits_for_active_stdio_call() {
           "runtime stop should clear active stdio call count");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "runtime stop should mark stdio upstream stopped");
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "stdio_stop", UpstreamRuntimeStatus::stopped, 0);
   bool marker_removed = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     if (!std::filesystem::exists(marker_path)) {
@@ -2570,15 +4592,125 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   }
   require(marker_removed,
           "runtime stop should clean up the active stdio child process");
+  std::filesystem::remove(slow_marker_path, ignored);
 
   auto post_stop_call =
       runtime.call_tool("stdio_stop.echo", Json{{"value", "after-stop"}});
   require(!post_stop_call.has_value(),
           "runtime should reject stdio calls after stop");
+  require_runtime_stopped_error(post_stop_call.error(), "tools/call");
 
   auto post_stop_list = runtime.list_tools();
   require(!post_stop_list.has_value(),
           "runtime should reject tools/list after stop");
+  require_runtime_stopped_error(post_stop_list.error(), "tools/list");
+}
+
+void test_runtime_stop_timeout_bounds_active_stdio_call_wait() {
+  auto config = make_stdio_config();
+  config.upstreams.front().id = "stdio_stop_timeout";
+  config.upstreams.front().process_stdio.timeout =
+      std::chrono::milliseconds{3000};
+  const auto marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_stop_timeout_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  const auto slow_marker_path =
+      std::filesystem::temp_directory_path() /
+      ("cxxmcp_gateway_stdio_stop_timeout_slow_marker_" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".txt");
+  std::error_code ignored;
+  std::filesystem::remove(marker_path, ignored);
+  std::filesystem::remove(slow_marker_path, ignored);
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_MARKER_FILE"] =
+      marker_path.string();
+  config.upstreams.front()
+      .process_stdio.env["CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE"] =
+      slow_marker_path.string();
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.active_call_drain_timeout = std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = runtime.call_tool("stdio_stop_timeout.slow",
+                                      Json{{"sleepMs", 700}});
+      require(called.has_value(),
+              "active drain timeout test slow stdio call should succeed");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_marker = false;
+  bool observed_slow_marker = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "stdio_stop_timeout");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (std::filesystem::exists(marker_path)) {
+      observed_marker = true;
+    }
+    if (std::filesystem::exists(slow_marker_path)) {
+      observed_slow_marker = true;
+    }
+    if (observed_active && observed_marker && observed_slow_marker) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "active drain timeout test should observe active stdio call");
+  require(observed_marker,
+          "active drain timeout test should observe child process marker");
+  require(observed_slow_marker,
+          "active drain timeout test should observe slow handler marker");
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  auto timed_out = runtime.stop();
+  const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+  require(!timed_out.has_value(),
+          "runtime stop should fail when active call drain times out");
+  require_active_call_drain_timeout(timed_out.error());
+  require(stop_elapsed < std::chrono::milliseconds{500},
+          "active call drain timeout should bound runtime stop wait");
+
+  const auto stopping =
+      require_upstream_state(runtime.upstream_states(), "stdio_stop_timeout");
+  require(stopping.active_calls >= 1,
+          "active drain timeout should leave active call observable");
+  require_status(stopping, UpstreamRuntimeStatus::stopping,
+                 "active drain timeout should leave runtime stopping");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "runtime stop should complete after active stdio call drains");
+  const auto stopped_state =
+      require_upstream_state(runtime.upstream_states(), "stdio_stop_timeout");
+  require(stopped_state.active_calls == 0,
+          "active drain timeout follow-up stop should clear active calls");
+  require_status(stopped_state, UpstreamRuntimeStatus::stopped,
+                 "active drain timeout follow-up stop should mark stopped");
+  std::filesystem::remove(slow_marker_path, ignored);
 }
 
 void test_runtime_stop_waits_for_active_http_call() {
@@ -2659,14 +4791,25 @@ void test_runtime_stop_waits_for_active_http_call() {
       runtime.call_tool("shutdown.slow", Json{{"sleepMs", 1}});
   require(!post_stop_call.has_value(),
           "runtime should reject new upstream calls after stop");
+  require_runtime_stopped_error(post_stop_call.error(), "tools/call");
+
+  auto post_stop_clear = runtime.clear_cached_catalogs();
+  require(!post_stop_clear.has_value(),
+          "runtime should reject clear_cached_catalogs after stop");
+  require_runtime_stopped_error(post_stop_clear.error(),
+                                "clear_cached_catalogs");
 
   auto post_stop_resource_list = runtime.list_resources();
   require(!post_stop_resource_list.has_value(),
           "runtime should reject resources/list after stop");
+  require_runtime_stopped_error(post_stop_resource_list.error(),
+                                "resources/list");
 
   auto post_stop_resource_templates = runtime.list_resource_templates();
   require(!post_stop_resource_templates.has_value(),
           "runtime should reject resources/templates/list after stop");
+  require_runtime_stopped_error(post_stop_resource_templates.error(),
+                                "resources/templates/list");
 
   const auto post_stop_resource_uri =
       mcp::gateway::GatewayRouter::expose_resource_uri(
@@ -2674,19 +4817,25 @@ void test_runtime_stop_waits_for_active_http_call() {
   auto post_stop_resource_read = runtime.read_resource(post_stop_resource_uri);
   require(!post_stop_resource_read.has_value(),
           "runtime should reject resources/read after stop");
+  require_runtime_stopped_error(post_stop_resource_read.error(),
+                                "resources/read");
 
   auto post_stop_prompt_list = runtime.list_prompts();
   require(!post_stop_prompt_list.has_value(),
           "runtime should reject prompts/list after stop");
+  require_runtime_stopped_error(post_stop_prompt_list.error(), "prompts/list");
 
   auto post_stop_prompt =
       runtime.get_prompt("shutdown.prompt", Json::object());
   require(!post_stop_prompt.has_value(),
           "runtime should reject prompts/get after stop");
+  require_runtime_stopped_error(post_stop_prompt.error(), "prompts/get");
 
   auto post_stop_refresh = runtime.refresh_upstream_capabilities();
   require(!post_stop_refresh.has_value(),
           "runtime should reject capability refresh after stop");
+  require_runtime_stopped_error(post_stop_refresh.error(),
+                                "refresh_upstream_capabilities");
 
   mcp::protocol::CompleteParams post_stop_completion;
   post_stop_completion.ref =
@@ -2696,9 +4845,127 @@ void test_runtime_stop_waits_for_active_http_call() {
   auto post_stop_complete = runtime.complete(std::move(post_stop_completion));
   require(!post_stop_complete.has_value(),
           "runtime should reject completions after stop");
+  require_runtime_stopped_error(post_stop_complete.error(),
+                                "completion/complete");
 
   const auto stopped_server = running->stop();
   require(stopped_server.has_value(), "shutdown fixture should stop");
+}
+
+void test_runtime_stop_timeout_bounds_active_http_call_wait() {
+  const auto kPort = find_available_loopback_port();
+  const std::string uri = "http://127.0.0.1:" + std::to_string(kPort) + "/mcp";
+  std::atomic_bool slow_entered = false;
+
+  auto server = mcp::ServerPeer::builder()
+                    .name("cxxmcp-gateway-shutdown-timeout-fixture")
+                    .version("1.0.0")
+                    .streamable_http("127.0.0.1", kPort, "/mcp")
+                    .tool<Json, ToolResult>("slow", [&](const Json& input) {
+                      slow_entered = true;
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{
+                              input.value("sleepMs", 700)});
+                      return ToolResult::text("slow-done");
+                    })
+                    .build();
+  require(server.has_value(), "shutdown timeout fixture should build");
+
+  auto running = mcp::serve(std::move(*server));
+  require(running.has_value(), "shutdown timeout fixture should start");
+  running->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "shutdown_timeout";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.active_call_drain_timeout = std::chrono::milliseconds{100};
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(options));
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = runtime.call_tool("shutdown_timeout.slow",
+                                      Json{{"sleepMs", 700}});
+      require(called.has_value(),
+              "active drain timeout http slow call should succeed");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_handler = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(runtime.upstream_states(), "shutdown_timeout");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (slow_entered.load()) {
+      observed_handler = true;
+    }
+    if (observed_active && observed_handler) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "active drain timeout http test should observe active call");
+  require(observed_handler,
+          "active drain timeout http test should observe slow handler entry");
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  auto timed_out = runtime.stop();
+  const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+  require(!timed_out.has_value(),
+          "runtime stop should fail when active http drain times out");
+  require_active_call_drain_timeout(timed_out.error());
+  require(stop_elapsed < std::chrono::milliseconds{500},
+          "active http call drain timeout should bound runtime stop wait");
+
+  const auto stopping =
+      require_upstream_state(runtime.upstream_states(), "shutdown_timeout");
+  require(stopping.active_calls >= 1,
+          "active http drain timeout should leave active call observable");
+  require_status(stopping, UpstreamRuntimeStatus::stopping,
+                 "active http drain timeout should leave runtime stopping");
+
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "shutdown_timeout", UpstreamRuntimeStatus::stopping, 1);
+
+  require_stopping_notifications_are_noops(runtime, "shutdown_timeout");
+
+  require_stopping_raw_requests_are_rejected(runtime, "shutdown_timeout");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  auto stopped_runtime = runtime.stop();
+  require(stopped_runtime.has_value(),
+          "runtime stop should complete after active http call drains");
+  const auto stopped_state =
+      require_upstream_state(runtime.upstream_states(), "shutdown_timeout");
+  require(stopped_state.active_calls == 0,
+          "active http drain timeout follow-up stop should clear active calls");
+  require_status(stopped_state, UpstreamRuntimeStatus::stopped,
+                 "active http drain timeout follow-up stop should mark "
+                 "stopped");
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "shutdown_timeout", UpstreamRuntimeStatus::stopped, 0);
+
+  const auto stopped_server = running->stop();
+  require(stopped_server.has_value(),
+          "shutdown timeout fixture should stop");
 }
 
 void test_concurrent_calls_to_multiple_upstreams() {
@@ -2984,6 +5251,72 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
   const auto state = require_upstream_state(states, "disabled");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "idle hosted gateway should mark upstream stopped");
+
+  auto restarted = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(!restarted.has_value(),
+          "stopped hosted gateway endpoint should not restart");
+  require_runtime_stopped_error(restarted.error(), "start_http");
+}
+
+void test_runtime_stop_observer_can_reenter_lifecycle_api() {
+  mcp::gateway::GatewayRuntime* runtime_ptr = nullptr;
+  bool saw_stopping = false;
+  bool wait_failed_without_endpoint = false;
+  bool states_remained_available = false;
+
+  mcp::gateway::GatewayRuntimeOptions options;
+  options.observer = [&](const mcp::gateway::GatewayRuntimeEvent& event) {
+    if (!runtime_ptr ||
+        event.kind != mcp::gateway::GatewayRuntimeEventKind::runtime_stopping) {
+      return;
+    }
+    saw_stopping = true;
+    auto wait_result = runtime_ptr->wait();
+    wait_failed_without_endpoint =
+        !wait_result.has_value() &&
+        wait_result.error().message == "gateway http endpoint is not running";
+    states_remained_available = !runtime_ptr->upstream_states().empty();
+  };
+
+  mcp::gateway::GatewayRuntime runtime(make_disabled_config("reentrant"),
+                                       std::move(options));
+  runtime_ptr = &runtime;
+  auto stopped = runtime.stop();
+  require(stopped.has_value(),
+          "runtime stop should allow observer lifecycle reentry");
+  require(saw_stopping, "observer should see runtime stopping event");
+  require(wait_failed_without_endpoint,
+          "observer should reenter wait without deadlocking service mutex");
+  require(states_remained_available,
+          "observer should reenter state snapshot during stop");
+}
+
+void test_runtime_wait_and_stop_can_overlap() {
+  const auto kPort = find_available_loopback_port();
+
+  mcp::gateway::GatewayRuntime gateway(make_disabled_config("wait_stop"));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(started.has_value(),
+          "overlapping wait/stop gateway endpoint should start");
+
+  std::atomic_bool wait_returned = false;
+  std::atomic_bool wait_succeeded = false;
+  std::thread waiter([&] {
+    auto waited = gateway.wait();
+    wait_succeeded = waited.has_value();
+    wait_returned = true;
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  auto stopped = gateway.stop();
+  require(stopped.has_value(),
+          "gateway stop should succeed while another thread waits");
+  waiter.join();
+  require(wait_returned,
+          "gateway wait should return after overlapping stop completes");
+  require(wait_succeeded, "gateway wait should complete successfully");
 }
 
 void test_hosted_gateway_rejects_invalid_json_rpc_request() {
@@ -3336,6 +5669,206 @@ void test_hosted_gateway_multiple_downstream_clients() {
           "multi-client hosted gateway should stop");
 }
 
+void test_hosted_gateway_multiple_downstream_clients_to_http_upstreams() {
+  const auto [kFirstPort, kSecondPort] = find_two_distinct_loopback_ports();
+  const std::string first_uri =
+      "http://127.0.0.1:" + std::to_string(kFirstPort) + "/mcp";
+  const std::string second_uri =
+      "http://127.0.0.1:" + std::to_string(kSecondPort) + "/mcp";
+  std::atomic_bool first_entered = false;
+  std::atomic_bool second_entered = false;
+
+  auto first_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-multi-client-http-first-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kFirstPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            first_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 650)});
+            return ToolResult::text("first-http-done");
+          })
+          .build();
+  require(first_server.has_value(),
+          "first multi-client HTTP upstream fixture should build");
+  auto second_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-multi-client-http-second-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kSecondPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            second_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 650)});
+            return ToolResult::text("second-http-done");
+          })
+          .build();
+  require(second_server.has_value(),
+          "second multi-client HTTP upstream fixture should build");
+
+  auto first_upstream = mcp::serve(std::move(*first_server));
+  require(first_upstream.has_value(),
+          "first multi-client HTTP upstream fixture should start");
+  first_upstream->wait_until_ready();
+  auto second_upstream = mcp::serve(std::move(*second_server));
+  require(second_upstream.has_value(),
+          "second multi-client HTTP upstream fixture should start");
+  second_upstream->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer first;
+  first.id = "http_first";
+  first.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  first.streamable_http.uri = first_uri;
+  first.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(first));
+
+  mcp::gateway::UpstreamServer second;
+  second.id = "http_second";
+  second.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  second.streamable_http.uri = second_uri;
+  second.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(second));
+
+  const auto kGatewayPort = find_available_loopback_port();
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kGatewayPort, .path = "/mcp"});
+  require(started.has_value(),
+          "multi-client HTTP multi-upstream hosted gateway should start");
+
+  auto make_client = [kGatewayPort] {
+    return mcp::ClientPeer::builder()
+        .streamable_http("http://127.0.0.1:" +
+                         std::to_string(kGatewayPort) + "/mcp")
+        .build();
+  };
+
+  auto first_client = make_client();
+  auto second_client = make_client();
+  require(first_client.has_value(),
+          "first HTTP downstream client should build");
+  require(second_client.has_value(),
+          "second HTTP downstream client should build");
+
+  auto first_running = mcp::serve(std::move(*first_client));
+  auto second_running = mcp::serve(std::move(*second_client));
+  require(first_running.has_value(),
+          "first HTTP downstream client should start");
+  require(second_running.has_value(),
+          "second HTTP downstream client should start");
+
+  auto first_initialized = first_running->peer().initialize(
+      "cxxmcp-gateway-multi-client-http-a", "1.0.0");
+  auto second_initialized = second_running->peer().initialize(
+      "cxxmcp-gateway-multi-client-http-b", "1.0.0");
+  require(first_initialized.has_value(),
+          "first HTTP downstream initialize should succeed");
+  require(second_initialized.has_value(),
+          "second HTTP downstream initialize should succeed");
+
+  auto first_notified = first_running->peer().notify_initialized();
+  auto second_notified = second_running->peer().notify_initialized();
+  require(first_notified.has_value(),
+          "first HTTP downstream initialized notification should work");
+  require(second_notified.has_value(),
+          "second HTTP downstream initialized notification should work");
+
+  std::exception_ptr first_error;
+  std::exception_ptr second_error;
+  std::thread first_worker([&] {
+    try {
+      auto called = first_running->peer().call_tool(
+          "http_first.slow", Json{{"sleepMs", 650}});
+      if (!called.has_value()) {
+        throw std::runtime_error("first HTTP downstream call should route: " +
+                                 called.error().message + " / " +
+                                 called.error().detail + " / " +
+                                 called.error().category);
+      }
+      require_text_result(*called, "first-http-done");
+    } catch (...) {
+      first_error = std::current_exception();
+    }
+  });
+  std::thread second_worker([&] {
+    try {
+      auto called = second_running->peer().call_tool(
+          "http_second.slow", Json{{"sleepMs", 650}});
+      if (!called.has_value()) {
+        throw std::runtime_error("second HTTP downstream call should route: " +
+                                 called.error().message + " / " +
+                                 called.error().detail + " / " +
+                                 called.error().category);
+      }
+      require_text_result(*called, "second-http-done");
+    } catch (...) {
+      second_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_both_handlers = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto states = gateway.upstream_states();
+    const auto first_state = require_upstream_state(states, "http_first");
+    const auto second_state = require_upstream_state(states, "http_second");
+    if (first_state.active_calls >= 1 || second_state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (first_entered.load() && second_entered.load()) {
+      observed_both_handlers = true;
+    }
+    if (observed_active && observed_both_handlers) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  first_worker.join();
+  second_worker.join();
+  if (first_error) {
+    std::rethrow_exception(first_error);
+  }
+  if (second_error) {
+    std::rethrow_exception(second_error);
+  }
+  require(observed_active,
+          "multi-client HTTP hosted calls should expose active upstream work");
+  require(observed_both_handlers,
+          "multi-client HTTP hosted calls should reach both upstream handlers");
+
+  const auto states = gateway.upstream_states();
+  const auto first_state = require_upstream_state(states, "http_first");
+  const auto second_state = require_upstream_state(states, "http_second");
+  require(first_state.active_calls == 0,
+          "first multi-client HTTP active calls should clear");
+  require(second_state.active_calls == 0,
+          "second multi-client HTTP active calls should clear");
+  require_status(first_state, UpstreamRuntimeStatus::healthy,
+                 "first multi-client HTTP upstream should be healthy");
+  require_status(second_state, UpstreamRuntimeStatus::healthy,
+                 "second multi-client HTTP upstream should be healthy");
+
+  auto first_stopped = first_running->stop();
+  auto second_stopped = second_running->stop();
+  require(first_stopped.has_value(),
+          "first HTTP downstream client should stop");
+  require(second_stopped.has_value(),
+          "second HTTP downstream client should stop");
+
+  auto gateway_stopped = gateway.stop();
+  require(gateway_stopped.has_value(),
+          "multi-client HTTP hosted gateway should stop");
+  auto first_upstream_stopped = first_upstream->stop();
+  require(first_upstream_stopped.has_value(),
+          "first multi-client HTTP upstream fixture should stop");
+  auto second_upstream_stopped = second_upstream->stop();
+  require(second_upstream_stopped.has_value(),
+          "second multi-client HTTP upstream fixture should stop");
+}
+
 void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
   const auto kPort = find_available_loopback_port();
 
@@ -3463,6 +5996,162 @@ void test_hosted_cancellation_notifications_do_not_cancel_upstream_call() {
           "hosted notification no-op gateway should stop");
 }
 
+void test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call() {
+  const auto kUpstreamPort = find_available_loopback_port();
+  const std::string upstream_uri =
+      "http://127.0.0.1:" + std::to_string(kUpstreamPort) + "/mcp";
+  std::atomic_bool slow_entered = false;
+
+  auto upstream_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-hosted-http-cancel-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kUpstreamPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            slow_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 700)});
+            return ToolResult::text("slow-done");
+          })
+          .build();
+  require(upstream_server.has_value(),
+          "hosted http cancellation upstream should build");
+  auto running_upstream = mcp::serve(std::move(*upstream_server));
+  require(running_upstream.has_value(),
+          "hosted http cancellation upstream should start");
+  running_upstream->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "http_cancel";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = upstream_uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  const auto kGatewayPort = find_available_loopback_port();
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kGatewayPort, .path = "/mcp"});
+  require(started.has_value(),
+          "hosted http cancellation gateway should start");
+
+  auto make_client = [kGatewayPort] {
+    return mcp::ClientPeer::builder()
+        .streamable_http("http://127.0.0.1:" +
+                         std::to_string(kGatewayPort) + "/mcp")
+        .build();
+  };
+
+  auto caller_client = make_client();
+  auto notifier_client = make_client();
+  require(caller_client.has_value(),
+          "http cancellation caller client should build");
+  require(notifier_client.has_value(),
+          "http cancellation notifier client should build");
+
+  auto caller = mcp::serve(std::move(*caller_client));
+  auto notifier = mcp::serve(std::move(*notifier_client));
+  require(caller.has_value(), "http cancellation caller should start");
+  require(notifier.has_value(), "http cancellation notifier should start");
+
+  auto caller_initialized = caller->peer().initialize(
+      "cxxmcp-gateway-hosted-http-cancel-caller", "1.0.0");
+  auto notifier_initialized = notifier->peer().initialize(
+      "cxxmcp-gateway-hosted-http-cancel-notifier", "1.0.0");
+  require(caller_initialized.has_value(),
+          "http cancellation caller initialize should succeed");
+  require(notifier_initialized.has_value(),
+          "http cancellation notifier initialize should succeed");
+
+  auto caller_notified = caller->peer().notify_initialized();
+  auto notifier_notified = notifier->peer().notify_initialized();
+  require(caller_notified.has_value(),
+          "http cancellation caller initialized notification should work");
+  require(notifier_notified.has_value(),
+          "http cancellation notifier initialized notification should work");
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called =
+          caller->peer().call_tool("http_cancel.slow", Json{{"sleepMs", 700}});
+      require(called.has_value(),
+              "hosted http cancellation no-op should not cancel active call");
+      require_text_result(*called, "slow-done");
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_handler = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(gateway.upstream_states(), "http_cancel");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (slow_entered.load()) {
+      observed_handler = true;
+    }
+    if (observed_active && observed_handler) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "hosted http cancellation test should observe active upstream call");
+  require(observed_handler,
+          "hosted http cancellation test should observe upstream handler");
+
+  auto cancelled = notifier->peer().raw_notification(
+      mcp::protocol::make_notification(
+          std::string(mcp::protocol::CancelledNotificationMethod),
+          Json{{"requestId", std::int64_t{1}},
+               {"reason", "downstream cancelled"}}));
+  require(cancelled.has_value(),
+          "hosted http cancellation notification should be accepted as no-op");
+
+  auto progress = notifier->peer().raw_notification(
+      mcp::protocol::make_notification(
+          std::string(mcp::protocol::ProgressNotificationMethod),
+          Json{{"progressToken", "hosted-http-call"}, {"progress", 0.5}}));
+  require(progress.has_value(),
+          "hosted http progress notification should be accepted as no-op");
+
+  const auto during =
+      require_upstream_state(gateway.upstream_states(), "http_cancel");
+  require(during.active_calls >= 1,
+          "hosted http notification no-ops should not clear active call");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  const auto state =
+      require_upstream_state(gateway.upstream_states(), "http_cancel");
+  require(state.active_calls == 0,
+          "hosted http cancellation no-op should clear after call completion");
+  require_status(state, UpstreamRuntimeStatus::healthy,
+                 "hosted http cancellation no-op should leave upstream healthy");
+
+  auto caller_stopped = caller->stop();
+  auto notifier_stopped = notifier->stop();
+  require(caller_stopped.has_value(),
+          "http cancellation caller should stop");
+  require(notifier_stopped.has_value(),
+          "http cancellation notifier should stop");
+
+  auto gateway_stopped = gateway.stop();
+  require(gateway_stopped.has_value(),
+          "hosted http cancellation gateway should stop");
+  auto upstream_stopped = running_upstream->stop();
+  require(upstream_stopped.has_value(),
+          "hosted http cancellation upstream should stop");
+}
+
 void test_downstream_close_during_active_upstream_call_clears_state() {
   const auto kPort = find_available_loopback_port();
 
@@ -3532,6 +6221,120 @@ void test_downstream_close_during_active_upstream_call_clears_state() {
   auto stopped_gateway = gateway.stop();
   require(stopped_gateway.has_value(),
           "downstream-close hosted gateway should stop");
+}
+
+void test_downstream_close_during_active_http_upstream_call_clears_state() {
+  const auto kUpstreamPort = find_available_loopback_port();
+  const std::string upstream_uri =
+      "http://127.0.0.1:" + std::to_string(kUpstreamPort) + "/mcp";
+  std::atomic_bool slow_entered = false;
+
+  auto upstream_server =
+      mcp::ServerPeer::builder()
+          .name("cxxmcp-gateway-downstream-close-http-upstream")
+          .version("1.0.0")
+          .streamable_http("127.0.0.1", kUpstreamPort, "/mcp")
+          .tool<Json, ToolResult>("slow", [&](const Json& input) {
+            slow_entered = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{
+                input.value("sleepMs", 800)});
+            return ToolResult::text("slow-done");
+          })
+          .build();
+  require(upstream_server.has_value(),
+          "downstream-close http upstream should build");
+  auto running_upstream = mcp::serve(std::move(*upstream_server));
+  require(running_upstream.has_value(),
+          "downstream-close http upstream should start");
+  running_upstream->wait_until_ready();
+
+  mcp::gateway::GatewayConfig config;
+  mcp::gateway::UpstreamServer upstream;
+  upstream.id = "http_close";
+  upstream.transport = mcp::gateway::UpstreamTransportKind::streamable_http;
+  upstream.streamable_http.uri = upstream_uri;
+  upstream.streamable_http.timeout = std::chrono::seconds{3};
+  config.upstreams.push_back(std::move(upstream));
+
+  const auto kGatewayPort = find_available_loopback_port();
+  mcp::gateway::GatewayRuntime gateway(std::move(config));
+  auto started = gateway.start_http(
+      {.host = "127.0.0.1", .port = kGatewayPort, .path = "/mcp"});
+  require(started.has_value(),
+          "downstream-close http hosted gateway should start");
+
+  auto client = mcp::ClientPeer::builder()
+                    .streamable_http("http://127.0.0.1:" +
+                                     std::to_string(kGatewayPort) + "/mcp")
+                    .build();
+  require(client.has_value(), "downstream-close http client should build");
+
+  auto running_client = mcp::serve(std::move(*client));
+  require(running_client.has_value(),
+          "downstream-close http client service should start");
+
+  auto initialized = running_client->peer().initialize(
+      "cxxmcp-gateway-downstream-close-http-client", "1.0.0");
+  require(initialized.has_value(),
+          "downstream-close http client should initialize");
+  auto notified = running_client->peer().notify_initialized();
+  require(notified.has_value(),
+          "downstream-close http initialized notification should work");
+
+  std::exception_ptr worker_error;
+  std::thread worker([&] {
+    try {
+      auto called = running_client->peer().call_tool(
+          "http_close.slow", Json{{"sleepMs", 800}});
+      if (called.has_value()) {
+        require_text_result(*called, "slow-done");
+      }
+    } catch (...) {
+      worker_error = std::current_exception();
+    }
+  });
+
+  bool observed_active = false;
+  bool observed_handler = false;
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    const auto state =
+        require_upstream_state(gateway.upstream_states(), "http_close");
+    if (state.active_calls >= 1) {
+      observed_active = true;
+    }
+    if (slow_entered.load()) {
+      observed_handler = true;
+    }
+    if (observed_active && observed_handler) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  require(observed_active,
+          "downstream-close http test should observe active upstream call");
+  require(observed_handler,
+          "downstream-close http test should observe upstream handler");
+
+  auto stopped_client = running_client->stop();
+  require(stopped_client.has_value(),
+          "downstream-close http client stop should succeed");
+
+  worker.join();
+  if (worker_error) {
+    std::rethrow_exception(worker_error);
+  }
+
+  const auto state =
+      require_upstream_state(gateway.upstream_states(), "http_close");
+  require(state.active_calls == 0,
+          "downstream http close should not leave active upstream calls");
+
+  auto stopped_gateway = gateway.stop();
+  require(stopped_gateway.has_value(),
+          "downstream-close http hosted gateway should stop");
+  auto stopped_upstream = running_upstream->stop();
+  require(stopped_upstream.has_value(),
+          "downstream-close http upstream should stop");
 }
 
 void test_hosted_gateway_without_enabled_upstreams_advertises_no_tools() {
@@ -4028,53 +6831,191 @@ void test_raw_request_lifecycle_after_stop() {
                                     "completion/complete");
 }
 
+void test_notification_lifecycle_after_stop() {
+  mcp::gateway::GatewayRuntime runtime(make_stdio_config());
+  auto stopped = runtime.stop();
+  require(stopped.has_value(), "notification lifecycle runtime should stop");
+
+  const std::vector<std::pair<std::string, Json>> notifications{
+      {std::string(mcp::protocol::ToolsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::ResourcesUpdatedNotificationMethod),
+       Json{{"uri", "file:///fixture/readme.txt"}}},
+      {std::string(mcp::protocol::PromptsListChangedNotificationMethod),
+       Json::object()},
+      {std::string(mcp::protocol::CancelledNotificationMethod),
+       Json{{"requestId", std::int64_t{1}},
+            {"reason", "downstream cancelled after stop"}}},
+      {std::string(mcp::protocol::ProgressNotificationMethod),
+       Json{{"progressToken", "after-stop"}, {"progress", 1.0}}},
+      {"gateway/unknownNotification", Json::object()},
+  };
+
+  for (const auto& [method, params] : notifications) {
+    auto accepted = runtime.handle_notification(
+        mcp::protocol::make_notification(method, params));
+    require(accepted.has_value(),
+            "stopped runtime notifications should remain local no-ops");
+  }
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), "stdio");
+  require(state.active_calls == 0,
+          "stopped notification no-ops should not create active calls");
+  require_status(state, UpstreamRuntimeStatus::stopped,
+                 "stopped notification no-ops should not restart upstreams");
+}
+
 }  // namespace
 
 int main() {
+#ifndef _WIN32
+  std::signal(SIGPIPE, SIG_IGN);
+#endif
+
   try {
-    test_disabled_upstream();
-    test_invalid_config_advertises_no_tools();
-    test_stdio_process_start_failure();
-    test_tools_list_fail_fast_after_partial_success();
-    test_resources_list_fail_fast_after_partial_success();
-    test_resource_templates_list_fail_fast_after_partial_success();
-    test_prompts_list_fail_fast_after_partial_success();
-    test_stdio_process_exit_before_initialize();
-    test_stdio_malformed_response_before_initialize();
-    test_first_call_upstream_mcp_error_records_capabilities();
-    test_stdio_upstream();
-    test_upstream_client_capabilities_are_minimal();
-    test_capability_advertisement_uses_initialized_upstream_cache();
-    test_capability_advertisement_unions_multiple_upstream_caches();
-    test_hosted_capability_advertisement_uses_refresh_cache();
-    test_hosted_capability_advertisement_snapshots_at_start();
-    test_completion_routes_to_stdio_upstream();
-    test_hosted_completion_routes_after_capability_refresh();
-    test_repeated_stdio_calls_to_one_upstream();
-    test_http_upstream();
-    test_http_unavailable();
-    test_http_malformed_response_before_initialize();
-    test_start_http_invalid_config_fails_before_binding_port();
-    test_hosted_gateway_rejects_invalid_endpoint_options();
-    test_hosted_gateway_http_endpoint_stops_while_idle();
-    test_hosted_gateway_rejects_invalid_json_rpc_request();
-    test_runtime_move_assignment_stops_existing_endpoint();
-    test_http_timeout();
-    test_concurrent_http_calls_update_active_state();
-    test_concurrent_stdio_calls_to_one_upstream();
-    test_cancellation_and_progress_notifications_are_local_noops();
-    test_runtime_stop_waits_for_active_stdio_call();
-    test_runtime_stop_waits_for_active_http_call();
-    test_concurrent_calls_to_multiple_upstreams();
-    test_hosted_gateway_http_endpoint();
-    test_hosted_gateway_rejects_request_before_initialized_notification();
-    test_hosted_gateway_rejects_request_before_initialize();
-    test_hosted_gateway_multiple_downstream_clients();
-    test_hosted_cancellation_notifications_do_not_cancel_upstream_call();
-    test_downstream_close_during_active_upstream_call_clears_state();
-    test_hosted_gateway_without_enabled_upstreams_advertises_no_tools();
-    test_raw_request_routing_surface();
-    test_raw_request_lifecycle_after_stop();
+    auto run = [](std::string_view name, auto&& fn) {
+      std::cerr << "[ RUN      ] " << name << "\n";
+      fn();
+      std::cerr << "[       OK ] " << name << "\n";
+    };
+    run("disabled upstream", test_disabled_upstream);
+    run("invalid config advertises no tools",
+        test_invalid_config_advertises_no_tools);
+    run("stdio process start failure", test_stdio_process_start_failure);
+    run("tools list fail fast after partial success",
+        test_tools_list_fail_fast_after_partial_success);
+    run("resources list fail fast after partial success",
+        test_resources_list_fail_fast_after_partial_success);
+    run("resource templates list fail fast after partial success",
+        test_resource_templates_list_fail_fast_after_partial_success);
+    run("prompts list fail fast after partial success",
+        test_prompts_list_fail_fast_after_partial_success);
+    run("stdio process exit before initialize",
+        test_stdio_process_exit_before_initialize);
+    run("stdio malformed response before initialize",
+        test_stdio_malformed_response_before_initialize);
+    run("first call upstream mcp error records capabilities",
+        test_first_call_upstream_mcp_error_records_capabilities);
+    run("stdio upstream", test_stdio_upstream);
+    run("upstream client capabilities are minimal",
+        test_upstream_client_capabilities_are_minimal);
+    run("runtime observer reports status without logger dependency",
+        test_runtime_observer_reports_status_without_logger_dependency);
+    run("capability advertisement uses initialized upstream cache",
+        test_capability_advertisement_uses_initialized_upstream_cache);
+    run("capability advertisement unions multiple upstream caches",
+        test_capability_advertisement_unions_multiple_upstream_caches);
+    run("hosted capability advertisement uses refresh cache",
+        test_hosted_capability_advertisement_uses_refresh_cache);
+    run("hosted capability advertisement snapshots at start",
+        test_hosted_capability_advertisement_snapshots_at_start);
+    run("completion routes to stdio upstream",
+        test_completion_routes_to_stdio_upstream);
+    run("hosted completion routes after capability refresh",
+        test_hosted_completion_routes_after_capability_refresh);
+    run("repeated stdio calls to one upstream",
+        test_repeated_stdio_calls_to_one_upstream);
+    run("persistent stdio session reuses upstream process",
+        test_persistent_stdio_session_reuses_upstream_process);
+    run("persistent capability refresh prewarms stdio session",
+        test_persistent_capability_refresh_prewarms_stdio_session);
+    run("persistent stdio calls to one upstream are serialized",
+        test_persistent_stdio_calls_to_one_upstream_are_serialized);
+    run("persistent stdio session pool allows same upstream concurrency",
+        test_persistent_stdio_session_pool_allows_same_upstream_concurrency);
+    run("persistent stop rejects queued session pool call",
+        test_persistent_stop_rejects_queued_session_pool_call);
+    run("persistent pool acquire timeout rejects queued call",
+        test_persistent_pool_acquire_timeout_rejects_queued_call);
+    run("persistent runtime stop waits for active stdio call",
+        test_persistent_runtime_stop_waits_for_active_stdio_call);
+    run("persistent pool stop waits for timed out stdio call",
+        test_persistent_pool_stop_waits_for_timed_out_stdio_call);
+    run("persistent stdio failure invalidates session for reconnect",
+        test_persistent_stdio_failure_invalidates_session_for_reconnect);
+    run("persistent stdio pool failure isolates failed slot",
+        test_persistent_stdio_pool_failure_isolates_failed_slot);
+    run("http upstream", test_http_upstream);
+    run("http unavailable", test_http_unavailable);
+    run("http malformed response before initialize",
+        test_http_malformed_response_before_initialize);
+    run("start http invalid config fails before binding port",
+        test_start_http_invalid_config_fails_before_binding_port);
+    run("hosted gateway rejects invalid endpoint options",
+        test_hosted_gateway_rejects_invalid_endpoint_options);
+    run("hosted gateway http endpoint stops while idle",
+        test_hosted_gateway_http_endpoint_stops_while_idle);
+    run("runtime stop observer can reenter lifecycle api",
+        test_runtime_stop_observer_can_reenter_lifecycle_api);
+    run("runtime wait and stop can overlap",
+        test_runtime_wait_and_stop_can_overlap);
+    run("hosted gateway rejects invalid json rpc request",
+        test_hosted_gateway_rejects_invalid_json_rpc_request);
+    run("runtime move assignment stops existing endpoint",
+        test_runtime_move_assignment_stops_existing_endpoint);
+    run("http timeout", test_http_timeout);
+    run("persistent http calls to one upstream are serialized",
+        test_persistent_http_calls_to_one_upstream_are_serialized);
+    run("persistent http session pool handles queued calls",
+        test_persistent_http_session_pool_handles_queued_calls);
+    run("persistent http stop rejects queued session pool call",
+        test_persistent_http_stop_rejects_queued_session_pool_call);
+    run("persistent http pool acquire timeout rejects queued call",
+        test_persistent_http_pool_acquire_timeout_rejects_queued_call);
+    run("persistent http failure invalidates session for reconnect",
+        test_persistent_http_failure_invalidates_session_for_reconnect);
+    run("persistent http pool timeout recovers",
+        test_persistent_http_pool_timeout_recovers);
+    run("stdio timeout", test_stdio_timeout);
+    run("concurrent http calls update active state",
+        test_concurrent_http_calls_update_active_state);
+    run("concurrent stdio calls to one upstream",
+        test_concurrent_stdio_calls_to_one_upstream);
+    run("multi upstream tools list starts upstreams concurrently",
+        test_multi_upstream_tools_list_starts_upstreams_concurrently);
+    run("tools list uses cached catalog until cleared",
+        test_tools_list_uses_cached_catalog_until_cleared);
+    run("clear cached catalogs keeps persistent session",
+        test_clear_cached_catalogs_keeps_persistent_session);
+    run("cancellation and progress notifications are local noops",
+        test_cancellation_and_progress_notifications_are_local_noops);
+    run("runtime stop waits for active stdio call",
+        test_runtime_stop_waits_for_active_stdio_call);
+    run("runtime stop timeout bounds active stdio call wait",
+        test_runtime_stop_timeout_bounds_active_stdio_call_wait);
+    run("runtime stop waits for active http call",
+        test_runtime_stop_waits_for_active_http_call);
+    run("runtime stop timeout bounds active http call wait",
+        test_runtime_stop_timeout_bounds_active_http_call_wait);
+    run("concurrent calls to multiple upstreams",
+        test_concurrent_calls_to_multiple_upstreams);
+    run("hosted gateway http endpoint", test_hosted_gateway_http_endpoint);
+    run("hosted gateway rejects request before initialized notification",
+        test_hosted_gateway_rejects_request_before_initialized_notification);
+    run("hosted gateway rejects request before initialize",
+        test_hosted_gateway_rejects_request_before_initialize);
+    run("hosted gateway multiple downstream clients",
+        test_hosted_gateway_multiple_downstream_clients);
+    run("hosted gateway multiple downstream clients to http upstreams",
+        test_hosted_gateway_multiple_downstream_clients_to_http_upstreams);
+    run("hosted cancellation notifications do not cancel upstream call",
+        test_hosted_cancellation_notifications_do_not_cancel_upstream_call);
+    run("hosted cancellation notifications do not cancel http upstream call",
+        test_hosted_cancellation_notifications_do_not_cancel_http_upstream_call);
+    run("downstream close during active upstream call clears state",
+        test_downstream_close_during_active_upstream_call_clears_state);
+    run("downstream close during active http upstream call clears state",
+        test_downstream_close_during_active_http_upstream_call_clears_state);
+    run("hosted gateway without enabled upstreams advertises no tools",
+        test_hosted_gateway_without_enabled_upstreams_advertises_no_tools);
+    run("raw request routing surface", test_raw_request_routing_surface);
+    run("raw request lifecycle after stop",
+        test_raw_request_lifecycle_after_stop);
+    run("notification lifecycle after stop",
+        test_notification_lifecycle_after_stop);
     return 0;
   } catch (const std::exception& ex) {
     std::cerr << "gateway runtime integration failed: " << ex.what() << "\n";

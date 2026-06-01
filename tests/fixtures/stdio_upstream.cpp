@@ -26,7 +26,28 @@ namespace {
 
 class MarkerFile final {
  public:
-  explicit MarkerFile(const char* path) : path_(path == nullptr ? "" : path) {
+  MarkerFile(const char* path, const char* directory)
+      : path_(path == nullptr ? "" : path) {
+    const std::filesystem::path directory_path =
+        directory == nullptr ? std::filesystem::path{} : directory;
+    if (!directory_path.empty()) {
+      std::error_code ignored;
+      std::filesystem::create_directories(directory_path, ignored);
+      for (int attempt = 0; attempt < 100; ++attempt) {
+        const auto name =
+            "started-" +
+            std::to_string(std::chrono::steady_clock::now()
+                               .time_since_epoch()
+                               .count()) +
+            "-" + std::to_string(attempt) + ".txt";
+        const auto candidate = directory_path / name;
+        if (std::filesystem::exists(candidate)) {
+          continue;
+        }
+        path_ = candidate;
+        break;
+      }
+    }
     if (path_.empty()) {
       return;
     }
@@ -48,19 +69,44 @@ class MarkerFile final {
   std::filesystem::path path_;
 };
 
+bool has_arg(int argc, char** argv, const std::string& name) {
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i] == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string option_value(int argc, char** argv, const std::string& name) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (argv[i] == name) {
+      return argv[i + 1];
+    }
+  }
+  return {};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   using Json = mcp::protocol::Json;
   using ToolResult = mcp::protocol::ToolResult;
 
-  MarkerFile marker(std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_FILE"));
+  MarkerFile marker(std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_FILE"),
+                    std::getenv("CXXMCP_GATEWAY_STDIO_MARKER_DIR"));
 
-  if (argc > 1 && std::string(argv[1]) == "--exit-immediately") {
+  const auto startup_delay = option_value(argc, argv, "--startup-delay-ms");
+  if (!startup_delay.empty()) {
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds{std::stoi(startup_delay)});
+  }
+
+  if (has_arg(argc, argv, "--exit-immediately")) {
     return 0;
   }
 
-  if (argc > 1 && std::string(argv[1]) == "--malformed-response") {
+  if (has_arg(argc, argv, "--malformed-response")) {
     std::cout << "{not-json}\n";
     std::cout.flush();
     std::string ignored;
@@ -68,7 +114,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (argc > 1 && std::string(argv[1]) == "--tools-only") {
+  if (has_arg(argc, argv, "--tools-only")) {
     return mcp::ServerPeer::builder()
         .name("cxxmcp-gateway-tools-only-fixture")
         .version("1.0.0")
@@ -111,6 +157,11 @@ int main(int argc, char** argv) {
                       input.value("value", std::string{}));
                 }))
       .tool<Json, ToolResult>("slow", [](const Json& input) {
+        if (const auto* marker_path =
+                std::getenv("CXXMCP_GATEWAY_STDIO_SLOW_MARKER_FILE")) {
+          std::ofstream marker(marker_path, std::ios::binary);
+          marker << "entered\n";
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds{
             input.value("sleepMs", 500)});
         return ToolResult::text("slow-done");

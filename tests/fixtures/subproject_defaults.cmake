@@ -40,6 +40,9 @@ endif()
 if(TARGET cxxmcp_gateway_config_io)
     message(FATAL_ERROR \"subproject should not build config_io by default\")
 endif()
+if(TARGET cxxmcp_gateway_embedded_runtime_example)
+    message(FATAL_ERROR \"subproject should not build examples by default\")
+endif()
 if(TARGET cxxmcp_gateway_router_tests OR
    TARGET cxxmcp_gateway_runtime_integration_tests OR
    TARGET cxxmcp_gateway_config_io_tests)

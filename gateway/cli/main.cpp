@@ -1,6 +1,7 @@
 // Copyright (c) 2025 [caomengxuan666]
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <optional>
@@ -25,6 +26,10 @@ void print_usage(std::ostream& out) {
 #endif
   out << " [--host <host>]\n"
       << "      [--port <port>] [--path <path>]\n"
+      << "      [--session-mode <per-call|persistent>]\n"
+      << "      [--session-pool-size <n>]\n"
+      << "      [--session-acquire-timeout-ms <ms>]\n"
+      << "      [--active-call-drain-timeout-ms <ms>] [--prewarm]\n"
       << "      --upstream-http <id=url> [--upstream-http <id=url> ...]\n"
       << "      --upstream-stdio <id=command> [--upstream-stdio <id=command> ...]\n";
 }
@@ -42,6 +47,31 @@ bool parse_port(std::string_view text, std::uint16_t& port) {
   return true;
 }
 
+bool parse_positive_size(std::string_view text, std::size_t& value) {
+  std::size_t parsed_value = 0;
+  const auto* begin = text.data();
+  const auto* end = text.data() + text.size();
+  const auto parsed = std::from_chars(begin, end, parsed_value);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || parsed_value == 0) {
+    return false;
+  }
+  value = parsed_value;
+  return true;
+}
+
+bool parse_nonnegative_milliseconds(std::string_view text,
+                                    std::chrono::milliseconds& value) {
+  std::int64_t parsed_value = 0;
+  const auto* begin = text.data();
+  const auto* end = text.data() + text.size();
+  const auto parsed = std::from_chars(begin, end, parsed_value);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || parsed_value < 0) {
+    return false;
+  }
+  value = std::chrono::milliseconds{parsed_value};
+  return true;
+}
+
 bool split_assignment(std::string_view text, std::string& key,
                       std::string& value) {
   const auto equals = text.find('=');
@@ -52,6 +82,19 @@ bool split_assignment(std::string_view text, std::string& key,
   key = std::string(text.substr(0, equals));
   value = std::string(text.substr(equals + 1));
   return true;
+}
+
+bool parse_session_mode(std::string_view text,
+                        mcp::gateway::UpstreamSessionMode& mode) {
+  if (text == "per-call" || text == "per_call") {
+    mode = mcp::gateway::UpstreamSessionMode::per_call;
+    return true;
+  }
+  if (text == "persistent") {
+    mode = mcp::gateway::UpstreamSessionMode::persistent;
+    return true;
+  }
+  return false;
 }
 
 }  // namespace
@@ -79,6 +122,12 @@ int main(int argc, char** argv) {
 
   mcp::gateway::HttpEndpoint endpoint;
   mcp::gateway::GatewayConfig config;
+  mcp::gateway::GatewayRuntimeConfig runtime_config;
+  std::optional<mcp::gateway::UpstreamSessionMode> session_mode_override;
+  std::optional<std::size_t> session_pool_size_override;
+  std::optional<std::chrono::milliseconds> session_acquire_timeout_override;
+  std::optional<std::chrono::milliseconds> active_call_drain_timeout_override;
+  bool prewarm_flag = false;
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   std::optional<std::string> config_file;
 #endif
@@ -102,6 +151,47 @@ int main(int argc, char** argv) {
     }
     if (arg == "--path" && i + 1 < args.size()) {
       endpoint.path = std::string(args[++i]);
+      continue;
+    }
+    if (arg == "--session-mode" && i + 1 < args.size()) {
+      mcp::gateway::UpstreamSessionMode mode =
+          mcp::gateway::UpstreamSessionMode::per_call;
+      if (!parse_session_mode(args[++i], mode)) {
+        std::cerr << "invalid --session-mode value\n";
+        return 2;
+      }
+      session_mode_override = mode;
+      continue;
+    }
+    if (arg == "--session-pool-size" && i + 1 < args.size()) {
+      std::size_t pool_size = 1;
+      if (!parse_positive_size(args[++i], pool_size)) {
+        std::cerr << "invalid --session-pool-size value\n";
+        return 2;
+      }
+      session_pool_size_override = pool_size;
+      continue;
+    }
+    if (arg == "--session-acquire-timeout-ms" && i + 1 < args.size()) {
+      std::chrono::milliseconds timeout{0};
+      if (!parse_nonnegative_milliseconds(args[++i], timeout)) {
+        std::cerr << "invalid --session-acquire-timeout-ms value\n";
+        return 2;
+      }
+      session_acquire_timeout_override = timeout;
+      continue;
+    }
+    if (arg == "--active-call-drain-timeout-ms" && i + 1 < args.size()) {
+      std::chrono::milliseconds timeout{0};
+      if (!parse_nonnegative_milliseconds(args[++i], timeout)) {
+        std::cerr << "invalid --active-call-drain-timeout-ms value\n";
+        return 2;
+      }
+      active_call_drain_timeout_override = timeout;
+      continue;
+    }
+    if (arg == "--prewarm") {
+      prewarm_flag = true;
       continue;
     }
     if (arg == "--port" && i + 1 < args.size()) {
@@ -146,7 +236,8 @@ int main(int argc, char** argv) {
 
 #if defined(CXXMCP_GATEWAY_HAS_CONFIG_IO)
   if (config_file.has_value()) {
-    auto loaded = mcp::gateway::load_gateway_config_file(*config_file);
+    auto loaded =
+        mcp::gateway::load_gateway_config_document_file(*config_file);
     if (!loaded) {
       std::cerr << "failed to load config: " << loaded.error().message;
       if (!loaded.error().detail.empty()) {
@@ -155,8 +246,9 @@ int main(int argc, char** argv) {
       std::cerr << "\n";
       return 2;
     }
+    runtime_config = loaded->runtime;
     auto merged = mcp::gateway::merge_gateway_config_upstreams(
-        std::move(*loaded), std::move(config));
+        std::move(loaded->config), std::move(config));
     if (!merged) {
       std::cerr << "failed to merge config: " << merged.error().message;
       if (!merged.error().detail.empty()) {
@@ -169,12 +261,52 @@ int main(int argc, char** argv) {
   }
 #endif
 
+  if (session_mode_override.has_value()) {
+    runtime_config.upstream_session_mode = *session_mode_override;
+  }
+  if (session_pool_size_override.has_value()) {
+    runtime_config.persistent_session_pool_size =
+        *session_pool_size_override;
+  }
+  if (session_acquire_timeout_override.has_value()) {
+    runtime_config.persistent_session_acquire_timeout =
+        *session_acquire_timeout_override;
+  }
+  if (active_call_drain_timeout_override.has_value()) {
+    runtime_config.active_call_drain_timeout =
+        *active_call_drain_timeout_override;
+  }
+  if (prewarm_flag) {
+    runtime_config.prewarm_capabilities = true;
+  }
+
   if (config.upstreams.empty()) {
     std::cerr << "at least one upstream is required\n";
     return 2;
   }
 
-  mcp::gateway::GatewayRuntime runtime(std::move(config));
+  mcp::gateway::GatewayRuntimeOptions runtime_options;
+  runtime_options.upstream_session_mode = runtime_config.upstream_session_mode;
+  runtime_options.persistent_session_pool_size =
+      runtime_config.persistent_session_pool_size;
+  runtime_options.persistent_session_acquire_timeout =
+      runtime_config.persistent_session_acquire_timeout;
+  runtime_options.active_call_drain_timeout =
+      runtime_config.active_call_drain_timeout;
+  mcp::gateway::GatewayRuntime runtime(std::move(config),
+                                       std::move(runtime_options));
+  if (runtime_config.prewarm_capabilities) {
+    auto refreshed = runtime.refresh_upstream_capabilities();
+    if (!refreshed) {
+      std::cerr << "failed to prewarm upstream capabilities: "
+                << refreshed.error().message;
+      if (!refreshed.error().detail.empty()) {
+        std::cerr << ": " << refreshed.error().detail;
+      }
+      std::cerr << "\n";
+      return 1;
+    }
+  }
   auto started = runtime.start_http(std::move(endpoint));
   if (!started) {
     std::cerr << "failed to start gateway: " << started.error().message;
