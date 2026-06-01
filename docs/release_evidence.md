@@ -48,6 +48,7 @@ It is intentionally an index, not a replacement for running the gates.
 | --- | --- |
 | Tools/resources/prompts/completion data plane | `gateway_runtime_integration` |
 | Capability-aware advertisement | `gateway_runtime_integration` capability advertisement tests |
+| Side-effect-free lifecycle inspection | `test_runtime_stop_waits_for_active_stdio_call`, `test_runtime_stop_timeout_bounds_active_http_call_wait` |
 | Catalog caching and invalidation | `test_tools_list_uses_cached_catalog_until_cleared`, `test_clear_cached_catalogs_keeps_persistent_session` |
 | Per-call default session behavior | repeated stdio call tests and stdio child-process cleanup assertions |
 | Opt-in persistent sessions | persistent stdio and HTTP lifecycle tests |

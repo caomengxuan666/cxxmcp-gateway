@@ -714,6 +714,21 @@ void require_stopping_notifications_are_noops(
                  "stopping notification no-ops should not change status");
 }
 
+void require_inspection_apis_preserve_lifecycle_state(
+    mcp::gateway::GatewayRuntime& runtime, std::string_view upstream_id,
+    UpstreamRuntimeStatus expected_status, std::size_t min_active_calls) {
+  const auto capabilities = runtime.server_capabilities();
+  require(capabilities.tools.enabled,
+          "inspection server_capabilities should remain available");
+
+  const auto state =
+      require_upstream_state(runtime.upstream_states(), upstream_id);
+  require(state.active_calls >= min_active_calls,
+          "inspection APIs should not clear active call state");
+  require_status(state, expected_status,
+                 "inspection APIs should not change lifecycle status");
+}
+
 void require_gateway_unsupported_capability_error(
     const mcp::core::Error& error, std::string_view upstream_id) {
   require(error.code ==
@@ -4300,6 +4315,9 @@ void test_runtime_stop_waits_for_active_stdio_call() {
   require(observed_stopping,
           "runtime stop should expose stopping state while stdio call drains");
 
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "stdio_stop", UpstreamRuntimeStatus::stopping, 1);
+
   require_stopping_notifications_are_noops(runtime, "stdio_stop");
 
   require_stopping_raw_requests_are_rejected(runtime, "stdio_stop");
@@ -4381,6 +4399,8 @@ void test_runtime_stop_waits_for_active_stdio_call() {
           "runtime stop should clear active stdio call count");
   require_status(state, UpstreamRuntimeStatus::stopped,
                  "runtime stop should mark stdio upstream stopped");
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "stdio_stop", UpstreamRuntimeStatus::stopped, 0);
   bool marker_removed = false;
   for (int attempt = 0; attempt < 200; ++attempt) {
     if (!std::filesystem::exists(marker_path)) {
@@ -4716,6 +4736,9 @@ void test_runtime_stop_timeout_bounds_active_http_call_wait() {
   require_status(stopping, UpstreamRuntimeStatus::stopping,
                  "active http drain timeout should leave runtime stopping");
 
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "shutdown_timeout", UpstreamRuntimeStatus::stopping, 1);
+
   require_stopping_notifications_are_noops(runtime, "shutdown_timeout");
 
   require_stopping_raw_requests_are_rejected(runtime, "shutdown_timeout");
@@ -4735,6 +4758,8 @@ void test_runtime_stop_timeout_bounds_active_http_call_wait() {
   require_status(stopped_state, UpstreamRuntimeStatus::stopped,
                  "active http drain timeout follow-up stop should mark "
                  "stopped");
+  require_inspection_apis_preserve_lifecycle_state(
+      runtime, "shutdown_timeout", UpstreamRuntimeStatus::stopped, 0);
 
   const auto stopped_server = running->stop();
   require(stopped_server.has_value(),

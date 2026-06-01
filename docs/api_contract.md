@@ -136,6 +136,9 @@ progress, cancellation forwarding, or logging control.
   `stop()` again after active calls finish.
 - `wait()` may overlap with `stop()`. It holds the hosted service alive while
   waiting.
+- Inspection APIs such as `server_capabilities()` and `upstream_states()`
+  remain side-effect-free during `stopping` and after `stop()`. Hosts can use
+  them for diagnostics without restarting upstream sessions.
 - After `stop()`, side-effecting runtime APIs return runtime lifecycle errors.
 
 The destructor calls `stop()`. Hosts should still call `stop()` explicitly when
