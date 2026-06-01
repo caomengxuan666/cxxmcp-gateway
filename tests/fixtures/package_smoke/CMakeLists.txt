@@ -9,6 +9,7 @@ if(NOT TARGET cxxmcp-gateway::core)
         "default package discovery did not export cxxmcp-gateway::core")
 endif()
 
+find_package(cxxmcp-gateway 0.1 CONFIG REQUIRED COMPONENTS core)
 find_package(cxxmcp-gateway CONFIG REQUIRED COMPONENTS core)
 
 add_executable(cxxmcp_gateway_package_core core_consumer.cpp)
