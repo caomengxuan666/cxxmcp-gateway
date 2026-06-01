@@ -19,6 +19,10 @@ core::Result<GatewayConfig> gateway_config_from_json(
     const protocol::Json& json);
 core::Result<GatewayConfigDocument> gateway_config_document_from_json(
     const protocol::Json& json);
+core::Result<GatewayConfig> gateway_config_from_json_text(
+    std::string_view text);
+core::Result<GatewayConfigDocument> gateway_config_document_from_json_text(
+    std::string_view text);
 core::Result<GatewayConfig> load_gateway_config_file(
     std::string_view path);
 core::Result<GatewayConfigDocument> load_gateway_config_document_file(

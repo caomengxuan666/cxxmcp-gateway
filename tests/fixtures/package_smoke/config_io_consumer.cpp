@@ -14,6 +14,11 @@ int main() {
   if (!parsed.has_value()) {
     return 1;
   }
+  auto parsed_text =
+      mcp::gateway::gateway_config_from_json_text(json.dump());
+  if (!parsed_text.has_value() || parsed_text->upstreams.size() != 1) {
+    return 1;
+  }
   auto invalid_config =
       mcp::gateway::gateway_config_from_json(mcp::protocol::Json::object());
   if (invalid_config.has_value() ||
@@ -36,6 +41,14 @@ int main() {
   auto document =
       mcp::gateway::gateway_config_document_from_json(document_json);
   if (!document.has_value()) {
+    return 1;
+  }
+  auto document_text =
+      mcp::gateway::gateway_config_document_from_json_text(
+          document_json.dump());
+  if (!document_text.has_value() ||
+      document_text->runtime.upstream_session_mode !=
+          mcp::gateway::UpstreamSessionMode::persistent) {
     return 1;
   }
   auto invalid_document = mcp::gateway::gateway_config_document_from_json(

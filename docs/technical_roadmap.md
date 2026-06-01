@@ -456,7 +456,8 @@ Scope:
 
 Current implementation status:
 
-- `cxxmcp_gateway_config_io` provides JSON-to-`GatewayConfig` loading;
+- `cxxmcp_gateway_config_io` provides JSON object, JSON text, and JSON file
+  loading into normalized gateway config types;
 - the CLI can use `--config <file>` when config IO is built;
 - command-line upstream flags are appended to the loaded config and the merged
   config is validated before runtime startup;

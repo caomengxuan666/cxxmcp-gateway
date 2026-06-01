@@ -98,6 +98,12 @@ void test_parse_json_config() {
   require(parsed->upstreams[1].streamable_http.headers.at("Authorization") ==
               "Bearer token",
           "http headers should parse");
+
+  auto parsed_text = mcp::gateway::gateway_config_from_json_text(json.dump());
+  require(parsed_text.has_value(),
+          "valid JSON text gateway config should parse");
+  require(parsed_text->upstreams.size() == 2,
+          "JSON text gateway config should preserve upstreams");
 }
 
 void test_parse_json_config_document() {
@@ -129,6 +135,14 @@ void test_parse_json_config_document() {
           "document active call drain timeout should parse");
   require(parsed->runtime.prewarm_capabilities,
           "document prewarm flag should parse");
+
+  auto parsed_text =
+      mcp::gateway::gateway_config_document_from_json_text(json.dump());
+  require(parsed_text.has_value(),
+          "valid JSON text gateway document should parse");
+  require(parsed_text->runtime.upstream_session_mode ==
+              mcp::gateway::UpstreamSessionMode::persistent,
+          "JSON text gateway document runtime should parse");
 
   const Json per_call = {
       {"runtime", Json{{"upstreamSessionMode", "per-call"}}},
@@ -454,6 +468,25 @@ void test_reject_endpoint_fields() {
       "$.path", "config path endpoint field should fail");
 }
 
+void test_parse_json_text_errors() {
+  auto malformed = mcp::gateway::gateway_config_from_json_text("{");
+  require(!malformed.has_value(), "malformed JSON text config should fail");
+  require(malformed.error().category == "gateway.config",
+          "JSON text config parser should use gateway.config category");
+  require(malformed.error().message == "failed to parse gateway config JSON",
+          "JSON text config parser should report stable parse failure");
+
+  auto malformed_document =
+      mcp::gateway::gateway_config_document_from_json_text("{");
+  require(!malformed_document.has_value(),
+          "malformed JSON text document should fail");
+  require(malformed_document.error().category == "gateway.config",
+          "JSON text document parser should use gateway.config category");
+  require(malformed_document.error().message ==
+              "failed to parse gateway config JSON",
+          "JSON text document parser should report stable parse failure");
+}
+
 void test_parse_disabled_upstreams_without_connection_fields() {
   const Json json = {
       {"upstreams",
@@ -531,6 +564,7 @@ int main() {
     test_reject_optional_string_type_mismatches();
     test_reject_structured_field_type_mismatches();
     test_reject_endpoint_fields();
+    test_parse_json_text_errors();
     test_parse_disabled_upstreams_without_connection_fields();
     test_load_config_file();
     return 0;
