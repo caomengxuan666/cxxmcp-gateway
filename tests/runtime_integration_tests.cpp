@@ -5462,6 +5462,26 @@ void test_hosted_gateway_http_endpoint_stops_while_idle() {
   require_runtime_stopped_error(restarted.error(), "start_http");
 }
 
+void test_runtime_destructor_stops_hosted_endpoint() {
+  const auto kPort = find_available_loopback_port();
+  {
+    mcp::gateway::GatewayRuntime gateway(make_disabled_config());
+    auto started = gateway.start_http(
+        {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+    require(started.has_value(),
+            "destructor-owned hosted gateway endpoint should start");
+  }
+
+  mcp::gateway::GatewayRuntime rebound(make_disabled_config("rebound"));
+  auto rebound_started = rebound.start_http(
+      {.host = "127.0.0.1", .port = kPort, .path = "/mcp"});
+  require(rebound_started.has_value(),
+          "destructor should stop hosted endpoint and release port");
+  auto rebound_stopped = rebound.stop();
+  require(rebound_stopped.has_value(),
+          "rebound gateway should stop after destructor release check");
+}
+
 void test_runtime_stop_observer_can_reenter_lifecycle_api() {
   mcp::gateway::GatewayRuntime* runtime_ptr = nullptr;
   bool saw_stopping = false;
@@ -7153,6 +7173,8 @@ int main() {
         test_hosted_gateway_rejects_invalid_endpoint_options);
     run("hosted gateway http endpoint stops while idle",
         test_hosted_gateway_http_endpoint_stops_while_idle);
+    run("runtime destructor stops hosted endpoint",
+        test_runtime_destructor_stops_hosted_endpoint);
     run("runtime stop observer can reenter lifecycle api",
         test_runtime_stop_observer_can_reenter_lifecycle_api);
     run("runtime wait and stop can overlap",
