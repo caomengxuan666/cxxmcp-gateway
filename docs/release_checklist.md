@@ -64,6 +64,8 @@ checks below.
   config IO.
 - `find_package(... COMPONENTS runtime config_io cli)` resolves only for
   components that were built and installed.
+- Unknown package components fail clearly and preserve the requested component
+  name in the CMake diagnostic.
 - `BUILD_SHARED_LIBS` remains honored by library targets.
 - `<cxxmcp/gateway.hpp>` remains core-only.
 - Runtime package consumers can call both typed runtime APIs and raw

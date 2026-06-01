@@ -26,7 +26,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Build-tree package consumer | `gateway_package_build_tree_configure`, `gateway_package_build_tree_build`, `gateway_package_build_tree_run` |
 | Install-tree package consumer | `gateway_package_install_tree_install`, `gateway_package_install_tree_configure`, `gateway_package_install_tree_build`, `gateway_package_install_tree_run` |
 | Component install behavior | `gateway_package_component_install_smoke` |
-| Missing component failures | `gateway_package_core_only_runtime_component_fails`, `gateway_package_config_io_component_fails`, `gateway_package_cli_component_fails`, `gateway_package_cli_dependency_component_fails`, `gateway_package_full_build_core_component_fails` |
+| Missing component failures | `gateway_package_core_only_runtime_component_fails`, `gateway_package_config_io_component_fails`, `gateway_package_cli_component_fails`, `gateway_package_unknown_component_fails`, `gateway_package_cli_dependency_component_fails`, `gateway_package_full_build_core_component_fails` |
 | Subproject defaults | `gateway_subproject_defaults` |
 | Optional embedded example | `gateway_examples_build` |
 
