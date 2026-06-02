@@ -28,6 +28,8 @@ the release checklist.
 - It does not start a hosted HTTP endpoint until `start_http()` is called.
 - `HttpEndpoint::bearer_tokens` optionally installs SDK static bearer
   authentication for the hosted Streamable HTTP endpoint.
+- `HttpEndpoint::rate_limit` optionally installs an SDK fixed-window rate
+  limiter for the hosted Streamable HTTP endpoint.
 - Disabled upstreams remain visible in `upstream_states()` but are not routed.
 - Hosts should call `validate_gateway_config()` before construction or before
   exposing config errors to users. Construction itself does not bind a port or

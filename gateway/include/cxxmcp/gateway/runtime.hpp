@@ -49,11 +49,17 @@ struct BearerTokenAuthEntry {
   std::string subject;
 };
 
+struct FixedWindowRateLimit {
+  std::size_t requests_per_window = 0;
+  std::chrono::milliseconds window{1000};
+};
+
 struct HttpEndpoint {
   std::string host = "127.0.0.1";
   std::uint16_t port = 3000;
   std::string path = "/mcp";
   std::vector<BearerTokenAuthEntry> bearer_tokens;
+  FixedWindowRateLimit rate_limit;
 };
 
 enum class GatewayRuntimeEventKind {

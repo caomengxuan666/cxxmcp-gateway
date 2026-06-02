@@ -21,6 +21,7 @@
 #include "cxxmcp/peer.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
 #include "cxxmcp/server/auth.hpp"
+#include "cxxmcp/server/rate_limit.hpp"
 #include "cxxmcp/service.hpp"
 #include "cxxmcp/transport/process_stdio_transport.hpp"
 
@@ -81,6 +82,81 @@ std::unique_ptr<server::StaticBearerAuthProvider> make_bearer_auth_provider(
                     });
   }
   return auth;
+}
+
+class FixedWindowRateLimiter final : public server::RateLimiter {
+ public:
+  explicit FixedWindowRateLimiter(FixedWindowRateLimit config)
+      : requests_per_window_(config.requests_per_window),
+        window_(config.window.count() > 0 ? config.window
+                                          : std::chrono::milliseconds{1000}) {}
+
+  core::Result<server::RateLimitDecision> check(
+      const server::RateLimitRequest& /*request*/) override {
+    if (requests_per_window_ == 0) {
+      return server::RateLimitDecision{};
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(mutex_);
+    if (window_start_.time_since_epoch().count() == 0 ||
+        now - window_start_ >= window_) {
+      window_start_ = now;
+      count_ = 0;
+    }
+
+    if (count_ >= requests_per_window_) {
+      const auto elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              now - window_start_);
+      const auto retry_after = elapsed >= window_
+                                   ? std::chrono::milliseconds{0}
+                                   : window_ - elapsed;
+      return server::RateLimitDecision{.allowed = false,
+                                       .retry_after = retry_after};
+    }
+
+    ++count_;
+    return server::RateLimitDecision{};
+  }
+
+ private:
+  std::size_t requests_per_window_ = 0;
+  std::chrono::milliseconds window_{1000};
+  std::mutex mutex_;
+  std::chrono::steady_clock::time_point window_start_;
+  std::size_t count_ = 0;
+};
+
+std::unique_ptr<server::RateLimiter> make_rate_limiter(
+    FixedWindowRateLimit config) {
+  return std::make_unique<FixedWindowRateLimiter>(config);
+}
+
+std::optional<protocol::JsonRpcResponse> rate_limited_response(
+    server::RateLimiter& limiter,
+    const protocol::JsonRpcRequest& request) {
+  server::RateLimitRequest rate_request;
+  rate_request.method = request.method;
+  const auto decision = limiter.check(rate_request);
+  if (!decision) {
+    return protocol::make_error_response(
+        request.id,
+        protocol::make_error(
+            static_cast<int>(protocol::ErrorCode::RateLimited),
+            "rate limiting failed",
+            decision.error().message.empty()
+                ? std::nullopt
+                : std::optional<protocol::Json>{decision.error().message}));
+  }
+  if (!decision->allowed) {
+    return protocol::make_error_response(
+        request.id,
+        protocol::make_error(
+            static_cast<int>(protocol::ErrorCode::RateLimited),
+            "request rate limited"));
+  }
+  return std::nullopt;
 }
 
 UpstreamSessionMode normalize_session_mode(UpstreamSessionMode mode) {
@@ -1752,10 +1828,21 @@ core::Result<core::Unit> GatewayRuntime::start_http(HttpEndpoint endpoint) {
   if (!endpoint.bearer_tokens.empty()) {
     builder.auth_provider(make_bearer_auth_provider(endpoint.bearer_tokens));
   }
+  std::shared_ptr<server::RateLimiter> rate_limiter;
+  if (endpoint.rate_limit.requests_per_window > 0) {
+    rate_limiter = make_rate_limiter(endpoint.rate_limit);
+  }
   auto peer =
       builder.streamable_http(endpoint.host, endpoint.port, endpoint.path)
           .raw_request(
-              [impl = impl_.get()](const protocol::JsonRpcRequest& request) {
+              [impl = impl_.get(),
+               rate_limiter](const protocol::JsonRpcRequest& request) {
+                if (rate_limiter) {
+                  if (auto limited =
+                          rate_limited_response(*rate_limiter, request)) {
+                    return limited;
+                  }
+                }
                 return impl->handle_request(request);
               })
           .on_raw_notification(
