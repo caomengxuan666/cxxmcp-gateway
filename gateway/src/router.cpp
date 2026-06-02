@@ -195,6 +195,34 @@ core::Result<core::Unit> validate_gateway_config(
           "gateway tool deny policy entries must not be empty"));
     }
   }
+  for (const auto& resource_uri : config.resource_policy.allow_resources) {
+    if (resource_uri.empty()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway resource allow policy entries must not be empty"));
+    }
+  }
+  for (const auto& resource_uri : config.resource_policy.deny_resources) {
+    if (resource_uri.empty()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway resource deny policy entries must not be empty"));
+    }
+  }
+  for (const auto& prompt_name : config.prompt_policy.allow_prompts) {
+    if (prompt_name.empty()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway prompt allow policy entries must not be empty"));
+    }
+  }
+  for (const auto& prompt_name : config.prompt_policy.deny_prompts) {
+    if (prompt_name.empty()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway prompt deny policy entries must not be empty"));
+    }
+  }
 
   std::unordered_set<std::string> seen_upstreams;
   for (const auto& upstream : config.upstreams) {

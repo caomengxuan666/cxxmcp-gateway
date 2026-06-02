@@ -46,11 +46,23 @@ struct ToolPolicy {
   std::vector<std::string> deny_tools;
 };
 
+struct ResourcePolicy {
+  std::vector<std::string> allow_resources;
+  std::vector<std::string> deny_resources;
+};
+
+struct PromptPolicy {
+  std::vector<std::string> allow_prompts;
+  std::vector<std::string> deny_prompts;
+};
+
 struct GatewayConfig {
   std::string name = "cxxmcp-gateway";
   std::string version = "0.1.0";
   std::vector<UpstreamServer> upstreams;
   ToolPolicy tool_policy;
+  ResourcePolicy resource_policy;
+  PromptPolicy prompt_policy;
 };
 
 enum class UpstreamSessionMode {

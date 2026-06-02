@@ -69,6 +69,8 @@ enum class GatewayRuntimeEventKind {
   tools_listed,
   tool_called,
   tool_denied,
+  resource_denied,
+  prompt_denied,
 };
 
 struct GatewayRuntimeEvent {

@@ -94,10 +94,17 @@ tools are visible in `tools/list` and callable through `tools/call`.
 {
   "policy": {
     "allowTools": ["fs.read"],
-    "denyTools": ["tools.delete"]
+    "denyTools": ["tools.delete"],
+    "allowResources": ["fs.file:///safe/readme.md"],
+    "denyPrompts": ["fs.secret_prompt"]
   }
 }
 ```
+
+Resources and prompts use the same exact-match shape through `allowResources` /
+`denyResources` and `allowPrompts` / `denyPrompts`. Resource-template-specific
+policy remains separate future work because template matching is not the same
+contract as concrete exposed resource URI matching.
 
 ## Multi-Upstream Namespace Composition
 

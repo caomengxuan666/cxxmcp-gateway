@@ -447,6 +447,30 @@ core::Result<GatewayConfig> gateway_config_from_json(
     }
     config.tool_policy.allow_tools = std::move(*allow_tools);
     config.tool_policy.deny_tools = std::move(*deny_tools);
+    auto allow_resources =
+        optional_string_array(*policy, "allowResources", "$.policy", options);
+    if (!allow_resources) {
+      return mcp::core::unexpected(allow_resources.error());
+    }
+    auto deny_resources =
+        optional_string_array(*policy, "denyResources", "$.policy", options);
+    if (!deny_resources) {
+      return mcp::core::unexpected(deny_resources.error());
+    }
+    config.resource_policy.allow_resources = std::move(*allow_resources);
+    config.resource_policy.deny_resources = std::move(*deny_resources);
+    auto allow_prompts =
+        optional_string_array(*policy, "allowPrompts", "$.policy", options);
+    if (!allow_prompts) {
+      return mcp::core::unexpected(allow_prompts.error());
+    }
+    auto deny_prompts =
+        optional_string_array(*policy, "denyPrompts", "$.policy", options);
+    if (!deny_prompts) {
+      return mcp::core::unexpected(deny_prompts.error());
+    }
+    config.prompt_policy.allow_prompts = std::move(*allow_prompts);
+    config.prompt_policy.deny_prompts = std::move(*deny_prompts);
   }
 
   if (!json.contains("upstreams") || !json.at("upstreams").is_array()) {

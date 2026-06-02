@@ -71,6 +71,30 @@ bool tool_allowed_by_policy(const ToolPolicy& policy,
   return true;
 }
 
+bool resource_allowed_by_policy(const ResourcePolicy& policy,
+                                std::string_view exposed_uri) {
+  if (contains_tool_policy_entry(policy.deny_resources, exposed_uri)) {
+    return false;
+  }
+  if (!policy.allow_resources.empty() &&
+      !contains_tool_policy_entry(policy.allow_resources, exposed_uri)) {
+    return false;
+  }
+  return true;
+}
+
+bool prompt_allowed_by_policy(const PromptPolicy& policy,
+                              std::string_view exposed_name) {
+  if (contains_tool_policy_entry(policy.deny_prompts, exposed_name)) {
+    return false;
+  }
+  if (!policy.allow_prompts.empty() &&
+      !contains_tool_policy_entry(policy.allow_prompts, exposed_name)) {
+    return false;
+  }
+  return true;
+}
+
 std::unique_ptr<server::StaticBearerAuthProvider> make_bearer_auth_provider(
     const std::vector<BearerTokenAuthEntry>& entries) {
   auto auth = std::make_unique<server::StaticBearerAuthProvider>();
@@ -1304,7 +1328,16 @@ struct GatewayRuntime::Impl final {
 
     auto merged = merge_resource_catalogs(catalogs);
     if (merged) {
-      store_resources(*merged);
+      std::vector<protocol::Resource> filtered;
+      filtered.reserve(merged->size());
+      for (auto& resource : *merged) {
+        if (resource_allowed_by_policy(router.config().resource_policy,
+                                       resource.uri)) {
+          filtered.push_back(std::move(resource));
+        }
+      }
+      store_resources(filtered);
+      return filtered;
     }
     return merged;
   }
@@ -1324,6 +1357,18 @@ struct GatewayRuntime::Impl final {
     auto route = router.resolve_resource_route(exposed_uri);
     if (!route) {
       return mcp::core::unexpected(route.error());
+    }
+    if (!resource_allowed_by_policy(router.config().resource_policy,
+                                    exposed_uri)) {
+      auto error = runtime_error("gateway resource denied by policy",
+                                 std::string(exposed_uri));
+      notify_runtime_event(GatewayRuntimeEvent{
+          .kind = GatewayRuntimeEventKind::resource_denied,
+          .method = "resources/read",
+          .exposed_name = std::string(exposed_uri),
+          .error = error,
+      });
+      return mcp::core::unexpected(std::move(error));
     }
     auto supported = require_resource_capability(*route->upstream);
     if (!supported) {
@@ -1475,7 +1520,16 @@ struct GatewayRuntime::Impl final {
 
     auto merged = merge_prompt_catalogs(catalogs);
     if (merged) {
-      store_prompts(*merged);
+      std::vector<protocol::Prompt> filtered;
+      filtered.reserve(merged->size());
+      for (auto& prompt : *merged) {
+        if (prompt_allowed_by_policy(router.config().prompt_policy,
+                                     prompt.name)) {
+          filtered.push_back(std::move(prompt));
+        }
+      }
+      store_prompts(filtered);
+      return filtered;
     }
     return merged;
   }
@@ -1528,6 +1582,18 @@ struct GatewayRuntime::Impl final {
     if (!route) {
       return mcp::core::unexpected(route.error());
     }
+    if (!prompt_allowed_by_policy(router.config().prompt_policy,
+                                  exposed_name)) {
+      auto error = runtime_error("gateway prompt denied by policy",
+                                 std::string(exposed_name));
+      notify_runtime_event(GatewayRuntimeEvent{
+          .kind = GatewayRuntimeEventKind::prompt_denied,
+          .method = "prompts/get",
+          .exposed_name = std::string(exposed_name),
+          .error = error,
+      });
+      return mcp::core::unexpected(std::move(error));
+    }
     auto supported = require_prompt_capability(*route->upstream);
     if (!supported) {
       return mcp::core::unexpected(supported.error());
@@ -1556,16 +1622,42 @@ struct GatewayRuntime::Impl final {
 
     const UpstreamServer* upstream = nullptr;
     if (params.ref.type == "ref/prompt") {
+      const auto exposed_name = params.ref.name;
       auto route = router.resolve_prompt_route(params.ref.name);
       if (!route) {
         return mcp::core::unexpected(route.error());
       }
+      if (!prompt_allowed_by_policy(router.config().prompt_policy,
+                                    exposed_name)) {
+        auto error = runtime_error("gateway prompt denied by policy",
+                                   exposed_name);
+        notify_runtime_event(GatewayRuntimeEvent{
+            .kind = GatewayRuntimeEventKind::prompt_denied,
+            .method = "completion/complete",
+            .exposed_name = exposed_name,
+            .error = error,
+        });
+        return mcp::core::unexpected(std::move(error));
+      }
       upstream = route->upstream;
       params.ref.name = std::move(route->upstream_prompt_name);
     } else if (params.ref.type == "ref/resource") {
-      auto route = router.resolve_resource_route(params.ref.uri.value_or(""));
+      const auto exposed_uri = params.ref.uri.value_or("");
+      auto route = router.resolve_resource_route(exposed_uri);
       if (!route) {
         return mcp::core::unexpected(route.error());
+      }
+      if (!resource_allowed_by_policy(router.config().resource_policy,
+                                      exposed_uri)) {
+        auto error = runtime_error("gateway resource denied by policy",
+                                   exposed_uri);
+        notify_runtime_event(GatewayRuntimeEvent{
+            .kind = GatewayRuntimeEventKind::resource_denied,
+            .method = "completion/complete",
+            .exposed_name = exposed_uri,
+            .error = error,
+        });
+        return mcp::core::unexpected(std::move(error));
       }
       upstream = route->upstream;
       params.ref.name = route->upstream_uri;
