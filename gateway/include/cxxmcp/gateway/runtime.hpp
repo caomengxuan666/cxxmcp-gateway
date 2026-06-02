@@ -44,10 +44,16 @@ struct UpstreamRuntimeState {
   std::optional<core::Error> last_error;
 };
 
+struct BearerTokenAuthEntry {
+  std::string token;
+  std::string subject;
+};
+
 struct HttpEndpoint {
   std::string host = "127.0.0.1";
   std::uint16_t port = 3000;
   std::string path = "/mcp";
+  std::vector<BearerTokenAuthEntry> bearer_tokens;
 };
 
 enum class GatewayRuntimeEventKind {

@@ -20,6 +20,7 @@
 #include "cxxmcp/gateway/router.hpp"
 #include "cxxmcp/peer.hpp"
 #include "cxxmcp/protocol/capabilities.hpp"
+#include "cxxmcp/server/auth.hpp"
 #include "cxxmcp/service.hpp"
 #include "cxxmcp/transport/process_stdio_transport.hpp"
 
@@ -67,6 +68,19 @@ bool tool_allowed_by_policy(const ToolPolicy& policy,
     return false;
   }
   return true;
+}
+
+std::unique_ptr<server::StaticBearerAuthProvider> make_bearer_auth_provider(
+    const std::vector<BearerTokenAuthEntry>& entries) {
+  auto auth = std::make_unique<server::StaticBearerAuthProvider>();
+  for (const auto& entry : entries) {
+    auth->add_token(entry.token,
+                    server::AuthIdentity{
+                        .subject = entry.subject,
+                        .claims = {{"auth", "static-bearer"}},
+                    });
+  }
+  return auth;
 }
 
 UpstreamSessionMode normalize_session_mode(UpstreamSessionMode mode) {
@@ -1731,22 +1745,26 @@ core::Result<core::Unit> GatewayRuntime::start_http(HttpEndpoint endpoint) {
   }
 
   const auto& config = impl_->router.config();
-  auto peer = ServerPeer::builder()
-                  .name(config.name)
-                  .version(config.version)
-                  .capabilities(impl_->server_capabilities())
-                  .streamable_http(endpoint.host, endpoint.port, endpoint.path)
-                  .raw_request([impl = impl_.get()](
-                                   const protocol::JsonRpcRequest& request) {
-                    return impl->handle_request(request);
-                  })
-                  .on_raw_notification(
-                      [impl = impl_.get()](
-                          const protocol::JsonRpcNotification& notification,
-                          const server::SessionContext& /*context*/) {
-                        return impl->handle_notification(notification);
-                      })
-                  .build();
+  auto builder = ServerPeer::builder();
+  builder.name(config.name)
+      .version(config.version)
+      .capabilities(impl_->server_capabilities());
+  if (!endpoint.bearer_tokens.empty()) {
+    builder.auth_provider(make_bearer_auth_provider(endpoint.bearer_tokens));
+  }
+  auto peer =
+      builder.streamable_http(endpoint.host, endpoint.port, endpoint.path)
+          .raw_request(
+              [impl = impl_.get()](const protocol::JsonRpcRequest& request) {
+                return impl->handle_request(request);
+              })
+          .on_raw_notification(
+              [impl = impl_.get()](
+                  const protocol::JsonRpcNotification& notification,
+                  const server::SessionContext& /*context*/) {
+                return impl->handle_notification(notification);
+              })
+          .build();
   if (!peer) {
     return mcp::core::unexpected(peer.error());
   }
