@@ -1029,6 +1029,11 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(valid.error());
     }
     if (auto cached = cached_tools()) {
+      notify_runtime_event(GatewayRuntimeEvent{
+          .kind = GatewayRuntimeEventKind::tools_listed,
+          .method = "tools/list",
+          .item_count = cached->size(),
+      });
       return *cached;
     }
 
@@ -1086,6 +1091,11 @@ struct GatewayRuntime::Impl final {
         }
       }
       store_tools(filtered);
+      notify_runtime_event(GatewayRuntimeEvent{
+          .kind = GatewayRuntimeEventKind::tools_listed,
+          .method = "tools/list",
+          .item_count = filtered.size(),
+      });
       return filtered;
     }
     return merged;
@@ -1108,8 +1118,15 @@ struct GatewayRuntime::Impl final {
       return mcp::core::unexpected(route.error());
     }
     if (!tool_allowed_by_policy(router.config().tool_policy, exposed_name)) {
-      return mcp::core::unexpected(runtime_error(
-          "gateway tool denied by policy", std::string(exposed_name)));
+      auto error = runtime_error("gateway tool denied by policy",
+                                 std::string(exposed_name));
+      notify_runtime_event(GatewayRuntimeEvent{
+          .kind = GatewayRuntimeEventKind::tool_denied,
+          .method = "tools/call",
+          .exposed_name = std::string(exposed_name),
+          .error = error,
+      });
+      return mcp::core::unexpected(std::move(error));
     }
     auto supported = require_tool_capability(*route->upstream);
     if (!supported) {
@@ -1120,9 +1137,20 @@ struct GatewayRuntime::Impl final {
     call.name = route->upstream_tool_name;
     call.arguments = std::move(arguments);
 
-    return with_initialized_upstream<protocol::ToolResult>(
+    auto result = with_initialized_upstream<protocol::ToolResult>(
         *route->upstream,
         [&](ClientPeer& peer) { return peer.call_tool(call); });
+    GatewayRuntimeEvent event{
+        .kind = GatewayRuntimeEventKind::tool_called,
+        .upstream_id = route->upstream->id,
+        .method = "tools/call",
+        .exposed_name = std::string(exposed_name),
+    };
+    if (!result) {
+      event.error = result.error();
+    }
+    notify_runtime_event(std::move(event));
+    return result;
   }
 
   core::Result<std::vector<protocol::Resource>> list_resources() {

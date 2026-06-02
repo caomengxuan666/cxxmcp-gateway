@@ -54,6 +54,9 @@ enum class GatewayRuntimeEventKind {
   upstream_status_changed,
   runtime_stopping,
   runtime_stopped,
+  tools_listed,
+  tool_called,
+  tool_denied,
 };
 
 struct GatewayRuntimeEvent {
@@ -61,6 +64,9 @@ struct GatewayRuntimeEvent {
       GatewayRuntimeEventKind::upstream_status_changed;
   std::string upstream_id;
   UpstreamRuntimeStatus upstream_status = UpstreamRuntimeStatus::configured;
+  std::string method;
+  std::string exposed_name;
+  std::size_t item_count = 0;
   std::optional<core::Error> error;
 };
 
