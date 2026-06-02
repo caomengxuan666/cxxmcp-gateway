@@ -41,10 +41,16 @@ struct UpstreamServer {
   HttpUpstream streamable_http;
 };
 
+struct ToolPolicy {
+  std::vector<std::string> allow_tools;
+  std::vector<std::string> deny_tools;
+};
+
 struct GatewayConfig {
   std::string name = "cxxmcp-gateway";
   std::string version = "0.1.0";
   std::vector<UpstreamServer> upstreams;
+  ToolPolicy tool_policy;
 };
 
 enum class UpstreamSessionMode {

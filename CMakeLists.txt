@@ -69,6 +69,20 @@ option(CXXMCP_GATEWAY_BUILD_EXAMPLES
     "Build optional gateway embedding examples" OFF)
 option(CXXMCP_GATEWAY_BUILD_PERF
     "Build optional gateway performance measurement tools" OFF)
+option(CXXMCP_GATEWAY_BUILD_GATEWAYD_MVP
+    "Build an experimental gatewayd feasibility prototype" OFF)
+set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE_DIR
+    ""
+    CACHE PATH "Optional explicit local cxxmcp-examples source tree for the dev-tool gateway example; empty fetches from Git")
+set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_GIT_REPOSITORY
+    "https://github.com/caomengxuan666/cxxmcp-examples.git"
+    CACHE STRING "Git repository for the optional cxxmcp-examples dev-tool gateway demo")
+set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_GIT_TAG
+    "main"
+    CACHE STRING "Git tag, branch, or commit for the optional cxxmcp-examples dev-tool gateway demo")
+option(CXXMCP_GATEWAY_BUILD_CXXMCP_EXAMPLES_DEV_TOOL_GATEWAY
+    "Build an optional gateway example that superbuilds cxxmcp-examples upstream servers"
+    OFF)
 
 if(CXXMCP_GATEWAY_BUILD_CLI AND NOT CXXMCP_GATEWAY_BUILD_RUNTIME)
     message(FATAL_ERROR
@@ -81,6 +95,16 @@ endif()
 if(CXXMCP_GATEWAY_BUILD_PERF AND NOT CXXMCP_GATEWAY_BUILD_RUNTIME)
     message(FATAL_ERROR
         "CXXMCP_GATEWAY_BUILD_PERF requires CXXMCP_GATEWAY_BUILD_RUNTIME")
+endif()
+if(CXXMCP_GATEWAY_BUILD_CXXMCP_EXAMPLES_DEV_TOOL_GATEWAY AND
+   NOT CXXMCP_GATEWAY_BUILD_RUNTIME)
+    message(FATAL_ERROR
+        "CXXMCP_GATEWAY_BUILD_CXXMCP_EXAMPLES_DEV_TOOL_GATEWAY requires CXXMCP_GATEWAY_BUILD_RUNTIME")
+endif()
+if(CXXMCP_GATEWAY_BUILD_GATEWAYD_MVP AND
+   (NOT CXXMCP_GATEWAY_BUILD_RUNTIME OR NOT CXXMCP_GATEWAY_BUILD_CONFIG_IO))
+    message(FATAL_ERROR
+        "CXXMCP_GATEWAY_BUILD_GATEWAYD_MVP requires CXXMCP_GATEWAY_BUILD_RUNTIME and CXXMCP_GATEWAY_BUILD_CONFIG_IO")
 endif()
 
 add_library(cxxmcp_gateway_core
@@ -181,6 +205,15 @@ if(CXXMCP_GATEWAY_BUILD_PERF)
 endif()
 
 if(CXXMCP_GATEWAY_BUILD_EXAMPLES)
+    add_executable(cxxmcp_gateway_multi_upstream_namespace_example
+        examples/multi_upstream_namespace.cpp
+    )
+    target_link_libraries(cxxmcp_gateway_multi_upstream_namespace_example
+        PRIVATE cxxmcp_gateway_core)
+    set_target_properties(cxxmcp_gateway_multi_upstream_namespace_example PROPERTIES
+        OUTPUT_NAME cxxmcp-gateway-multi-upstream-namespace-example)
+    cxxmcp_gateway_require_cxx23(cxxmcp_gateway_multi_upstream_namespace_example)
+
     add_executable(cxxmcp_gateway_embedded_runtime_example
         examples/embedded_runtime_host.cpp
     )
@@ -189,6 +222,86 @@ if(CXXMCP_GATEWAY_BUILD_EXAMPLES)
     set_target_properties(cxxmcp_gateway_embedded_runtime_example PROPERTIES
         OUTPUT_NAME cxxmcp-gateway-embedded-runtime-example)
     cxxmcp_gateway_require_cxx23(cxxmcp_gateway_embedded_runtime_example)
+endif()
+
+if(CXXMCP_GATEWAY_BUILD_GATEWAYD_MVP)
+    add_executable(cxxmcp_gatewayd_mvp
+        examples/gatewayd_mvp.cpp
+    )
+    target_link_libraries(cxxmcp_gatewayd_mvp
+        PRIVATE
+            cxxmcp_gateway_runtime
+            cxxmcp_gateway_config_io
+            cxxmcp::sdk)
+    set_target_properties(cxxmcp_gatewayd_mvp PROPERTIES
+        OUTPUT_NAME cxxmcp-gatewayd-mvp)
+    cxxmcp_gateway_require_cxx23(cxxmcp_gatewayd_mvp)
+endif()
+
+if(CXXMCP_GATEWAY_BUILD_CXXMCP_EXAMPLES_DEV_TOOL_GATEWAY)
+    include(ExternalProject)
+
+    set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/cxxmcp_examples_dev_tool_build")
+    set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_CONFIG_ARGS
+        -DCXXMCP_EXAMPLES_USE_ADJACENT_SDK=OFF
+        -Dcxxmcp_DIR=${cxxmcp_DIR})
+    if(CMAKE_BUILD_TYPE)
+        list(APPEND CXXMCP_GATEWAY_CXXMCP_EXAMPLES_CONFIG_ARGS
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
+    endif()
+
+    if(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE_DIR AND
+       EXISTS "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE_DIR}/CMakeLists.txt")
+        set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE
+            SOURCE_DIR "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE_DIR}")
+    else()
+        set(CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE
+            GIT_REPOSITORY "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_GIT_REPOSITORY}"
+            GIT_TAG "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_GIT_TAG}")
+    endif()
+
+    ExternalProject_Add(cxxmcp_gateway_cxxmcp_examples_upstreams
+        ${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE}
+        BINARY_DIR "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR}"
+        CMAKE_ARGS ${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_CONFIG_ARGS}
+        BUILD_COMMAND "${CMAKE_COMMAND}" --build
+            "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR}"
+            --target
+                cxxmcp_workspace_server
+                cxxmcp_git_server
+                cxxmcp_cmake_ctest_server
+                cxxmcp_log_triage_server
+        INSTALL_COMMAND "")
+
+    set(CXXMCP_GATEWAY_EXAMPLE_SUFFIX "${CMAKE_EXECUTABLE_SUFFIX}")
+    set(CXXMCP_GATEWAY_EXAMPLE_WORKSPACE_SERVER
+        "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR}/cxxmcp_workspace_server${CXXMCP_GATEWAY_EXAMPLE_SUFFIX}")
+    set(CXXMCP_GATEWAY_EXAMPLE_GIT_SERVER
+        "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR}/cxxmcp_git_server${CXXMCP_GATEWAY_EXAMPLE_SUFFIX}")
+    set(CXXMCP_GATEWAY_EXAMPLE_CMAKE_CTEST_SERVER
+        "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR}/cxxmcp_cmake_ctest_server${CXXMCP_GATEWAY_EXAMPLE_SUFFIX}")
+    set(CXXMCP_GATEWAY_EXAMPLE_LOG_TRIAGE_SERVER
+        "${CXXMCP_GATEWAY_CXXMCP_EXAMPLES_BUILD_DIR}/cxxmcp_log_triage_server${CXXMCP_GATEWAY_EXAMPLE_SUFFIX}")
+
+    add_executable(cxxmcp_gateway_cxxmcp_examples_dev_tool_gateway
+        examples/cxxmcp_examples_dev_tool_gateway.cpp
+    )
+    target_link_libraries(cxxmcp_gateway_cxxmcp_examples_dev_tool_gateway
+        PRIVATE cxxmcp_gateway_runtime)
+    target_compile_definitions(cxxmcp_gateway_cxxmcp_examples_dev_tool_gateway
+        PRIVATE
+            CXXMCP_GATEWAY_EXAMPLE_WORKSPACE_SERVER="${CXXMCP_GATEWAY_EXAMPLE_WORKSPACE_SERVER}"
+            CXXMCP_GATEWAY_EXAMPLE_GIT_SERVER="${CXXMCP_GATEWAY_EXAMPLE_GIT_SERVER}"
+            CXXMCP_GATEWAY_EXAMPLE_CMAKE_CTEST_SERVER="${CXXMCP_GATEWAY_EXAMPLE_CMAKE_CTEST_SERVER}"
+            CXXMCP_GATEWAY_EXAMPLE_LOG_TRIAGE_SERVER="${CXXMCP_GATEWAY_EXAMPLE_LOG_TRIAGE_SERVER}"
+            CXXMCP_GATEWAY_EXAMPLE_DEFAULT_WORKSPACE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_dependencies(cxxmcp_gateway_cxxmcp_examples_dev_tool_gateway
+        cxxmcp_gateway_cxxmcp_examples_upstreams)
+    set_target_properties(cxxmcp_gateway_cxxmcp_examples_dev_tool_gateway PROPERTIES
+        OUTPUT_NAME cxxmcp-gateway-cxxmcp-examples-dev-tool-gateway)
+    cxxmcp_gateway_require_cxx23(cxxmcp_gateway_cxxmcp_examples_dev_tool_gateway)
 endif()
 
 if(CXXMCP_GATEWAY_BUILD_TESTS)

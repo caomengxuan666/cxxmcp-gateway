@@ -8,6 +8,13 @@ The first stable boundary is capability aggregation and request routing. Other
 control-plane features should be added only after this data plane is validated
 with upstream integration fixtures and hosted client traffic.
 
+The project is a library-quality reference gateway, not a product shell around
+the SDK. The SDK owns protocol, transport, peer, service, and general
+client/server behavior. The gateway owns only the reusable multi-upstream
+composition semantics that turn several upstream MCP servers into one routed
+downstream endpoint. The detailed SDK-versus-gateway boundary is maintained in
+[`cxxmcp_integration_boundary.md`](cxxmcp_integration_boundary.md).
+
 ## Project Identity
 
 `cxxmcp-gateway` is library-first. The main reusable artifacts are gateway
@@ -40,6 +47,13 @@ gui / cli / external app -> runtime -> core -> cxxmcp SDK
 
 Nothing in core or runtime may depend on CLI, GUI, product workflow, installer,
 profile store, or admin-console code.
+
+Nothing in core or runtime should duplicate general MCP SDK primitives such as
+protocol models, JSON-RPC framing, transport implementations, single-client or
+single-server authoring APIs, or SDK-owned lifecycle and liveness behavior.
+When `cxxmcp` provides a general primitive such as cancellation, reconnect,
+backpressure, transport authentication, or session pooling, the gateway should
+consume that primitive instead of growing a parallel implementation.
 
 ## CLI Policy
 
@@ -113,7 +127,7 @@ multi-user management, or independent release cadence.
 ## When to Use the Gateway
 
 Use the `cxxmcp` SDK directly when you are building one MCP client, one MCP
-server, or application-specific MCP behavior.
+server, a transport integration, or application-specific MCP behavior.
 
 Use `cxxmcp-gateway` when you need one downstream MCP endpoint backed by
 multiple upstream MCP servers, stable exposed capability names, centralized

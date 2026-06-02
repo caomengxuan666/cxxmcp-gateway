@@ -89,6 +89,7 @@ The current package is not a compatibility promise for:
 
 - a GUI or management console;
 - daemon/admin APIs;
+- a C ABI, FFI surface, or language bindings;
 - config hot reload;
 - auth, policy, audit, or credential management;
 - task APIs;
@@ -105,3 +106,9 @@ the fixed-pool, non-hard-real-time contract.
 
 Those features require their own API, capability-advertisement, lifecycle, and
 test contracts before they can become supported surface.
+
+Cross-language consumers should treat the current package as either a C++ source
+API or a runnable gateway process. A future C ABI, if added, must be a separate
+experimental component with opaque handles, JSON/text boundaries, explicit
+allocation rules, and its own compatibility policy. The current `GatewayRuntime`
+API is not a direct FFI contract.

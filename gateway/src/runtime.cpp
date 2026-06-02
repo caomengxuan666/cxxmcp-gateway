@@ -51,6 +51,24 @@ bool gateway_owned_error(const core::Error& error) {
   return error.category.rfind("gateway", 0) == 0;
 }
 
+bool contains_tool_policy_entry(const std::vector<std::string>& entries,
+                                std::string_view exposed_name) {
+  return std::find(entries.begin(), entries.end(), exposed_name) !=
+         entries.end();
+}
+
+bool tool_allowed_by_policy(const ToolPolicy& policy,
+                            std::string_view exposed_name) {
+  if (contains_tool_policy_entry(policy.deny_tools, exposed_name)) {
+    return false;
+  }
+  if (!policy.allow_tools.empty() &&
+      !contains_tool_policy_entry(policy.allow_tools, exposed_name)) {
+    return false;
+  }
+  return true;
+}
+
 UpstreamSessionMode normalize_session_mode(UpstreamSessionMode mode) {
   switch (mode) {
     case UpstreamSessionMode::per_call:
@@ -171,6 +189,66 @@ core::Result<ClientPeer> build_client_peer(const UpstreamServer& upstream) {
       upstream.id));
 }
 
+class RuntimeCatalogCache final {
+ public:
+  std::optional<std::vector<protocol::ToolDefinition>> tools() const {
+    std::lock_guard lock(mutex_);
+    return tools_;
+  }
+
+  std::optional<std::vector<protocol::Resource>> resources() const {
+    std::lock_guard lock(mutex_);
+    return resources_;
+  }
+
+  std::optional<std::vector<protocol::ResourceTemplate>>
+  resource_templates() const {
+    std::lock_guard lock(mutex_);
+    return resource_templates_;
+  }
+
+  std::optional<std::vector<protocol::Prompt>> prompts() const {
+    std::lock_guard lock(mutex_);
+    return prompts_;
+  }
+
+  void store_tools(std::vector<protocol::ToolDefinition> tools) {
+    std::lock_guard lock(mutex_);
+    tools_ = std::move(tools);
+  }
+
+  void store_resources(std::vector<protocol::Resource> resources) {
+    std::lock_guard lock(mutex_);
+    resources_ = std::move(resources);
+  }
+
+  void store_resource_templates(
+      std::vector<protocol::ResourceTemplate> resource_templates) {
+    std::lock_guard lock(mutex_);
+    resource_templates_ = std::move(resource_templates);
+  }
+
+  void store_prompts(std::vector<protocol::Prompt> prompts) {
+    std::lock_guard lock(mutex_);
+    prompts_ = std::move(prompts);
+  }
+
+  void clear() {
+    std::lock_guard lock(mutex_);
+    tools_.reset();
+    resources_.reset();
+    resource_templates_.reset();
+    prompts_.reset();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::optional<std::vector<protocol::ToolDefinition>> tools_;
+  std::optional<std::vector<protocol::Resource>> resources_;
+  std::optional<std::vector<protocol::ResourceTemplate>> resource_templates_;
+  std::optional<std::vector<protocol::Prompt>> prompts_;
+};
+
 }  // namespace
 
 core::Result<GatewayRuntimeOptions> make_gateway_runtime_options(
@@ -193,13 +271,6 @@ core::Result<GatewayRuntimeOptions> make_gateway_runtime_options(
 }
 
 struct GatewayRuntime::Impl final {
-  struct CatalogCache {
-    std::optional<std::vector<protocol::ToolDefinition>> tools;
-    std::optional<std::vector<protocol::Resource>> resources;
-    std::optional<std::vector<protocol::ResourceTemplate>> resource_templates;
-    std::optional<std::vector<protocol::Prompt>> prompts;
-  };
-
   struct PersistentUpstreamSession {
     std::mutex mutex;
     std::condition_variable available;
@@ -245,8 +316,7 @@ struct GatewayRuntime::Impl final {
   mutable std::mutex upstream_state_mutex;
   std::condition_variable upstream_idle_cv;
   std::unordered_map<std::string, UpstreamRuntimeState> upstream_states;
-  mutable std::mutex catalog_cache_mutex;
-  CatalogCache catalog_cache;
+  RuntimeCatalogCache catalog_cache;
   UpstreamSessionMode upstream_session_mode = UpstreamSessionMode::per_call;
   std::size_t persistent_session_pool_size = 1;
   std::chrono::milliseconds persistent_session_acquire_timeout{0};
@@ -515,50 +585,41 @@ struct GatewayRuntime::Impl final {
   }
 
   std::optional<std::vector<protocol::ToolDefinition>> cached_tools() const {
-    std::lock_guard lock(catalog_cache_mutex);
-    return catalog_cache.tools;
+    return catalog_cache.tools();
   }
 
   std::optional<std::vector<protocol::Resource>> cached_resources() const {
-    std::lock_guard lock(catalog_cache_mutex);
-    return catalog_cache.resources;
+    return catalog_cache.resources();
   }
 
   std::optional<std::vector<protocol::ResourceTemplate>>
   cached_resource_templates() const {
-    std::lock_guard lock(catalog_cache_mutex);
-    return catalog_cache.resource_templates;
+    return catalog_cache.resource_templates();
   }
 
   std::optional<std::vector<protocol::Prompt>> cached_prompts() const {
-    std::lock_guard lock(catalog_cache_mutex);
-    return catalog_cache.prompts;
+    return catalog_cache.prompts();
   }
 
   void store_tools(std::vector<protocol::ToolDefinition> tools) {
-    std::lock_guard lock(catalog_cache_mutex);
-    catalog_cache.tools = std::move(tools);
+    catalog_cache.store_tools(std::move(tools));
   }
 
   void store_resources(std::vector<protocol::Resource> resources) {
-    std::lock_guard lock(catalog_cache_mutex);
-    catalog_cache.resources = std::move(resources);
+    catalog_cache.store_resources(std::move(resources));
   }
 
   void store_resource_templates(
       std::vector<protocol::ResourceTemplate> resource_templates) {
-    std::lock_guard lock(catalog_cache_mutex);
-    catalog_cache.resource_templates = std::move(resource_templates);
+    catalog_cache.store_resource_templates(std::move(resource_templates));
   }
 
   void store_prompts(std::vector<protocol::Prompt> prompts) {
-    std::lock_guard lock(catalog_cache_mutex);
-    catalog_cache.prompts = std::move(prompts);
+    catalog_cache.store_prompts(std::move(prompts));
   }
 
   void clear_cached_catalogs_unchecked() {
-    std::lock_guard lock(catalog_cache_mutex);
-    catalog_cache = CatalogCache{};
+    catalog_cache.clear();
   }
 
   core::Result<core::Unit> clear_cached_catalogs() {
@@ -1017,7 +1078,15 @@ struct GatewayRuntime::Impl final {
 
     auto merged = merge_tool_catalogs(catalogs);
     if (merged) {
-      store_tools(*merged);
+      std::vector<protocol::ToolDefinition> filtered;
+      filtered.reserve(merged->size());
+      for (auto& tool : *merged) {
+        if (tool_allowed_by_policy(router.config().tool_policy, tool.name)) {
+          filtered.push_back(std::move(tool));
+        }
+      }
+      store_tools(filtered);
+      return filtered;
     }
     return merged;
   }
@@ -1037,6 +1106,10 @@ struct GatewayRuntime::Impl final {
     auto route = router.resolve_tool_route(exposed_name);
     if (!route) {
       return mcp::core::unexpected(route.error());
+    }
+    if (!tool_allowed_by_policy(router.config().tool_policy, exposed_name)) {
+      return mcp::core::unexpected(runtime_error(
+          "gateway tool denied by policy", std::string(exposed_name)));
     }
     auto supported = require_tool_capability(*route->upstream);
     if (!supported) {

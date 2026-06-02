@@ -429,6 +429,26 @@ core::Result<GatewayConfig> gateway_config_from_json(
     config.version = "0.1.0";
   }
 
+  if (const auto policy = json.find("policy");
+      policy != json.end()) {
+    if (!policy->is_object()) {
+      return mcp::core::unexpected(make_gateway_config_error(
+          "gateway config field must be an object", "$.policy"));
+    }
+    auto allow_tools =
+        optional_string_array(*policy, "allowTools", "$.policy", options);
+    if (!allow_tools) {
+      return mcp::core::unexpected(allow_tools.error());
+    }
+    auto deny_tools =
+        optional_string_array(*policy, "denyTools", "$.policy", options);
+    if (!deny_tools) {
+      return mcp::core::unexpected(deny_tools.error());
+    }
+    config.tool_policy.allow_tools = std::move(*allow_tools);
+    config.tool_policy.deny_tools = std::move(*deny_tools);
+  }
+
   if (!json.contains("upstreams") || !json.at("upstreams").is_array()) {
     return mcp::core::unexpected(make_gateway_config_error(
         "gateway config field must be an array", "upstreams"));

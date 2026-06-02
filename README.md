@@ -3,11 +3,19 @@
 `cxxmcp-gateway` is a library-first C++23 MCP gateway for the
 [`cxxmcp`](https://github.com/caomengxuan666/cxxmcp) SDK.
 
-Its primary artifact is a small C++ library that aggregates MCP capabilities
-from multiple upstream servers and routes downstream MCP requests back to the
-selected upstream. The command-line app is a reference runner for local
-development, smoke tests, and simple sidecar-style deployments; it should not
-grow into the main product surface or a management console.
+Its primary artifact is a library-quality reference gateway: a reusable C++
+data-plane library that aggregates MCP capabilities from multiple upstream
+servers and routes downstream MCP requests back to the selected upstream. It is
+not a second MCP SDK, an enterprise management product, or a cross-language
+runtime. The command-line app is a runnable reference runner for local
+development, smoke tests, demos, and simple sidecar-style deployments; it
+should not grow into the main product surface or a management console.
+
+The `cxxmcp` SDK owns protocol models, JSON-RPC machinery, peers, services,
+transports, and general MCP client/server behavior. This gateway owns only the
+multi-upstream composition semantics on top: exposed namespaces, catalog
+aggregation, route decisions, gateway-level errors, capability advertisement
+policy, and hosted runtime wiring.
 
 The new design starts from a narrow data plane:
 
@@ -26,6 +34,20 @@ is validated.
 
 See [Gateway Scope and Boundaries](docs/gateway_scope.md) for the current
 responsibility split and validation plan.
+See [cxxmcp Integration Boundary](docs/cxxmcp_integration_boundary.md) for the
+SDK-versus-gateway responsibility line and cross-language binding policy.
+See [Positioning Guardrails](docs/positioning_guardrails.md) for the project
+shape, reference boundaries, and feature decision rules that prevent product or
+SDK drift.
+See [Convergence Plan](docs/convergence_plan.md) for the implementation
+sequence that turns those boundaries into tests, examples, and runtime
+hardening work.
+See [cxxmcp-examples Dev-Tool Gateway Demo](docs/cxxmcp_examples_gateway_demo.md)
+for the optional superbuild that compiles independent `cxxmcp-examples`
+servers and exposes them through one gateway endpoint.
+See [Local Middleware Service Design](docs/local_middleware_service_design.md)
+for the future Redis-like local daemon direction and why it belongs outside
+this data-plane library.
 See [Getting Started](docs/getting_started.md) for a minimal C++ host
 integration path.
 See [Runtime API Contract](docs/api_contract.md) for lifecycle, threading,
@@ -110,7 +132,18 @@ and direct SDK integration.
 
 Optional embedding examples are available with
 `-DCXXMCP_GATEWAY_BUILD_EXAMPLES=ON`. They are excluded from the default build
-and are not installed as package components.
+and are not installed as package components. The examples include a core-only
+multi-upstream namespace sample and a hosted runtime sample; together they show
+the intended split between pure gateway composition semantics and SDK-backed
+runtime execution.
+
+An optional cross-repository demo is available with
+`-DCXXMCP_GATEWAY_BUILD_CXXMCP_EXAMPLES_DEV_TOOL_GATEWAY=ON`. It fetches the
+independent `cxxmcp-examples` repository as an external project by default,
+builds selected stdio MCP servers, and hosts them through one gateway endpoint.
+Maintainers can pass `CXXMCP_GATEWAY_CXXMCP_EXAMPLES_SOURCE_DIR` explicitly to
+test a local checkout. This is a demo superbuild, not part of the default
+package.
 
 ## CLI
 

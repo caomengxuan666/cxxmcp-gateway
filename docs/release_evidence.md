@@ -8,6 +8,12 @@ It is intentionally an index, not a replacement for running the gates.
 | Checklist item | Evidence |
 | --- | --- |
 | Shipped capability surface | `docs/gateway_scope.md`, `docs/technical_roadmap.md` |
+| SDK versus gateway responsibility boundary | `docs/cxxmcp_integration_boundary.md`, `docs/gateway_scope.md` |
+| Positioning and anti-drift guardrails | `docs/positioning_guardrails.md`, `README.md` |
+| Converged implementation sequence | `docs/convergence_plan.md`, `docs/runtime_internal_boundaries.md`, `gateway_source_dependency_guard` |
+| Partial catalog policy design gate | `docs/partial_catalog_results_design.md`, `docs/gateway_scope.md` |
+| Independent examples aggregation demo | `docs/cxxmcp_examples_gateway_demo.md`, `CXXMCP_GATEWAY_BUILD_CXXMCP_EXAMPLES_DEV_TOOL_GATEWAY` |
+| Future local middleware service boundary | `docs/local_middleware_service_design.md`, `docs/technical_roadmap.md` |
 | Host integration path | `docs/getting_started.md` |
 | Runtime public contract | `docs/api_contract.md` |
 | SDK/API/ABI/platform boundaries | `docs/compatibility.md` |
@@ -23,7 +29,7 @@ It is intentionally an index, not a replacement for running the gates.
 | Local static build and CTest | `ctest --test-dir build-agent-check --output-on-failure --timeout 300` |
 | Local shared build and CTest | `ctest --test-dir build-agent-shared-check --output-on-failure --timeout 300` |
 | Source hygiene | `gateway_source_hygiene_guard_negative` |
-| Forbidden legacy dependencies | `gateway_source_dependency_guard` |
+| Forbidden legacy dependencies and boundary drift | `gateway_source_dependency_guard` |
 | Build-tree package consumer | `gateway_package_build_tree_configure`, `gateway_package_build_tree_build`, `gateway_package_build_tree_run` |
 | Install-tree package consumer | `gateway_package_install_tree_install`, `gateway_package_install_tree_configure`, `gateway_package_install_tree_build`, `gateway_package_install_tree_run` |
 | Component install behavior | `gateway_package_component_install_smoke` |

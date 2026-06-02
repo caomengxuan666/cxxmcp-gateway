@@ -181,6 +181,20 @@ core::Result<core::Unit> validate_gateway_config(
         protocol::ErrorCode::InvalidParams,
         "gateway version must not be empty"));
   }
+  for (const auto& tool_name : config.tool_policy.allow_tools) {
+    if (tool_name.empty()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway tool allow policy entries must not be empty"));
+    }
+  }
+  for (const auto& tool_name : config.tool_policy.deny_tools) {
+    if (tool_name.empty()) {
+      return mcp::core::unexpected(make_gateway_error(
+          protocol::ErrorCode::InvalidParams,
+          "gateway tool deny policy entries must not be empty"));
+    }
+  }
 
   std::unordered_set<std::string> seen_upstreams;
   for (const auto& upstream : config.upstreams) {

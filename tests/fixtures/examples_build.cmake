@@ -44,6 +44,14 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${examples_build_dir}"
+        --target cxxmcp_gateway_multi_upstream_namespace_example
+    RESULT_VARIABLE namespace_build_result)
+if(NOT namespace_build_result EQUAL 0)
+    message(FATAL_ERROR "multi-upstream namespace example build failed")
+endif()
+
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${examples_build_dir}"
         --target cxxmcp_gateway_embedded_runtime_example
     RESULT_VARIABLE build_result)
 if(NOT build_result EQUAL 0)
@@ -57,6 +65,8 @@ else()
 endif()
 set(example_path
     "${examples_output_dir}/cxxmcp-gateway-embedded-runtime-example${example_suffix}")
+set(namespace_example_path
+    "${examples_output_dir}/cxxmcp-gateway-multi-upstream-namespace-example${example_suffix}")
 if(NOT EXISTS "${example_path}")
     file(GLOB_RECURSE example_candidates
         "${examples_output_dir}/cxxmcp-gateway-embedded-runtime-example${example_suffix}")
@@ -65,6 +75,35 @@ if(NOT EXISTS "${example_path}")
         message(FATAL_ERROR "embedded runtime example executable not found")
     endif()
     list(GET example_candidates 0 example_path)
+endif()
+if(NOT EXISTS "${namespace_example_path}")
+    file(GLOB_RECURSE namespace_example_candidates
+        "${examples_output_dir}/cxxmcp-gateway-multi-upstream-namespace-example${example_suffix}")
+    list(LENGTH namespace_example_candidates namespace_example_candidate_count)
+    if(namespace_example_candidate_count EQUAL 0)
+        message(FATAL_ERROR "multi-upstream namespace example executable not found")
+    endif()
+    list(GET namespace_example_candidates 0 namespace_example_path)
+endif()
+
+execute_process(
+    COMMAND "${namespace_example_path}"
+    RESULT_VARIABLE namespace_result
+    OUTPUT_VARIABLE namespace_stdout
+    ERROR_VARIABLE namespace_stderr)
+if(NOT namespace_result EQUAL 0)
+    message(FATAL_ERROR
+        "multi-upstream namespace example failed\n"
+        "stdout: ${namespace_stdout}\n"
+        "stderr: ${namespace_stderr}")
+endif()
+if(NOT namespace_stdout MATCHES "fs\\.read_file" OR
+   NOT namespace_stdout MATCHES "git\\.status" OR
+   NOT namespace_stdout MATCHES "cxxmcp-gateway-resource://fs/")
+    message(FATAL_ERROR
+        "multi-upstream namespace example did not show gateway namespaces\n"
+        "stdout: ${namespace_stdout}\n"
+        "stderr: ${namespace_stderr}")
 endif()
 
 execute_process(

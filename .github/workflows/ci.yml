@@ -36,7 +36,7 @@ jobs:
             build_shared_libs: ON
 
     env:
-      CXXMCP_REF: 8f89739665c9cf435607da932bca5b35a110fc4d
+      CXXMCP_REF: a9da92e291c552cd401060e0f848f60467d1f38f
 
     steps:
       - name: Checkout gateway

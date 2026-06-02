@@ -6,17 +6,18 @@ library-first routing MVP. It complements the release-blocking gates in
 
 ## 2026-06-01 Refreshed Routing MVP Baseline
 
-Gateway code commit measured:
+Gateway code base measured:
 
 ```text
-3f62850ad6f7e003ec282af5e0130f850d06fb0a
+e56556eb6c422b83b4db839f8d1d8eec8893ddba plus the current gatewayd MVP
+working-tree changes
 ```
 
 SDK source revision:
 
 ```text
 caomengxuan666/cxxmcp
-8f89739665c9cf435607da932bca5b35a110fc4d
+a9da92e291c552cd401060e0f848f60467d1f38f
 ```
 
 The SDK was built from a clean clone with submodules initialized, not from the
@@ -44,25 +45,25 @@ cmake --install C:\Users\cmx\repo\cxxmcp-sdk-perf-build
 Gateway perf configure and run:
 
 ```powershell
-cmake -S . -B build-agent-perf-release-current -G Ninja -DCMAKE_BUILD_TYPE=Release -DCXXMCP_GATEWAY_BUILD_PERF=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\cxxmcp-sdk-perf-install\lib\cmake\cxxmcp
-cmake --build build-agent-perf-release-current --target cxxmcp_gateway_perf
-build-agent-perf-release-current\cxxmcp-gateway-perf.exe --iterations 50 --http-port 39976
+cmake -S . -B build-gateway-latest-sdk-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCXXMCP_GATEWAY_BUILD_PERF=ON -DCXXMCP_GATEWAY_BUILD_GATEWAYD_MVP=ON -Dcxxmcp_DIR=C:\Users\cmx\repo\cxxmcp-sdk-perf-install\lib\cmake\cxxmcp
+cmake --build build-gateway-latest-sdk-release --target cxxmcp_gateway_perf
+build-gateway-latest-sdk-release\cxxmcp-gateway-perf.exe --iterations 50 --http-port 39976
 ```
 
 Performance result:
 
 ```csv
 transport,operation,iterations,median_us,p95_us
-stdio,tools/list:cold,50,46512,85691
-stdio,tools/list:cached,50,10,20
-stdio,tools/call:per_call,50,57071,100718
-stdio,tools/call:persistent,50,399,746
-http,tools/list:cold,50,32352,61053
-http,tools/list:cached,50,8,21
-http,tools/call:per_call,50,31871,55819
-http,tools/call:persistent,50,13024,16023
-http,tools/call:direct_sdk_persistent,50,14417,16102
-http,tools/call:persistent_pool2_pair,50,218335,231597
+stdio,tools/list:cold,50,28115,39922
+stdio,tools/list:cached,50,20,30
+stdio,tools/call:per_call,50,26130,30856
+stdio,tools/call:persistent,50,383,532
+http,tools/list:cold,50,43723,61929
+http,tools/list:cached,50,7,7
+http,tools/call:per_call,50,47117,63079
+http,tools/call:persistent,50,15307,16478
+http,tools/call:direct_sdk_persistent,50,15287,16223
+http,tools/call:persistent_pool2_pair,50,218152,233829
 ```
 
 Notes:
@@ -70,8 +71,8 @@ Notes:
 - These numbers are a local Windows release-candidate baseline, not a
   cross-platform performance contract.
 - Debug-build timings are not comparable to this baseline.
-- The measured gateway code commit is exact. The follow-up baseline document
-  commit only updates this evidence file.
+- The measured gateway code base includes uncommitted gatewayd MVP working-tree
+  changes. Record the final commit before using this as release evidence.
 - The initial Release perf build against the adjacent SDK install failed because
   that install used a Debug MSVC runtime. The baseline above uses a clean
   Release SDK install at the exact SDK commit listed above.

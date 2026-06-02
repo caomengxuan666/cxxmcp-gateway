@@ -4,7 +4,10 @@ This roadmap defines how `cxxmcp-gateway` should grow without drifting into a
 management platform or a second SDK.
 
 The gateway is useful only if its data plane is correct, observable, and easy to
-embed. Every phase below must keep that priority.
+embed. Every phase below must keep that priority. The project should remain a
+library-quality reference gateway: reusable enough for real C++ hosts, runnable
+through a thin reference CLI, and deliberately smaller than an enterprise
+gateway product.
 
 The project is library-first. `cxxmcp_gateway_core` and
 `cxxmcp_gateway_runtime` are the primary artifacts. The `cxxmcp-gateway`
@@ -24,6 +27,11 @@ cxxmcp-gateway
 future cxxmcp-gateway-ui
   GUI or console product
   embeds public runtime APIs or talks to a gateway daemon admin API
+
+future cxxmcp-gatewayd / cxxmcp-local-gateway
+  Redis-like local MCP middleware service
+  owns daemon lifecycle, local admin endpoint, config reload, diagnostics, and
+  packaging while consuming this repository's runtime as its data-plane kernel
 ```
 
 The dependency direction is fixed:
@@ -34,6 +42,9 @@ gui / cli / external app -> runtime -> core -> cxxmcp SDK
 
 The CLI and future GUI are consumers of the gateway libraries. They must not
 become owners of the MCP data-plane architecture.
+A future local middleware daemon follows the same rule: it may depend on the
+gateway runtime, but daemon/control-plane behavior must not move into core or
+runtime. See [`local_middleware_service_design.md`](local_middleware_service_design.md).
 
 ## Target Architecture
 
@@ -56,6 +67,11 @@ servers, the gateway behaves as one or more MCP clients.
 
 The gateway data plane owns aggregation and routing. The SDK owns protocol
 types, peer/service lifecycle primitives, transports, and JSON-RPC machinery.
+The gateway should consume SDK primitives instead of cloning them. If a future
+`cxxmcp` release adds general cancellation, reconnect, transport auth,
+backpressure, or session-pool primitives, the gateway should integrate those
+primitives rather than maintain an independent runtime subsystem for the same
+behavior.
 
 ## Architectural Layers
 
@@ -140,6 +156,12 @@ They are blocked until tool routing, session lifecycle, error mapping, and the
 supported-method matrix are stable. They must remain optional modules or
 host-application responsibilities and must not change transparent routing
 defaults silently.
+
+Cross-language bindings follow the same rule. A future C ABI may be useful, but
+it must be a separate experimental component with opaque handles and JSON/text
+boundaries. The C++ `GatewayRuntime` API must not be frozen as a direct FFI
+surface, and language bindings must not force SDK protocol types or C++
+standard-library types into the gateway ABI.
 
 Control-plane APIs must be separated from MCP data-plane endpoints. Admin APIs
 may expose status, config reload, health, audit, policy, and UI backends, but
